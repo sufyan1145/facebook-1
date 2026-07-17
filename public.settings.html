@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Settings — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">D2</div><div class="brand-name">Drive2Facebook</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" onclick="logout()" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Settings</h1></div>
+    <div class="content">
+      <div class="card" style="max-width:520px;">
+        <form id="settingsForm">
+          <div class="field-row">
+            <div class="field">
+              <label for="timezone">Timezone</label>
+              <input id="timezone" type="text" />
+            </div>
+            <div class="field">
+              <label for="language">Language</label>
+              <select id="language">
+                <option value="en">English</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="ur">اردو</option>
+              </select>
+            </div>
+          </div>
+          <div class="field checkbox-row">
+            <input id="emailAlerts" type="checkbox" />
+            <label for="emailAlerts" style="margin:0;">Email alerts on upload success/failure</label>
+          </div>
+          <div class="field checkbox-row">
+            <input id="autoRetry" type="checkbox" />
+            <label for="autoRetry" style="margin:0;">Auto-retry failed uploads</label>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="uploadSpeed">Upload Speed</label>
+              <select id="uploadSpeed">
+                <option value="slow">Slow (safer for rate limits)</option>
+                <option value="normal">Normal</option>
+                <option value="fast">Fast</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="queueSize">Queue Concurrency</label>
+              <input id="queueSize" type="number" min="1" max="20" />
+            </div>
+          </div>
+          <div class="error-text" id="errorText"></div>
+          <button class="btn primary" type="submit">Save Settings</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+(async function init() {
+  const user = await requireAuthOrRedirect();
+  if (!user) return;
+  renderNav('settings');
+
+  try {
+    const { data } = await apiFetch('/settings');
+    document.getElementById('timezone').value = data.timezone || '';
+    document.getElementById('language').value = data.language || 'en';
+    document.getElementById('emailAlerts').checked = !!data.email_alerts;
+    document.getElementById('autoRetry').checked = !!data.auto_retry;
+    document.getElementById('uploadSpeed').value = data.upload_speed || 'normal';
+    document.getElementById('queueSize').value = data.queue_size || 5;
+  } catch (err) {
+    document.getElementById('errorText').textContent = err.message;
+  }
+
+  document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorText = document.getElementById('errorText');
+    errorText.textContent = '';
+    try {
+      await apiFetch('/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          timezone: document.getElementById('timezone').value,
+          language: document.getElementById('language').value,
+          emailAlerts: document.getElementById('emailAlerts').checked,
+          autoRetry: document.getElementById('autoRetry').checked,
+          uploadSpeed: document.getElementById('uploadSpeed').value,
+          queueSize: Number(document.getElementById('queueSize').value),
+        }),
+      });
+      errorText.style.color = 'var(--signal-green)';
+      errorText.textContent = 'Saved.';
+    } catch (err) {
+      errorText.style.color = 'var(--signal-red)';
+      errorText.textContent = err.message;
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Upload History — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">D2</div><div class="brand-name">Drive2Facebook</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" onclick="logout()" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Upload History</h1></div>
+    <div class="content">
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Video</th><th>Folder</th><th>Facebook Video ID</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="historyBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+(async function init() {
+  const user = await requireAuthOrRedirect();
+  if (!user) return;
+  renderNav('history');
+  try {
+    const { data } = await apiFetch('/uploads/history');
+    const body = document.getElementById('historyBody');
+    if (!data.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty">No uploads yet.</td></tr>';
+    } else {
+      body.innerHTML = data.map((h) => `<tr>
+        <td>${escapeHtml(h.video_name || h.drive_file_id)}</td>
+        <td>${escapeHtml(h.drive_folder_name || '—')}</td>
+        <td class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(h.facebook_video_id || '—')}</td>
+        <td><span class="badge ${h.status}">${h.status}</span></td>
+        <td>${timeAgo(h.created_at)}</td>
+      </tr>`).join('');
+    }
+  } catch (err) {
+    document.getElementById('historyBody').innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(err.message)}</td></tr>`;
+  }
+})();
+</script>
+</body>
+</html>

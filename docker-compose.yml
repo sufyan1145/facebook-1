@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: d2f-app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/usr/src/app/logs
+      - ./uploads:/usr/src/app/uploads
+
+  worker:
+    build: .
+    container_name: d2f-worker
+    restart: unless-stopped
+    command: ["node", "jobs.worker-entry.js"]
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/usr/src/app/logs
+      - ./uploads:/usr/src/app/uploads
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: d2f-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PGUSER:-d2f_user}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-d2f_password}
+      POSTGRES_DB: ${PGDATABASE:-drive2facebook}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: d2f-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  nginx:
+    image: nginx:alpine
+    container_name: d2f-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+volumes:
+  pgdata:

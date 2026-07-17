@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Queue — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">D2</div><div class="brand-name">Drive2Facebook</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" onclick="logout()" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <h1>Upload Queue</h1>
+      <div class="status-pills">
+        <button class="btn sm" id="pauseBtn">Pause</button>
+        <button class="btn sm" id="resumeBtn">Resume</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="grid cols-4 mb-16">
+        <div class="card stat"><div class="stat-label">Waiting</div><div class="stat-value" id="cWaiting">—</div></div>
+        <div class="card stat amber"><div class="stat-label">Active</div><div class="stat-value" id="cActive">—</div></div>
+        <div class="card stat green"><div class="stat-label">Completed</div><div class="stat-value" id="cCompleted">—</div></div>
+        <div class="card stat red"><div class="stat-label">Failed</div><div class="stat-value" id="cFailed">—</div></div>
+      </div>
+      <div class="card">
+        <div class="section-title">Jobs</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Job ID</th><th>Status</th><th>Attempts</th><th>Created</th><th></th></tr></thead>
+            <tbody id="jobsBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="queue.js"></script>
+</body>
+</html>

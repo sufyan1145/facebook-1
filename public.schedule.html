@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Schedules — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">D2</div><div class="brand-name">Drive2Facebook</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" onclick="logout()" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Schedules</h1></div>
+    <div class="content">
+
+      <div class="grid cols-2" style="align-items:start; grid-template-columns: 1fr 1.2fr;">
+        <div class="card">
+          <div class="section-title">New Schedule</div>
+          <form id="scheduleForm">
+            <div class="field">
+              <label for="pageId">Facebook Page</label>
+              <select id="pageId" required></select>
+            </div>
+            <div class="field">
+              <label for="folderId">Google Drive Folder</label>
+              <select id="folderId" required></select>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="uploadTime">Upload Time</label>
+                <input id="uploadTime" type="time" required />
+              </div>
+              <div class="field">
+                <label for="timezone">Timezone</label>
+                <input id="timezone" type="text" placeholder="e.g. Asia/Karachi" required />
+              </div>
+            </div>
+            <div class="field">
+              <label for="repeat">Repeat</label>
+              <select id="repeat">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="specific_days">Specific Days</option>
+              </select>
+            </div>
+            <div class="field" id="specificDaysField" style="display:none;">
+              <label>Days</label>
+              <div class="days-picker" id="daysPicker">
+                <div class="day-chip" data-day="0">Sun</div>
+                <div class="day-chip" data-day="1">Mon</div>
+                <div class="day-chip" data-day="2">Tue</div>
+                <div class="day-chip" data-day="3">Wed</div>
+                <div class="day-chip" data-day="4">Thu</div>
+                <div class="day-chip" data-day="5">Fri</div>
+                <div class="day-chip" data-day="6">Sat</div>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="maxUploads">Max Uploads / run</label>
+                <input id="maxUploads" type="number" min="1" value="1" />
+              </div>
+              <div class="field">
+                <label for="randomDelay">Random Delay (sec)</label>
+                <input id="randomDelay" type="number" min="0" value="0" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="caption">Caption</label>
+              <textarea id="caption" rows="2"></textarea>
+            </div>
+            <div class="field">
+              <label for="hashtags">Hashtags</label>
+              <input id="hashtags" type="text" placeholder="#travel #shorts" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="privacy">Privacy</label>
+                <select id="privacy">
+                  <option value="PUBLISHED">Public</option>
+                  <option value="SCHEDULED">Scheduled (private until publish)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="checkbox-row" style="margin-top:22px;">
+                  <input id="publishImmediately" type="checkbox" checked /> Publish immediately
+                </label>
+              </div>
+            </div>
+            <div class="error-text" id="errorText"></div>
+            <button class="btn primary block" type="submit">Create Schedule</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Active Schedules</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Page</th><th>Folder</th><th>Time</th><th>Repeat</th><th>Active</th><th></th></tr></thead>
+              <tbody id="scheduleBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="schedule.js"></script>
+</body>
+</html>

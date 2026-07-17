@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Activity Logs — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">D2</div><div class="brand-name">Drive2Facebook</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" onclick="logout()" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Activity Logs</h1></div>
+    <div class="content">
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Action</th><th>Level</th><th>Details</th><th>When</th></tr></thead>
+            <tbody id="logsBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+(async function init() {
+  const user = await requireAuthOrRedirect();
+  if (!user) return;
+  renderNav('logs');
+  try {
+    const { data } = await apiFetch('/logs');
+    const body = document.getElementById('logsBody');
+    if (!data.length) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">No log entries yet.</td></tr>';
+    } else {
+      body.innerHTML = data.map((l) => `<tr>
+        <td>${escapeHtml(l.action)}</td>
+        <td><span class="badge ${l.level === 'error' ? 'failed' : l.level === 'warning' ? 'pending' : 'success'}">${l.level}</span></td>
+        <td class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(JSON.stringify(l.details || {}))}</td>
+        <td>${timeAgo(l.created_at)}</td>
+      </tr>`).join('');
+    }
+  } catch (err) {
+    document.getElementById('logsBody').innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(err.message)}</td></tr>`;
+  }
+})();
+</script>
+</body>
+</html>

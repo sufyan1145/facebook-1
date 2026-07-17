@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Drive2Facebook Automation</title>
+<script>
+  fetch('/api/auth/me', { credentials: 'include' })
+    .then((r) => (r.ok ? (window.location.href = 'dashboard.html') : (window.location.href = 'login.html')))
+    .catch(() => (window.location.href = 'login.html'));
+</script>
+</head>
+<body></body>
+</html>

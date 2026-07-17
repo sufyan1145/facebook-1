@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">D2</div>
+      <div class="brand-name">Drive2Facebook</div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" onclick="logout()" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <h1>Dashboard</h1>
+      <div class="status-pills" id="statusPills"></div>
+    </div>
+    <div class="content">
+
+      <div class="pipeline" id="pipeline">
+        <div class="pipeline-node">
+          <div class="label">Google Drive</div>
+          <div class="value" id="pipeDrive">—</div>
+        </div>
+        <div class="pipeline-track"><div class="pulse" id="pulse1" style="display:none;"></div></div>
+        <div class="pipeline-node">
+          <div class="label">Upload Queue</div>
+          <div class="value" id="pipeQueue">—</div>
+        </div>
+        <div class="pipeline-track"><div class="pulse" id="pulse2" style="display:none;"></div></div>
+        <div class="pipeline-node">
+          <div class="label">Facebook Pages</div>
+          <div class="value" id="pipePages">—</div>
+        </div>
+      </div>
+
+      <div class="grid cols-4 mb-16">
+        <div class="card stat green"><div class="stat-label">Today's Uploads</div><div class="stat-value" id="statToday">—</div></div>
+        <div class="card stat"><div class="stat-label">Active Schedules</div><div class="stat-value" id="statSchedules">—</div></div>
+        <div class="card stat red"><div class="stat-label">Failed Uploads</div><div class="stat-value" id="statFailed">—</div></div>
+        <div class="card stat"><div class="stat-label">Total Uploads</div><div class="stat-value" id="statTotal">—</div></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">Recent Activity</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Action</th><th>Details</th><th>When</th></tr></thead>
+            <tbody id="activityBody"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
