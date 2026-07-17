@@ -8,6 +8,16 @@ const { notFound, errorHandler } = require('./middleware.errorHandler');
 
 const app = express();
 
+// API responses must never be cached by the browser — disable Express's
+// automatic ETag generation and explicitly set no-store on every /api response.
+// Without this, GET requests (like the Drive folder scan) can return a stale
+// cached 304 response instead of running the handler again.
+app.set('etag', false);
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser(env.cookieSecret));
