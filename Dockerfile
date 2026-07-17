@@ -7,7 +7,7 @@ RUN npm install --production
 
 COPY . .
 
-RUN chmod +x setup-frontend.sh && ./setup-frontend.sh
+RUN chmod +x setup-frontend.sh && sh setup-frontend.sh
 RUN mkdir -p logs uploads
 
 EXPOSE 5000
