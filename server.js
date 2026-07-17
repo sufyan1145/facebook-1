@@ -8,6 +8,11 @@ const { notFound, errorHandler } = require('./middleware.errorHandler');
 
 const app = express();
 
+// Railway (and most PaaS platforms) sit behind a reverse proxy that sets
+// X-Forwarded-For. Without this, express-rate-limit throws a validation
+// error on every request instead of rate-limiting by real client IP.
+app.set('trust proxy', 1);
+
 // API responses must never be cached by the browser — disable Express's
 // automatic ETag generation and explicitly set no-store on every /api response.
 // Without this, GET requests (like the Drive folder scan) can return a stale
