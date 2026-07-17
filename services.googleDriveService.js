@@ -17,29 +17,16 @@ async function listFolders(userId, { search } = {}) {
   const auth = await getValidGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth });
 
-  try {
-    const about = await drive.about.get({ fields: 'user, storageQuota' });
-    logger.info(`[DEBUG] Token belongs to: ${JSON.stringify(about.data.user)}`);
-    logger.info(`[DEBUG] Storage quota: ${JSON.stringify(about.data.storageQuota)}`);
-  } catch (aboutErr) {
-    logger.info(`[DEBUG] about.get failed: ${aboutErr.message}`);
-  }
-
   let q = "mimeType = 'application/vnd.google-apps.folder' and trashed = false";
   if (search) {
     q += ` and name contains '${search.replace(/'/g, "\\'")}'`;
   }
-
-  logger.info(`[DEBUG] Drive query: ${q}`);
 
   const res = await drive.files.list({
     q,
     fields: 'files(id, name, owners, modifiedTime)',
     pageSize: 100,
   });
-
-  logger.info(`[DEBUG] Drive API status: ${res.status}, files returned: ${res.data.files ? res.data.files.length : 'undefined'}`);
-  logger.info(`[DEBUG] Drive API raw data: ${JSON.stringify(res.data)}`);
 
   const folders = [];
   for (const folder of res.data.files) {
