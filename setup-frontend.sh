@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # ==============================================================================
 # Drive2Facebook Automation — frontend setup
 #
