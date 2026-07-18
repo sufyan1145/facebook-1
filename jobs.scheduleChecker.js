@@ -8,6 +8,7 @@ const { query } = require('./config.database');
 const { addUploadJob } = require('./queue.queues');
 const driveService = require('./services.googleDriveService');
 const Schedule = require('./models.Schedule');
+const UploadHistory = require('./models.UploadHistory');
 const Log = require('./models.Log');
 const logger = require('./utils.logger');
 const env = require('./config.env');
@@ -61,7 +62,8 @@ async function checkSchedules() {
         if (diffMs < 55000) continue;
       }
 
-      const videos = await driveService.listUnpublishedVideos(schedule.user_id, schedule.drive_folder_id, []);
+      const uploadedIds = await UploadHistory.getUploadedFileIds(schedule.page_id);
+      const videos = await driveService.listUnpublishedVideos(schedule.user_id, schedule.drive_folder_id, uploadedIds);
       const toUpload = videos.slice(0, schedule.max_uploads || 1);
 
       for (const file of toUpload) {

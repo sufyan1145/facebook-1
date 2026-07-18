@@ -36,6 +36,14 @@ const UploadHistory = {
     return !!res.rows[0];
   },
 
+  async getUploadedFileIds(facebookPageId) {
+    const res = await query(
+      `SELECT drive_file_id FROM upload_history WHERE facebook_page_id = $1 AND status = 'success'`,
+      [facebookPageId]
+    );
+    return res.rows.map((r) => r.drive_file_id);
+  },
+
   async listByUser(userId, { limit = 50, offset = 0 } = {}) {
     const res = await query(
       'SELECT * FROM upload_history WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
