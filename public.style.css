@@ -41,13 +41,14 @@ html, body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  width: 100%;
 }
 img, svg { max-width: 100%; }
 h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; margin: 0; letter-spacing: -0.01em; }
 p { margin: 0; color: var(--text-muted); line-height: 1.5; }
 a { color: var(--signal-blue); text-decoration: none; }
 code, .mono { font-family: var(--font-mono); }
-button, input, select, textarea { font-family: inherit; }
+button, input, select, textarea { font-family: inherit; max-width: 100%; }
 :focus-visible { outline: 2px solid var(--signal-blue); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
@@ -126,50 +127,10 @@ button, input, select, textarea { font-family: inherit; }
 .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .grid.schedule-layout { grid-template-columns: 1fr 1.2fr; }
-@media (max-width: 900px) { .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr 1fr; } .grid.schedule-layout { grid-template-columns: 1fr; } }
-@media (max-width: 600px) { .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; } .pipeline { grid-template-columns: 1fr; gap: 10px; } .pipeline-track { display: none; } }
-/* ---------- Mobile navigation ---------- */
-.menu-toggle {
-  display: none;
-  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); width: 36px; height: 36px; font-size: 18px; line-height: 1;
-  align-items: center; justify-content: center; cursor: pointer; margin-right: 12px; flex-shrink: 0;
-}
-.sidebar-overlay {
-  display: none;
-  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-  z-index: 15;
-}
-.sidebar-overlay.visible { display: block; }
-
-@media (max-width: 860px) {
-  .sidebar {
-    position: fixed; top: 0; left: 0; height: 100vh; z-index: 20;
-    transform: translateX(-100%); transition: transform 0.2s ease;
-    width: 240px; max-width: 80vw; overflow-y: auto;
-    box-shadow: 0 0 24px rgba(0,0,0,0.5);
-  }
-  .sidebar.open { transform: translateX(0); }
-  .menu-toggle { display: inline-flex; }
-  .topbar { padding: 14px 16px; }
-  .content { padding: 16px 16px 48px; }
-  .topbar h1 { font-size: 16px; }
-  .field-row { grid-template-columns: 1fr; gap: 0; }
-}
-
-@media (max-width: 600px) {
-  .field input, .field select, .field textarea { font-size: 16px; } /* prevents iOS auto-zoom on focus */
-  .status-pills { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-  .pill { padding: 4px 8px; font-size: 11px; }
-  .card { padding: 14px; }
-  .auth-card { padding: 24px 20px; }
-  table { font-size: 12px; }
-  th, td { padding: 8px; }
-}
 
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 18px;
+  padding: 18px; min-width: 0;
 }
 .card.stat .stat-label { font-size: 12px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
 .card.stat .stat-value { font-family: var(--font-display); font-size: 30px; margin-top: 6px; }
@@ -191,14 +152,14 @@ tr:last-child td { border-bottom: none; }
 .badge.pending, .badge.uploading, .badge.retrying { background: var(--signal-amber-dim); color: var(--signal-amber); }
 
 /* ---------- Forms ---------- */
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; min-width: 0; }
 .field label { font-size: 13px; font-weight: 500; color: var(--text-muted); }
 .field input, .field select, .field textarea {
   background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 9px 12px; color: var(--text); font-size: 14px;
+  padding: 9px 12px; color: var(--text); font-size: 14px; width: 100%;
 }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--signal-blue); }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-width: 0; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; }
 .days-picker { display: flex; gap: 6px; flex-wrap: wrap; }
 .day-chip { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; color: var(--text-muted); }
@@ -235,3 +196,56 @@ tr:last-child td { border-bottom: none; }
 .flex-between { display: flex; align-items: center; justify-content: space-between; }
 .mt-16 { margin-top: 16px; }
 .mb-16 { margin-bottom: 16px; }
+
+/* ---------- Mobile navigation (hamburger + off-canvas sidebar) ---------- */
+.menu-toggle {
+  display: none;
+  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text); width: 36px; height: 36px; font-size: 18px; line-height: 1;
+  align-items: center; justify-content: center; cursor: pointer; margin-right: 12px; flex-shrink: 0;
+}
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  z-index: 15;
+}
+.sidebar-overlay.visible { display: block; }
+
+/* ==========================================================================
+   RESPONSIVE OVERRIDES — kept at the very end of the file on purpose so
+   they always win the cascade over the base rules above, regardless of
+   selector order elsewhere in this file.
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .grid.schedule-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; z-index: 20;
+    transform: translateX(-100%); transition: transform 0.2s ease;
+    width: 240px; max-width: 80vw; overflow-y: auto;
+    box-shadow: 0 0 24px rgba(0,0,0,0.5);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .menu-toggle { display: inline-flex; }
+  .topbar { padding: 14px 16px; }
+  .topbar h1 { font-size: 16px; }
+  .content { padding: 16px 16px 48px; }
+  .field-row { grid-template-columns: 1fr; gap: 0; }
+}
+
+@media (max-width: 600px) {
+  .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+  .pipeline { grid-template-columns: 1fr; gap: 10px; }
+  .pipeline-track { display: none; }
+  .field input, .field select, .field textarea { font-size: 16px; } /* prevents iOS auto-zoom on focus */
+  .status-pills { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill { padding: 4px 8px; font-size: 11px; }
+  .card { padding: 14px; }
+  .auth-card { padding: 24px 20px; }
+  table { font-size: 12px; }
+  th, td { padding: 8px; }
+}
