@@ -51,6 +51,43 @@ async function logout() {
   window.location.href = 'login.html';
 }
 
+function setupMobileNav() {
+  const sidebar = document.querySelector('.sidebar');
+  const topbar = document.querySelector('.topbar');
+  if (!sidebar || !topbar) return; // auth pages have no sidebar/topbar
+
+  const toggle = document.createElement('button');
+  toggle.className = 'menu-toggle';
+  toggle.setAttribute('aria-label', 'Toggle menu');
+  toggle.setAttribute('type', 'button');
+  toggle.innerHTML = '☰';
+  topbar.prepend(toggle);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'sidebar-overlay';
+  document.body.appendChild(overlay);
+
+  function closeMenu() {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('visible');
+  }
+  function toggleMenu() {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('visible');
+  }
+
+  toggle.addEventListener('click', toggleMenu);
+  overlay.addEventListener('click', closeMenu);
+  sidebar.addEventListener('click', (e) => {
+    if (e.target.tagName === 'A') closeMenu();
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 860) closeMenu();
+  });
+}
+
+setupMobileNav();
+
 const signOutBtn = document.getElementById('signOutBtn');
 if (signOutBtn) signOutBtn.addEventListener('click', logout);
 
