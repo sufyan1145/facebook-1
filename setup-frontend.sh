@@ -12,7 +12,7 @@ set -e
 
 mkdir -p public
 
-for f in public.*.html public.*.js public.*.css; do
+for f in public.*.html public.*.js public.*.css public.*.png public.*.jpg public.*.jpeg public.*.svg public.*.ico; do
   [ -e "$f" ] || continue
   newname="${f#public.}"
   mv -f "$f" "public/$newname"
