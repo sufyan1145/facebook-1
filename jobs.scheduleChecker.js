@@ -51,16 +51,40 @@ async function checkSchedules() {
 
   for (const schedule of res.rows) {
     try {
-      const { hhmm, weekday } = nowInTimezone(schedule.timezone);
-      if (hhmm !== schedule.upload_time) continue;
-      if (!shouldRunToday(schedule, weekday)) continue;
+      let isDue = false;
 
-      // Avoid double-run within same minute
-      if (schedule.last_run_at) {
-        const last = new Date(schedule.last_run_at);
-        const diffMs = Date.now() - last.getTime();
-        if (diffMs < 55000) continue;
+      if (schedule.repeat_type === 'interval_hours') {
+        const intervalMs = (schedule.interval_hours || 1) * 60 * 60 * 1000;
+        if (!schedule.last_run_at) {
+          isDue = true; // first run happens immediately once the schedule is active
+        } else {
+          const elapsedMs = Date.now() - new Date(schedule.last_run_at).getTime();
+          isDue = elapsedMs >= intervalMs;
+        }
+      } else if (schedule.repeat_type === 'multiple_times') {
+        const { hhmm } = nowInTimezone(schedule.timezone);
+        const times = Array.isArray(schedule.times) ? schedule.times : [];
+        if (times.includes(hhmm)) {
+          if (schedule.last_run_at) {
+            const diffMs = Date.now() - new Date(schedule.last_run_at).getTime();
+            isDue = diffMs >= 55000; // avoid double-run within same minute
+          } else {
+            isDue = true;
+          }
+        }
+      } else {
+        const { hhmm, weekday } = nowInTimezone(schedule.timezone);
+        if (hhmm === schedule.upload_time && shouldRunToday(schedule, weekday)) {
+          if (schedule.last_run_at) {
+            const diffMs = Date.now() - new Date(schedule.last_run_at).getTime();
+            isDue = diffMs >= 55000; // avoid double-run within same minute
+          } else {
+            isDue = true;
+          }
+        }
       }
+
+      if (!isDue) continue;
 
       const uploadedIds = await UploadHistory.getUploadedFileIds(schedule.page_id);
       const videos = await driveService.listUnpublishedVideos(schedule.user_id, schedule.drive_folder_id, uploadedIds);

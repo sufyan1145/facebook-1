@@ -12,7 +12,7 @@ function renderScheduleRows(schedules) {
         <td>${escapeHtml(s.page_name)}</td>
         <td>${escapeHtml(s.folder_name)}</td>
         <td class="mono">${s.upload_time} <span style="color:var(--text-faint);">${escapeHtml(s.timezone)}</span></td>
-        <td style="text-transform:capitalize;">${s.repeat_type.replace('_', ' ')}</td>
+        <td style="text-transform:capitalize;">${s.repeat_type === 'interval_hours' ? `Every ${s.interval_hours || '?'}h` : s.repeat_type === 'multiple_times' ? (Array.isArray(s.times) ? s.times.join(', ') : 'multiple times') : s.repeat_type.replace('_', ' ')}</td>
         <td><span class="badge ${s.is_active ? 'success' : 'failed'}">${s.is_active ? 'Active' : 'Paused'}</span></td>
         <td style="display:flex; gap:6px;">
           <button class="btn sm" data-toggle="${s.id}" data-active="${s.is_active}">${s.is_active ? 'Pause' : 'Resume'}</button>
@@ -73,6 +73,27 @@ async function loadOptions() {
 
   document.getElementById('repeat').addEventListener('change', (e) => {
     document.getElementById('specificDaysField').style.display = e.target.value === 'specific_days' ? 'block' : 'none';
+    document.getElementById('intervalHoursField').style.display = e.target.value === 'interval_hours' ? 'block' : 'none';
+    document.getElementById('multipleTimesField').style.display = e.target.value === 'multiple_times' ? 'block' : 'none';
+  });
+
+  function wireRemoveButton(btn) {
+    btn.addEventListener('click', () => {
+      const list = document.getElementById('multipleTimesList');
+      if (list.children.length > 1) btn.closest('div').remove();
+    });
+  }
+  document.querySelectorAll('.remove-time-btn').forEach(wireRemoveButton);
+
+  document.getElementById('addTimeBtn').addEventListener('click', () => {
+    const list = document.getElementById('multipleTimesList');
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.innerHTML = `<input type="time" class="multi-time-input" style="flex:1;" />
+      <button type="button" class="btn sm danger remove-time-btn">Remove</button>`;
+    list.appendChild(row);
+    wireRemoveButton(row.querySelector('.remove-time-btn'));
   });
 
   document.querySelectorAll('.day-chip').forEach((chip) => {
@@ -97,6 +118,10 @@ async function loadOptions() {
           timezone: document.getElementById('timezone').value,
           repeat: document.getElementById('repeat').value,
           specificDays: Array.from(selectedDays),
+          intervalHours: document.getElementById('intervalHours').value || null,
+          times: Array.from(document.querySelectorAll('.multi-time-input'))
+            .map((el) => el.value)
+            .filter(Boolean),
           maxUploads: Number(document.getElementById('maxUploads').value),
           randomDelaySeconds: Number(document.getElementById('randomDelay').value),
           caption: document.getElementById('caption').value,

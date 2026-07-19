@@ -46,7 +46,29 @@
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
                 <option value="specific_days">Specific Days</option>
+                <option value="interval_hours">Every N Hours</option>
+                <option value="multiple_times">Multiple Times a Day</option>
               </select>
+            </div>
+            <div class="field" id="intervalHoursField" style="display:none;">
+              <label>Post every how many hours?</label>
+              <input type="number" id="intervalHours" min="1" max="168" placeholder="e.g. 6" />
+              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">
+                The first video is posted shortly after you activate this schedule; after that, a new video is posted every N hours automatically. The Upload Time field above is ignored for this mode.
+              </div>
+            </div>
+            <div class="field" id="multipleTimesField" style="display:none;">
+              <label>Post times (daily)</label>
+              <div id="multipleTimesList" style="display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; gap:8px;">
+                  <input type="time" class="multi-time-input" style="flex:1;" />
+                  <button type="button" class="btn sm danger remove-time-btn">Remove</button>
+                </div>
+              </div>
+              <button type="button" class="btn sm" id="addTimeBtn" style="margin-top:8px;">+ Add another time</button>
+              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">
+                A video is posted once at each time listed above, every day. The Upload Time field above is ignored for this mode.
+              </div>
             </div>
             <div class="field" id="specificDaysField" style="display:none;">
               <label>Days</label>

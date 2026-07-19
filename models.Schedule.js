@@ -5,14 +5,15 @@ const Schedule = {
     const res = await query(
       `INSERT INTO schedules
         (user_id, page_id, folder_id, upload_time, timezone, repeat_type, specific_days,
-         max_uploads, random_delay_seconds, caption, hashtags, privacy, publish_immediately)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         max_uploads, random_delay_seconds, caption, hashtags, privacy, publish_immediately, interval_hours, times)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
         userId, data.pageId, data.folderId, data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.maxUploads || 1, data.randomDelaySeconds || 0,
         data.caption || null, data.hashtags || null, data.privacy || 'PUBLISHED',
-        data.publishImmediately !== false,
+        data.publishImmediately !== false, data.intervalHours || null,
+        data.times && data.times.length ? JSON.stringify(data.times) : null,
       ]
     );
     return res.rows[0];
