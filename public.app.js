@@ -15,6 +15,14 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+(function setFavicon() {
+  const link = document.createElement('link');
+  link.rel = 'icon';
+  link.type = 'image/png';
+  link.href = 'logo.png';
+  document.head.appendChild(link);
+})();
+
 let currentUser = null;
 
 async function requireAuthOrRedirect() {

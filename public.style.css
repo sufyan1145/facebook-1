@@ -65,7 +65,8 @@ button, input, select, textarea { font-family: inherit; max-width: 100%; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
 .brand-mark {
   width: 30px; height: 30px; border-radius: 8px;
-  background: linear-gradient(135deg, var(--signal-green), var(--signal-blue));
+  background: url('logo.png') center/cover no-repeat, linear-gradient(135deg, var(--signal-green), var(--signal-blue));
+  color: transparent; font-size: 0;
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-display); font-weight: 700; color: #06110D; font-size: 15px;
 }
