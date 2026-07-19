@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin — Drive2Facebook</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">D2</div>
+      <div class="brand-name">Drive2Facebook</div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <h1>Admin</h1>
+      <div class="status-pills" id="statusPills"></div>
+    </div>
+    <div class="content">
+
+      <div class="grid cols-4 mb-16">
+        <div class="card stat"><div class="stat-label">Total Users</div><div class="stat-value" id="statTotal">—</div></div>
+        <div class="card stat amber"><div class="stat-label">Trial Users</div><div class="stat-value" id="statTrial">—</div></div>
+        <div class="card stat green"><div class="stat-label">Paid Users</div><div class="stat-value" id="statPaid">—</div></div>
+        <div class="card stat red"><div class="stat-label">Expired</div><div class="stat-value" id="statExpired">—</div></div>
+      </div>
+
+      <div class="grid cols-2 mb-16">
+        <div class="card stat"><div class="stat-label">New (Last 7 Days)</div><div class="stat-value" id="statNew7">—</div></div>
+        <div class="card stat"><div class="stat-label">Active (Last 24h)</div><div class="stat-value" id="statActive24">—</div></div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="section-title">Add User</div>
+        <form id="createUserForm">
+          <div class="field-row">
+            <div class="field">
+              <label for="newName">Full name</label>
+              <input id="newName" type="text" required />
+            </div>
+            <div class="field">
+              <label for="newEmail">Email</label>
+              <input id="newEmail" type="email" required />
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="newPassword">Password</label>
+              <input id="newPassword" type="text" required minlength="6" />
+            </div>
+            <div class="field">
+              <label for="newPlan">Plan duration</label>
+              <select id="newPlan">
+                <option value="trial_1_day">1 Day Trial</option>
+                <option value="week_1">1 Week</option>
+                <option value="month_1" selected>1 Month</option>
+                <option value="month_3">3 Months</option>
+                <option value="month_6">6 Months</option>
+                <option value="year_1">1 Year</option>
+                <option value="custom">Custom (days)</option>
+                <option value="never">No expiry</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" id="customDaysField" style="display:none;">
+            <label for="customDays">Number of days</label>
+            <input id="customDays" type="number" min="1" />
+          </div>
+          <div class="checkbox-row mb-16">
+            <input type="checkbox" id="newIsAdmin" />
+            <label for="newIsAdmin">Grant admin access</label>
+          </div>
+          <div class="error-text" id="errorText"></div>
+          <button class="btn primary" type="submit">Create User</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="section-title">All Users</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Plan</th>
+                <th>Expires</th>
+                <th>Status</th>
+                <th>Last Login</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersBody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

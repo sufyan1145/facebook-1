@@ -45,6 +45,7 @@ app.use('/api/logs', require('./routes.logs'));
 app.use('/api/settings', require('./routes.settings'));
 app.use('/api/dashboard', require('./routes.dashboard'));
 app.use('/api/notifications', require('./routes.notifications'));
+app.use('/api/admin', require('./routes.admin'));
 
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'OK' }));
 

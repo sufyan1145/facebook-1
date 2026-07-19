@@ -15,9 +15,12 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+let currentUser = null;
+
 async function requireAuthOrRedirect() {
   try {
     const res = await apiFetch('/auth/me');
+    currentUser = res.data;
     return res.data;
   } catch {
     window.location.href = 'login.html';
@@ -36,6 +39,9 @@ function renderNav(active) {
     { href: 'logs.html', label: 'Activity Logs', icon: '▦', key: 'logs' },
     { href: 'settings.html', label: 'Settings', icon: '⚙', key: 'settings' },
   ];
+  if (currentUser && currentUser.isAdmin) {
+    items.push({ href: 'admin.html', label: 'Admin', icon: '★', key: 'admin' });
+  }
   const nav = document.getElementById('nav');
   if (!nav) return;
   nav.innerHTML = items

@@ -33,15 +33,27 @@ async function login(req, res, next) {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, message: 'Invalid email or password' });
 
+    if (user.is_active === false) {
+      return res.status(403).json({ success: false, message: 'This account has been deactivated. Please contact support.' });
+    }
+    if (user.plan_expires_at && new Date(user.plan_expires_at) < new Date()) {
+      return res.status(403).json({ success: false, message: 'Your plan has expired. Please contact us to renew your access.' });
+    }
+
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
+
+    await User.touchLastLogin(user.id);
 
     res
       .cookie('access_token', accessToken, { ...cookieOpts, maxAge: 7 * 24 * 60 * 60 * 1000 })
       .cookie('refresh_token', refreshToken, { ...cookieOpts, maxAge: 30 * 24 * 60 * 60 * 1000 })
       .json({
         success: true,
-        data: { accessToken, user: { id: user.id, name: user.name, email: user.email } },
+        data: {
+          accessToken,
+          user: { id: user.id, name: user.name, email: user.email, isAdmin: !!user.is_admin },
+        },
       });
 
     await Log.record(user.id, 'User Logged In', {});
@@ -110,7 +122,16 @@ async function me(req, res, next) {
     const user = await User.findById(req.user.id);
     res.json({
       success: true,
-      data: { id: user.id, name: user.name, email: user.email, timezone: user.timezone, language: user.language },
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        timezone: user.timezone,
+        language: user.language,
+        isAdmin: !!user.is_admin,
+        planType: user.plan_type,
+        planExpiresAt: user.plan_expires_at,
+      },
     });
   } catch (err) {
     next(err);
