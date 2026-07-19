@@ -14,22 +14,12 @@ const cookieOpts = {
 };
 
 async function register(req, res, next) {
-  try {
-    const { name, email, password } = req.body;
-    const existing = await User.findByEmail(email);
-    if (existing) return res.status(409).json({ success: false, message: 'Email already registered' });
-
-    const passwordHash = await bcrypt.hash(password, 12);
-    const emailVerifyToken = uuidv4();
-    const user = await User.create({ name, email, passwordHash, emailVerifyToken });
-
-    await sendVerificationEmail(user, emailVerifyToken);
-    await Log.record(user.id, 'User Registered', { email });
-
-    res.status(201).json({ success: true, message: 'Registration successful. Please verify your email.' });
-  } catch (err) {
-    next(err);
-  }
+  // Public self-registration is disabled. Accounts are created manually by the
+  // admin (see create-user.js) so that access can be tied to payment.
+  return res.status(403).json({
+    success: false,
+    message: 'Public registration is closed. Please contact us to get an account.',
+  });
 }
 
 async function login(req, res, next) {
