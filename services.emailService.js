@@ -22,7 +22,7 @@ async function sendVerificationEmail(user, token) {
   const link = `${env.appUrl}/api/auth/verify-email?token=${token}`;
   await sendEmail({
     to: user.email,
-    subject: 'Verify your Drive2Facebook account',
+    subject: 'Verify your Sufyan PostFire account',
     html: `<p>Hi ${user.name},</p><p>Please verify your email by clicking <a href="${link}">this link</a>.</p>`,
   });
 }
@@ -31,7 +31,7 @@ async function sendPasswordResetEmail(user, token) {
   const link = `${env.frontendUrl}/reset-password.html?token=${token}`;
   await sendEmail({
     to: user.email,
-    subject: 'Reset your Drive2Facebook password',
+    subject: 'Reset your Sufyan PostFire password',
     html: `<p>Hi ${user.name},</p><p>Reset your password by clicking <a href="${link}">this link</a>. This link expires in 1 hour.</p>`,
   });
 }
