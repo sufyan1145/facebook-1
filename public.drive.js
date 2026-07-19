@@ -29,10 +29,6 @@ function renderFolders(folders) {
   if (!user) return;
   renderNav('drive');
 
-  document.getElementById('connectBtn').addEventListener('click', async () => {
-    const { data } = await apiFetch('/drive/browse'); // ensures connection exists via API error if not
-  });
-
   try {
     const { data } = await apiFetch('/drive/folders');
     renderFolders(data);
