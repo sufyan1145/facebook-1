@@ -1,13 +1,48 @@
+function renderAccounts(accounts) {
+  const el = document.getElementById('accountsList');
+  if (!accounts.length) {
+    el.innerHTML = '<span class="empty">No Facebook accounts connected yet.</span>';
+    return;
+  }
+  el.innerHTML = accounts
+    .map(
+      (a) => `<span class="account-chip">
+        <span class="dot ok"></span>${escapeHtml(a.fb_user_name || a.fb_user_id)}
+        <button class="btn xs danger" data-account-id="${a.id}" title="Disconnect this Facebook account">✕</button>
+      </span>`
+    )
+    .join('');
+
+  el.querySelectorAll('button[data-account-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Disconnect this Facebook account? Its pages will stop being usable in schedules.')) return;
+      await apiFetch(`/auth/facebook/disconnect/${btn.dataset.accountId}`, { method: 'POST' });
+      loadAccounts();
+      loadPages();
+    });
+  });
+}
+
+async function loadAccounts() {
+  try {
+    const { data } = await apiFetch('/auth/facebook/accounts');
+    renderAccounts(data);
+  } catch (err) {
+    document.getElementById('accountsList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`;
+  }
+}
+
 function renderPages(pages) {
   const body = document.getElementById('pagesBody');
   if (!pages.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty">No pages found. Connect Facebook to import your Pages.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty">No pages found. Add a Facebook account to import your Pages.</td></tr>';
     return;
   }
   body.innerHTML = pages
     .map(
       (p) => `<tr>
         <td>${escapeHtml(p.page_name)}</td>
+        <td>${escapeHtml(p.fb_user_name || '—')}</td>
         <td class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(p.page_id)}</td>
         <td>${p.followers?.toLocaleString?.() ?? p.followers}</td>
         <td><span class="badge ${p.is_connected ? 'success' : 'failed'}">${p.is_connected ? 'Connected' : 'Disconnected'}</span></td>
@@ -30,7 +65,7 @@ async function loadPages() {
     const { data } = await apiFetch('/pages');
     renderPages(data);
   } catch (err) {
-    document.getElementById('pagesBody').innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    document.getElementById('pagesBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -46,14 +81,15 @@ async function loadPages() {
   });
 
   document.getElementById('syncBtn').addEventListener('click', async () => {
-    document.getElementById('pagesBody').innerHTML = '<tr><td colspan="5" class="empty">Syncing…</td></tr>';
+    document.getElementById('pagesBody').innerHTML = '<tr><td colspan="6" class="empty">Syncing…</td></tr>';
     try {
-      await apiFetch('/pages/sync', { method: 'POST' });
+      await apiFetch('/pages/sync', { method: 'POST', body: JSON.stringify({}) }); // syncs every connected account
       loadPages();
     } catch (err) {
-      document.getElementById('pagesBody').innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(err.message)}</td></tr>`;
+      document.getElementById('pagesBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
     }
   });
 
+  loadAccounts();
   loadPages();
 })();

@@ -37,8 +37,8 @@ async function getValidGoogleClient(userId) {
   return oAuth2Client;
 }
 
-async function getValidFacebookToken(userId) {
-  const tokenRow = await FacebookToken.findByUser(userId);
+async function getValidFacebookToken(userId, facebookTokenId) {
+  const tokenRow = await FacebookToken.findById(userId, facebookTokenId);
   if (!tokenRow) throw new Error('Facebook account not connected');
 
   const isExpired = tokenRow.expiry_time && new Date(tokenRow.expiry_time).getTime() - Date.now() < 60000;
@@ -54,8 +54,13 @@ async function getValidFacebookToken(userId) {
     });
     const { access_token, expires_in } = resp.data;
     const expiryTime = expires_in ? new Date(Date.now() + expires_in * 1000) : null;
-    await FacebookToken.upsert(userId, { accessToken: access_token, expiryTime, fbUserId: tokenRow.fb_user_id });
-    logger.info(`Refreshed Facebook token for user ${userId}`);
+    await FacebookToken.upsert(userId, {
+      accessToken: access_token,
+      expiryTime,
+      fbUserId: tokenRow.fb_user_id,
+      fbUserName: tokenRow.fb_user_name,
+    });
+    logger.info(`Refreshed Facebook token for user ${userId}, account ${tokenRow.fb_user_id}`);
     return access_token;
   }
 

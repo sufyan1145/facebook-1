@@ -55,7 +55,7 @@ async function loadOptions() {
   const folderSelect = document.getElementById('folderId');
   try {
     const [{ data: pages }, { data: folders }] = await Promise.all([apiFetch('/pages'), apiFetch('/drive/folders')]);
-    pageSelect.innerHTML = pages.filter((p) => p.is_connected).map((p) => `<option value="${p.id}">${escapeHtml(p.page_name)}</option>`).join('') || '<option value="">No pages connected</option>';
+    pageSelect.innerHTML = pages.filter((p) => p.is_connected).map((p) => `<option value="${p.id}">${escapeHtml(p.page_name)}${p.fb_user_name ? ' — ' + escapeHtml(p.fb_user_name) : ''}</option>`).join('') || '<option value="">No pages connected</option>';
     folderSelect.innerHTML = folders.map((f) => `<option value="${f.id}">${escapeHtml(f.folder_name)}</option>`).join('') || '<option value="">No folders scanned</option>';
   } catch {
     /* leave empty */

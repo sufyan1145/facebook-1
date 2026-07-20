@@ -7,8 +7,8 @@ const logger = require('./utils.logger');
 
 const GRAPH_URL = `https://graph.facebook.com/${env.facebook.graphVersion}`;
 
-async function getUserPages(userId) {
-  const accessToken = await getValidFacebookToken(userId);
+async function getUserPages(userId, facebookTokenId) {
+  const accessToken = await getValidFacebookToken(userId, facebookTokenId);
   const resp = await axios.get(`${GRAPH_URL}/me/accounts`, {
     params: { access_token: accessToken, fields: 'id,name,access_token,followers_count' },
   });

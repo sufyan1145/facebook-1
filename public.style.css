@@ -180,6 +180,16 @@ tr:last-child td { border-bottom: none; }
 .btn.danger { background: var(--signal-red-dim); color: var(--signal-red); border-color: rgba(240,85,90,0.3); }
 .btn.block { width: 100%; }
 .btn.sm { padding: 6px 10px; font-size: 12px; }
+.btn.xs { padding: 3px 7px; font-size: 11px; border-radius: 999px; }
+
+.accounts-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 8px 6px 12px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--border); font-size: 13px;
+}
+.account-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+.account-chip .dot.ok { background: var(--signal-green); box-shadow: 0 0 6px var(--signal-green); }
 
 /* ---------- Auth pages ---------- */
 .auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }

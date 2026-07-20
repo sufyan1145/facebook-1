@@ -14,6 +14,7 @@ function getAuthUrl(req, res) {
     scope: env.facebook.scopes.join(','),
     state: req.user.id,
     response_type: 'code',
+    auth_type: 'reauthenticate', // forces Facebook's login screen so a different account can be chosen
   });
   res.json({ success: true, data: { url: `https://www.facebook.com/${env.facebook.graphVersion}/dialog/oauth?${params}` } });
 }
@@ -37,14 +38,28 @@ async function handleCallback(req, res, next) {
     const meResp = await axios.get(`${GRAPH_URL}/me`, { params: { access_token, fields: 'id,name,email' } });
 
     const expiryTime = expires_in ? new Date(Date.now() + expires_in * 1000) : null;
-    await FacebookToken.upsert(userId, { accessToken: access_token, expiryTime, fbUserId: meResp.data.id });
+    const tokenRow = await FacebookToken.upsert(userId, {
+      accessToken: access_token,
+      expiryTime,
+      fbUserId: meResp.data.id,
+      fbUserName: meResp.data.name,
+    });
 
-    // Immediately sync pages
-    const pages = await facebookService.getUserPages(userId);
-    await Page.upsertMany(userId, pages);
+    // Immediately sync this account's pages (existing pages from other connected accounts are untouched)
+    const pages = await facebookService.getUserPages(userId, tokenRow.id);
+    await Page.upsertMany(userId, tokenRow.id, pages);
 
-    await Log.record(userId, 'Facebook Authorized', { pageCount: pages.length });
+    await Log.record(userId, 'Facebook Authorized', { fbUserName: meResp.data.name, pageCount: pages.length });
     res.redirect(`${env.frontendUrl}/dashboard.html?facebook_connected=1`);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listAccounts(req, res, next) {
+  try {
+    const accounts = await FacebookToken.listByUser(req.user.id);
+    res.json({ success: true, data: accounts });
   } catch (err) {
     next(err);
   }
@@ -52,12 +67,12 @@ async function handleCallback(req, res, next) {
 
 async function disconnect(req, res, next) {
   try {
-    await FacebookToken.remove(req.user.id);
-    await Log.record(req.user.id, 'Facebook Disconnected', {});
+    await FacebookToken.remove(req.user.id, req.params.id);
+    await Log.record(req.user.id, 'Facebook Disconnected', { accountId: req.params.id });
     res.json({ success: true, message: 'Facebook account disconnected' });
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { getAuthUrl, handleCallback, disconnect };
+module.exports = { getAuthUrl, handleCallback, listAccounts, disconnect };
