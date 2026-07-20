@@ -7,7 +7,10 @@ const UploadHistory = {
         (user_id, schedule_id, drive_file_id, video_name, facebook_page_id, drive_folder_name,
          duration_seconds, file_hash, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (drive_file_id, facebook_page_id) DO NOTHING
+       ON CONFLICT (drive_file_id, facebook_page_id) DO UPDATE SET
+         status = EXCLUDED.status,
+         schedule_id = EXCLUDED.schedule_id,
+         video_name = EXCLUDED.video_name
        RETURNING *`,
       [
         userId, data.scheduleId, data.driveFileId, data.videoName, data.facebookPageId,
