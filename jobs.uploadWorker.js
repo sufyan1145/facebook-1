@@ -43,12 +43,15 @@ const worker = new Worker(
       });
 
       if (historyRow) await UploadHistory.markSuccess(historyRow.id, fbVideoId);
+      await QueueJob.upsertFromBullJob(job, 'completed', userId, scheduleId);
       await Log.record(userId, 'Video Uploaded', { file: file.name, page: pageName });
       await notifyUploadEvent(userId, { type: 'success', videoName: file.name, pageName });
 
       return { fbVideoId };
     } catch (err) {
       if (historyRow) await UploadHistory.markFailed(historyRow.id);
+      const isFinalAttempt = job.attemptsMade + 1 >= job.opts.attempts;
+      await QueueJob.upsertFromBullJob(job, isFinalAttempt ? 'failed' : 'active', userId, scheduleId, err.message);
       await Log.record(userId, 'Upload Failed', { file: file.name, page: pageName, error: err.message }, 'error');
       await notifyUploadEvent(userId, { type: 'failure', videoName: file.name, pageName });
       throw err; // let BullMQ retry with exponential backoff
