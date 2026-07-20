@@ -12,4 +12,4 @@ RUN mkdir -p logs uploads
 
 EXPOSE 5000
 
-CMD ["node", "server.js"]
+CMD ["sh", "-c", "node migrate-runner.js && node server.js"]
