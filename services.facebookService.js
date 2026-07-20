@@ -39,7 +39,7 @@ async function uploadFileChunk(userAccessToken, uploadSessionId, filePath, fileL
     headers: {
       Authorization: `OAuth ${userAccessToken}`,
       file_offset: '0',
-      'Content-Type': 'application/octet-stream',
+      'Content-Type': 'video/mp4',
       'Content-Length': fileLength,
     },
     maxBodyLength: Infinity,
