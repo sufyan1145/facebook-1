@@ -85,11 +85,16 @@ async function downloadFile(userId, fileId, fileName) {
   const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
 
   return new Promise((resolve, reject) => {
-    res.data
-      .on('end', () => {
+    dest
+      .on('finish', () => {
         logger.info(`Downloaded ${fileName} to ${destPath}`);
         resolve(destPath);
       })
+      .on('error', (err) => {
+        logger.error(`Download failed for ${fileName}: ${err.message}`);
+        reject(err);
+      });
+    res.data
       .on('error', (err) => {
         logger.error(`Download failed for ${fileName}: ${err.message}`);
         reject(err);
