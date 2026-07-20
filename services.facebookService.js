@@ -54,12 +54,19 @@ async function uploadVideoToPage({ userId, pageId, pageAccessToken, filePath, ca
   const fileLength = fs.statSync(filePath).size;
   const fileName = filePath.split('/').pop();
 
+  let step = 'init';
   try {
     // Steps 1 & 2 authenticate as the connected user, not the page
+    step = 'step1_start_session';
     const userAccessToken = await getValidFacebookToken(userId);
     const sessionId = await startUploadSession(userAccessToken, fileName, fileLength);
-    const fileHandle = await uploadFileChunk(userAccessToken, sessionId, filePath, fileLength);
+    logger.info(`[FB upload] step1 ok, session=${sessionId}, fileLength=${fileLength}`);
 
+    step = 'step2_upload_bytes';
+    const fileHandle = await uploadFileChunk(userAccessToken, sessionId, filePath, fileLength);
+    logger.info(`[FB upload] step2 ok, handle received (len=${fileHandle ? fileHandle.length : 0})`);
+
+    step = 'step3_publish';
     const form = new FormData();
     form.append('access_token', pageAccessToken);
     form.append('fbuploader_video_file_chunk', fileHandle);
@@ -74,9 +81,12 @@ async function uploadVideoToPage({ userId, pageId, pageAccessToken, filePath, ca
     logger.info(`Uploaded video to page ${pageId}, fb video id: ${resp.data.id}`);
     return resp.data.id;
   } catch (err) {
-    const message = err.response?.data?.error?.message || err.message;
-    logger.error(`Facebook upload failed for page ${pageId}: ${message}`);
-    throw new Error(message);
+    const fbError = err.response?.data?.error;
+    logger.error(
+      `[FB upload] FAILED at ${step} for page ${pageId}: ${JSON.stringify(fbError || err.message)}`
+    );
+    const message = fbError?.message || err.message;
+    throw new Error(`[${step}] ${message}`);
   }
 }
 
