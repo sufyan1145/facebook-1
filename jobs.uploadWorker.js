@@ -33,7 +33,6 @@ const worker = new Worker(
       tempPath = await driveService.downloadFile(userId, file.id, file.name);
 
       const fbVideoId = await facebookService.uploadVideoToPage({
-        userId,
         pageId: page.page_id,
         pageAccessToken: page.page_access_token,
         filePath: tempPath,
