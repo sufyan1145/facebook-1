@@ -20,16 +20,52 @@ async function getUserPages(userId) {
   }));
 }
 
-async function uploadVideoToPage({ pageId, pageAccessToken, filePath, caption, hashtags, privacy, publishImmediately }) {
-  const description = [caption, hashtags].filter(Boolean).join('\n\n');
+// Step 1: start a resumable upload session (needs the app id + a USER access token)
+async function startUploadSession(userAccessToken, fileName, fileLength) {
+  const resp = await axios.post(`${GRAPH_URL}/${env.facebook.appId}/uploads`, null, {
+    params: {
+      file_name: fileName,
+      file_length: fileLength,
+      file_type: 'video/mp4',
+      access_token: userAccessToken,
+    },
+  });
+  return resp.data.id; // "upload:<SESSION_ID>"
+}
 
-  const form = new FormData();
-  form.append('access_token', pageAccessToken);
-  form.append('source', fs.createReadStream(filePath));
-  if (description) form.append('description', description);
-  form.append('published', publishImmediately ? 'true' : 'false');
+// Step 2: push the file bytes to the session, get back a reusable file handle
+async function uploadFileChunk(userAccessToken, uploadSessionId, filePath, fileLength) {
+  const resp = await axios.post(`${GRAPH_URL}/${uploadSessionId}`, fs.createReadStream(filePath), {
+    headers: {
+      Authorization: `OAuth ${userAccessToken}`,
+      file_offset: '0',
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': fileLength,
+    },
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+  return resp.data.h; // file handle
+}
+
+// Step 3: publish the uploaded handle to the Page using the PAGE access token
+async function uploadVideoToPage({ userId, pageId, pageAccessToken, filePath, caption, hashtags, privacy, publishImmediately }) {
+  const description = [caption, hashtags].filter(Boolean).join('\n\n');
+  const fileLength = fs.statSync(filePath).size;
+  const fileName = filePath.split('/').pop();
 
   try {
+    // Steps 1 & 2 authenticate as the connected user, not the page
+    const userAccessToken = await getValidFacebookToken(userId);
+    const sessionId = await startUploadSession(userAccessToken, fileName, fileLength);
+    const fileHandle = await uploadFileChunk(userAccessToken, sessionId, filePath, fileLength);
+
+    const form = new FormData();
+    form.append('access_token', pageAccessToken);
+    form.append('fbuploader_video_file_chunk', fileHandle);
+    if (description) form.append('description', description);
+    form.append('published', publishImmediately ? 'true' : 'false');
+
     const resp = await axios.post(`${GRAPH_URL}/${pageId}/videos`, form, {
       headers: form.getHeaders(),
       maxBodyLength: Infinity,
