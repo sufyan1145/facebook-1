@@ -16,16 +16,33 @@ const env = require('./config.env');
 function nowInTimezone(timezone) {
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
     weekday: 'short',
   });
   const parts = fmt.formatToParts(new Date());
-  const hh = parts.find((p) => p.type === 'hour').value;
-  const mm = parts.find((p) => p.type === 'minute').value;
-  const weekday = parts.find((p) => p.type === 'weekday').value;
-  return { hhmm: `${hh}:${mm}`, weekday };
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return {
+    hhmm: `${get('hour')}:${get('minute')}`,
+    weekday: get('weekday'),
+    dateKey: `${get('year')}-${get('month')}-${get('day')}`,
+  };
+}
+
+function dateKeyInTimezone(date, timezone) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
 const WEEKDAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -73,13 +90,20 @@ async function checkSchedules() {
           }
         }
       } else {
-        const { hhmm, weekday } = nowInTimezone(schedule.timezone);
-        if (hhmm === schedule.upload_time && shouldRunToday(schedule, weekday)) {
-          if (schedule.last_run_at) {
-            const diffMs = Date.now() - new Date(schedule.last_run_at).getTime();
-            isDue = diffMs >= 55000; // avoid double-run within same minute
-          } else {
-            isDue = true;
+        const { hhmm, weekday, dateKey } = nowInTimezone(schedule.timezone);
+        if (shouldRunToday(schedule, weekday)) {
+          const [targetH, targetM] = schedule.upload_time.split(':').map(Number);
+          const [curH, curM] = hhmm.split(':').map(Number);
+          const targetMinutes = targetH * 60 + targetM;
+          const curMinutes = curH * 60 + curM;
+          const GRACE_MINUTES = 15; // catch up if the exact minute was missed (e.g. deploy/restart)
+
+          const withinWindow = curMinutes >= targetMinutes && curMinutes <= targetMinutes + GRACE_MINUTES;
+          if (withinWindow) {
+            const lastRunDateKey = schedule.last_run_at
+              ? dateKeyInTimezone(new Date(schedule.last_run_at), schedule.timezone)
+              : null;
+            isDue = lastRunDateKey !== dateKey; // hasn't already run today
           }
         }
       }
