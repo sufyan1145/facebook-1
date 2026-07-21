@@ -79,7 +79,7 @@ module.exports = {
   kie: {
     apiKey: process.env.KIE_API_KEY,
     baseUrl: process.env.KIE_BASE_URL || 'https://api.kie.ai',
-    model: process.env.KIE_VIDEO_MODEL || 'kling/v2-5-turbo-pro-text-to-video',
+    model: process.env.KIE_VIDEO_MODEL || 'kling/v2-1-standard',
     pollCron: process.env.VIDEOGEN_POLL_CRON || '*/1 * * * *', // check every minute
   },
 };
