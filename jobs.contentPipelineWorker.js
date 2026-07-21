@@ -162,6 +162,7 @@ async function runPipeline(schedule) {
   } catch (err) {
     const message = `[${stage}] ${err.message}`;
     await ContentScheduleRun.markFailed(run.id, message);
+    await ContentSchedule.updateLastRun(schedule.id); // don't retry every minute - wait for the next scheduled occurrence
     await Log.record(schedule.user_id, 'Content Pipeline Failed', { keyword: schedule.keyword, error: message }, 'error');
     logger.error(`[content-pipeline] failed for schedule ${schedule.id}: ${message}`);
   } finally {
