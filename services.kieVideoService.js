@@ -19,13 +19,32 @@ async function createVideoTask({ prompt, duration, aspectRatio }) {
       aspect_ratio: aspectRatio || '9:16',
     },
   });
-  return resp.data.data?.taskId || resp.data.taskId;
+
+  const body = resp.data;
+  logger.info(`[video-gen] createTask response: ${JSON.stringify(body)}`);
+
+  // Kie.ai returns HTTP 200 even on internal failures, with a non-success `code`
+  if (body.code !== undefined && body.code !== 200 && body.code !== 0) {
+    throw new Error(body.msg || body.message || `Kie.ai rejected the request (code ${body.code})`);
+  }
+
+  const taskId = body.data?.taskId || body.taskId;
+  if (!taskId) {
+    throw new Error(`Kie.ai did not return a taskId: ${JSON.stringify(body)}`);
+  }
+  return taskId;
 }
 
 // state: waiting | queuing | generating | success | fail
 async function getTaskStatus(taskId) {
   const resp = await client.get('/api/v1/jobs/recordInfo', { params: { taskId } });
-  return resp.data.data || resp.data;
+  const body = resp.data;
+
+  if (body.code !== undefined && body.code !== 200 && body.code !== 0) {
+    throw new Error(body.msg || body.message || `Kie.ai rejected the status check (code ${body.code})`);
+  }
+
+  return body.data || body;
 }
 
 async function downloadResult(url, destPath) {
@@ -41,4 +60,17 @@ async function downloadResult(url, destPath) {
   });
 }
 
-module.exports = { createVideoTask, getTaskStatus, downloadResult };
+function extractResultUrl(statusData) {
+  let rj = statusData.resultJson;
+  if (typeof rj === 'string') {
+    try {
+      rj = JSON.parse(rj);
+    } catch (e) {
+      rj = null;
+    }
+  }
+  if (!rj) return null;
+  return (rj.resultUrls && rj.resultUrls[0]) || (rj.urls && rj.urls[0]) || rj.url || null;
+}
+
+module.exports = { createVideoTask, getTaskStatus, downloadResult, extractResultUrl };

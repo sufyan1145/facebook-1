@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Content Pipeline — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Content Pipeline</h1></div>
+    <div class="content">
+
+      <div class="grid cols-2 schedule-layout" style="align-items:start;">
+        <div class="card">
+          <div class="section-title">New Content Schedule</div>
+          <div style="font-size:12px; color:var(--text-faint); margin-bottom:12px;">
+            Give a keyword — everything else (topic, script, voiceover, video, posting) happens automatically at the scheduled time.
+          </div>
+          <form id="contentForm">
+            <div class="field">
+              <label for="keyword">Keyword / topic area</label>
+              <input id="keyword" type="text" placeholder="e.g. world history" required />
+            </div>
+            <div class="field">
+              <label for="pageId">Facebook Page</label>
+              <select id="pageId" required></select>
+            </div>
+            <div class="field">
+              <label for="folderId">Save into Drive folder</label>
+              <select id="folderId" required></select>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="duration">Target video length</label>
+                <select id="duration">
+                  <option value="30">30 seconds</option>
+                  <option value="60" selected>1 minute</option>
+                  <option value="120">2 minutes</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="voiceName">Narrator voice</label>
+                <select id="voiceName">
+                  <option value="en-US-Neural2-D">English (Male)</option>
+                  <option value="en-US-Neural2-F">English (Female)</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="uploadTime">Upload Time</label>
+                <input id="uploadTime" type="time" required />
+              </div>
+              <div class="field">
+                <label for="timezone">Timezone</label>
+                <input id="timezone" type="text" placeholder="e.g. Asia/Karachi" required />
+              </div>
+            </div>
+            <div class="field">
+              <label for="repeat">Repeat</label>
+              <select id="repeat">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="specific_days">Specific Days</option>
+                <option value="interval_hours">Every N Hours</option>
+                <option value="multiple_times">Multiple Times a Day</option>
+              </select>
+            </div>
+            <div class="field" id="intervalHoursField" style="display:none;">
+              <label>Post every how many hours?</label>
+              <input type="number" id="intervalHours" min="1" max="168" placeholder="e.g. 6" />
+            </div>
+            <div class="field" id="multipleTimesField" style="display:none;">
+              <label>Post times (daily)</label>
+              <div id="multipleTimesList" style="display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; gap:8px;">
+                  <input type="time" class="multi-time-input" style="flex:1;" />
+                  <button type="button" class="btn sm danger remove-time-btn">Remove</button>
+                </div>
+              </div>
+              <button type="button" class="btn sm" id="addTimeBtn" style="margin-top:8px;">+ Add another time</button>
+            </div>
+            <div class="field" id="specificDaysField" style="display:none;">
+              <label>Days</label>
+              <div class="days-picker" id="daysPicker">
+                <div class="day-chip" data-day="0">Sun</div>
+                <div class="day-chip" data-day="1">Mon</div>
+                <div class="day-chip" data-day="2">Tue</div>
+                <div class="day-chip" data-day="3">Wed</div>
+                <div class="day-chip" data-day="4">Thu</div>
+                <div class="day-chip" data-day="5">Fri</div>
+                <div class="day-chip" data-day="6">Sat</div>
+              </div>
+            </div>
+            <div class="field">
+              <label for="caption">Caption (optional, otherwise the AI topic title is used)</label>
+              <textarea id="caption" rows="2"></textarea>
+            </div>
+            <div class="field">
+              <label for="hashtags">Hashtags</label>
+              <input id="hashtags" type="text" placeholder="#history #facts" />
+            </div>
+            <label class="checkbox-row">
+              <input id="publishImmediately" type="checkbox" checked /> Publish immediately
+            </label>
+            <div class="error-text" id="errorText"></div>
+            <button class="btn primary block" type="submit" style="margin-top:12px;">Create Content Schedule</button>
+          </form>
+        </div>
+
+        <div>
+          <div class="card mb-16">
+            <div class="section-title">Active Content Schedules</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Keyword</th><th>Page</th><th>Length</th><th>Repeat</th><th>Active</th><th></th></tr></thead>
+                <tbody id="scheduleBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="flex-between mb-16">
+              <div class="section-title" style="margin-bottom:0;">Run History</div>
+              <button class="btn sm" id="refreshRunsBtn">Refresh</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Keyword</th><th>Topic</th><th>Status</th><th>When</th></tr></thead>
+                <tbody id="runsBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="content-schedule.js"></script>
+</body>
+</html>

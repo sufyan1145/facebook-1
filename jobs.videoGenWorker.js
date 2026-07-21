@@ -14,25 +14,12 @@ const driveService = require('./services.googleDriveService');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
-function extractResultUrl(statusData) {
-  let rj = statusData.resultJson;
-  if (typeof rj === 'string') {
-    try {
-      rj = JSON.parse(rj);
-    } catch (e) {
-      rj = null;
-    }
-  }
-  if (!rj) return null;
-  return (rj.resultUrls && rj.resultUrls[0]) || (rj.urls && rj.urls[0]) || rj.url || null;
-}
-
 async function checkJob(job) {
   const status = await kieVideoService.getTaskStatus(job.kie_task_id);
   const state = status.state || status.status;
 
   if (state === 'success') {
-    const resultUrl = extractResultUrl(status);
+    const resultUrl = kieVideoService.extractResultUrl(status);
     if (!resultUrl) {
       await VideoGenJob.markFailed(job.id, 'Video generated but no result URL was returned');
       return;
@@ -68,6 +55,11 @@ function startVideoGenWorker() {
           await checkJob(job);
         } catch (err) {
           logger.error(`[video-gen] check failed for job ${job.id}: ${err.message}`);
+          const ageMs = Date.now() - new Date(job.created_at).getTime();
+          if (ageMs > 10 * 60 * 1000) {
+            // Stuck for over 10 minutes with a real error each time -> stop retrying and surface it
+            await VideoGenJob.markFailed(job.id, err.message);
+          }
         }
       }
     } catch (err) {

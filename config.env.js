@@ -82,4 +82,16 @@ module.exports = {
     model: process.env.KIE_VIDEO_MODEL || 'kling/v2-1-standard',
     pollCron: process.env.VIDEOGEN_POLL_CRON || '*/1 * * * *', // check every minute
   },
+
+  googleAi: {
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+    ttsApiKey: process.env.GOOGLE_TTS_API_KEY,
+    defaultVoice: process.env.GOOGLE_TTS_VOICE || 'en-US-Neural2-D',
+  },
+
+  contentPipeline: {
+    checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
+    clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip
+  },
 };
