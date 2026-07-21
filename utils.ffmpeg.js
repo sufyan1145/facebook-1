@@ -36,4 +36,10 @@ async function mergeAudioVideo(videoPath, audioPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo };
+// Converts raw 16-bit PCM audio (24kHz mono, Gemini TTS's raw output format) to MP3
+async function pcmToMp3(pcmPath, mp3Path) {
+  await run(['-y', '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', pcmPath, mp3Path]);
+  return mp3Path;
+}
+
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3 };

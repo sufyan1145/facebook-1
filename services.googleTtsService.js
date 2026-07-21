@@ -2,25 +2,40 @@ const axios = require('axios');
 const fs = require('fs');
 const env = require('./config.env');
 const logger = require('./utils.logger');
+const ffmpeg = require('./utils.ffmpeg');
 
-const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
+const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
-// Synthesizes text to an MP3 file on disk, returns the file path.
+// Uses Gemini's own TTS-capable models (same simple GEMINI_API_KEY, no GCP
+// project or billing needed) instead of Google Cloud Text-to-Speech.
 async function synthesizeToFile(text, destPath, voiceName) {
   const resp = await axios.post(
-    TTS_URL,
+    `${BASE_URL}/models/gemini-2.5-flash-preview-tts:generateContent`,
     {
-      input: { text },
-      voice: { languageCode: (voiceName || env.googleAi.defaultVoice).slice(0, 5), name: voiceName || env.googleAi.defaultVoice },
-      audioConfig: { audioEncoding: 'MP3' },
+      contents: [{ parts: [{ text }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || env.googleAi.defaultVoice } } },
+      },
     },
-    { params: { key: env.googleAi.ttsApiKey } }
+    { params: { key: env.googleAi.geminiApiKey } }
   );
 
-  const audioContent = resp.data.audioContent;
-  if (!audioContent) throw new Error('Google TTS returned no audio content');
+  const part = resp.data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+  if (!part?.data) throw new Error('Gemini TTS returned no audio data');
 
-  fs.writeFileSync(destPath, Buffer.from(audioContent, 'base64'));
+  const audioBuffer = Buffer.from(part.data, 'base64');
+
+  if (part.mimeType && /mp3|mpeg/i.test(part.mimeType)) {
+    fs.writeFileSync(destPath, audioBuffer);
+  } else {
+    // Gemini TTS usually returns raw 16-bit PCM at 24kHz with no header - convert via ffmpeg
+    const pcmPath = destPath.replace(/\.mp3$/, '.pcm');
+    fs.writeFileSync(pcmPath, audioBuffer);
+    await ffmpeg.pcmToMp3(pcmPath, destPath);
+    fs.unlinkSync(pcmPath);
+  }
+
   logger.info(`[content-pipeline] voiceover saved to ${destPath}`);
   return destPath;
 }

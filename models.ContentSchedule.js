@@ -11,7 +11,7 @@ const ContentSchedule = {
        RETURNING *`,
       [
         userId, data.pageId, data.folderId, data.keyword, data.targetDurationSeconds || 60,
-        data.voiceName || 'en-US-Neural2-D', data.uploadTime, data.timezone, data.repeat,
+        data.voiceName || 'Kore', data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
         data.caption || null, data.hashtags || null, data.publishImmediately !== false,

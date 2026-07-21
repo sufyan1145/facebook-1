@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS content_schedules (
 
   keyword TEXT NOT NULL,
   target_duration_seconds INT NOT NULL DEFAULT 60,
-  voice_name VARCHAR(100) DEFAULT 'en-US-Neural2-D',
+  voice_name VARCHAR(100) DEFAULT 'Kore',
 
   upload_time VARCHAR(5) NOT NULL, -- HH:mm
   timezone VARCHAR(100) NOT NULL DEFAULT 'UTC',

@@ -86,8 +86,7 @@ module.exports = {
   googleAi: {
     geminiApiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
-    ttsApiKey: process.env.GOOGLE_TTS_API_KEY,
-    defaultVoice: process.env.GOOGLE_TTS_VOICE || 'en-US-Neural2-D',
+    defaultVoice: process.env.GOOGLE_TTS_VOICE || 'Kore',
   },
 
   contentPipeline: {
