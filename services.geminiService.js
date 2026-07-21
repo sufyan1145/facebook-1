@@ -1,6 +1,7 @@
 const axios = require('axios');
 const env = require('./config.env');
 const logger = require('./utils.logger');
+const { retryOn429 } = require('./utils.retry');
 
 const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -26,10 +27,14 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
   ]
 }`;
 
-  const resp = await axios.post(
-    `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-    { contents: [{ parts: [{ text: prompt }] }] },
-    { params: { key: env.googleAi.geminiApiKey } }
+  const resp = await retryOn429(
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey } }
+      ),
+    { label: 'Gemini script' }
   );
 
   const text = resp.data.candidates?.[0]?.content?.parts?.[0]?.text;

@@ -99,8 +99,10 @@ async function generateClip(prompt, durationSeconds, destPath) {
 async function runPipeline(schedule) {
   const run = await ContentScheduleRun.create(schedule.user_id, schedule.id);
   const tempFiles = [];
+  let stage = 'init';
 
   try {
+    stage = 'writing_script';
     await ContentScheduleRun.setStatus(run.id, 'writing_script');
     const sceneSeconds = env.contentPipeline.clipSeconds;
     const sceneCount = Math.max(1, Math.round(schedule.target_duration_seconds / sceneSeconds));
@@ -108,12 +110,14 @@ async function runPipeline(schedule) {
     await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
     logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);
 
+    stage = 'generating_voiceover';
     await ContentScheduleRun.setStatus(run.id, 'generating_voiceover');
     const fullNarration = script.scenes.map((s) => s.narration).join(' ');
     const voiceoverPath = path.join(env.upload.tempDir, `${run.id}_voice.mp3`);
     await googleTtsService.synthesizeToFile(fullNarration, voiceoverPath, schedule.voice_name);
     tempFiles.push(voiceoverPath);
 
+    stage = 'generating_clips';
     await ContentScheduleRun.setStatus(run.id, 'generating_clips');
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
@@ -123,6 +127,7 @@ async function runPipeline(schedule) {
       tempFiles.push(clipPath);
     }
 
+    stage = 'stitching';
     await ContentScheduleRun.setStatus(run.id, 'stitching');
     const stitchedPath = path.join(env.upload.tempDir, `${run.id}_stitched.mp4`);
     await ffmpeg.concatClips(clipPaths, stitchedPath);
@@ -132,10 +137,12 @@ async function runPipeline(schedule) {
     await ffmpeg.mergeAudioVideo(stitchedPath, voiceoverPath, finalPath);
     tempFiles.push(finalPath);
 
+    stage = 'uploading_drive';
     await ContentScheduleRun.setStatus(run.id, 'uploading_drive');
     const fileName = `${script.topic.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.mp4`;
     const uploaded = await driveService.uploadFile(schedule.user_id, schedule.drive_folder_id, finalPath, fileName);
 
+    stage = 'posting_facebook';
     await ContentScheduleRun.setStatus(run.id, 'posting_facebook');
     const page = await Page.findById(schedule.user_id, schedule.page_db_id);
     const fbVideoId = await facebookService.uploadVideoToPage({
@@ -153,9 +160,10 @@ async function runPipeline(schedule) {
     await notifyUploadEvent(schedule.user_id, { type: 'success', videoName: fileName, pageName: schedule.page_name });
     logger.info(`[content-pipeline] completed for schedule ${schedule.id}, fb video id: ${fbVideoId}`);
   } catch (err) {
-    await ContentScheduleRun.markFailed(run.id, err.message);
-    await Log.record(schedule.user_id, 'Content Pipeline Failed', { keyword: schedule.keyword, error: err.message }, 'error');
-    logger.error(`[content-pipeline] failed for schedule ${schedule.id}: ${err.message}`);
+    const message = `[${stage}] ${err.message}`;
+    await ContentScheduleRun.markFailed(run.id, message);
+    await Log.record(schedule.user_id, 'Content Pipeline Failed', { keyword: schedule.keyword, error: message }, 'error');
+    logger.error(`[content-pipeline] failed for schedule ${schedule.id}: ${message}`);
   } finally {
     tempFiles.forEach(driveService.deleteTempFile);
   }
