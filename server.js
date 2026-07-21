@@ -46,6 +46,7 @@ app.use('/api/settings', require('./routes.settings'));
 app.use('/api/dashboard', require('./routes.dashboard'));
 app.use('/api/notifications', require('./routes.notifications'));
 app.use('/api/admin', require('./routes.admin'));
+app.use('/api/videogen', require('./routes.videogen'));
 
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'OK' }));
 

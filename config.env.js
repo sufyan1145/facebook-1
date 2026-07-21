@@ -75,4 +75,11 @@ module.exports = {
     scheduleCheckCron: process.env.SCHEDULE_CHECK_CRON || '* * * * *',
     maxRandomDelaySeconds: Number(process.env.MAX_RANDOM_DELAY_SECONDS) || 300,
   },
+
+  kie: {
+    apiKey: process.env.KIE_API_KEY,
+    baseUrl: process.env.KIE_BASE_URL || 'https://api.kie.ai',
+    model: process.env.KIE_VIDEO_MODEL || 'kling/v2-5-turbo-pro-text-to-video',
+    pollCron: process.env.VIDEOGEN_POLL_CRON || '*/1 * * * *', // check every minute
+  },
 };

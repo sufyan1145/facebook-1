@@ -40,6 +40,7 @@ function renderNav(active) {
   const items = [
     { href: 'dashboard.html', label: 'Dashboard', icon: '◆', key: 'dashboard' },
     { href: 'drive.html', label: 'Drive Folders', icon: '▤', key: 'drive' },
+    { href: 'videogen.html', label: 'Video Generator', icon: '✦', key: 'videogen' },
     { href: 'pages.html', label: 'Facebook Pages', icon: '▣', key: 'pages' },
     { href: 'schedule.html', label: 'Schedules', icon: '◷', key: 'schedule' },
     { href: 'queue.html', label: 'Queue', icon: '≣', key: 'queue' },

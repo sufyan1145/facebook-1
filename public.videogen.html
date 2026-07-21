@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Video Generator — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>AI Video Generator</h1></div>
+    <div class="content">
+      <div class="card mb-16">
+        <div class="section-title">Generate a video from a topic</div>
+        <div class="field">
+          <label for="topicInput">Topic / prompt</label>
+          <textarea id="topicInput" rows="3" placeholder="e.g. A calm morning walk on a beach at sunrise, cinematic"></textarea>
+        </div>
+        <div class="field">
+          <label for="folderSelect">Save into Drive folder</label>
+          <select id="folderSelect"></select>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="durationSelect">Duration</label>
+            <select id="durationSelect">
+              <option value="5">5 seconds</option>
+              <option value="10">10 seconds</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="aspectSelect">Aspect ratio</label>
+            <select id="aspectSelect">
+              <option value="9:16">9:16 (Reels/Shorts)</option>
+              <option value="16:9">16:9 (Landscape)</option>
+              <option value="1:1">1:1 (Square)</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn" id="generateBtn" style="margin-top:12px;">Generate Video</button>
+        <div id="generateMsg" style="margin-top:8px; font-size:13px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="card">
+        <div class="flex-between mb-16">
+          <div class="section-title" style="margin-bottom:0;">Generation history</div>
+          <button class="btn sm" id="refreshJobsBtn">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Topic</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
+            <tbody id="jobsBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="videogen.js"></script>
+</body>
+</html>

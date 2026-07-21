@@ -103,6 +103,20 @@ async function downloadFile(userId, fileId, fileName) {
   });
 }
 
+async function uploadFile(userId, folderId, localFilePath, fileName, mimeType = 'video/mp4') {
+  const auth = await getValidGoogleClient(userId);
+  const drive = google.drive({ version: 'v3', auth });
+
+  const res = await drive.files.create({
+    requestBody: { name: fileName, parents: [folderId] },
+    media: { mimeType, body: fs.createReadStream(localFilePath) },
+    fields: 'id, name',
+  });
+
+  logger.info(`Uploaded ${fileName} to Drive folder ${folderId}, file id ${res.data.id}`);
+  return res.data;
+}
+
 function deleteTempFile(filePath) {
   if (filePath && fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
@@ -110,4 +124,4 @@ function deleteTempFile(filePath) {
   }
 }
 
-module.exports = { listFolders, listUnpublishedVideos, downloadFile, deleteTempFile, VIDEO_MIME_TYPES };
+module.exports = { listFolders, listUnpublishedVideos, downloadFile, uploadFile, deleteTempFile, VIDEO_MIME_TYPES };
