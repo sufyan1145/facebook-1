@@ -15,7 +15,7 @@ const RUN_STATUS_LABEL = {
 function renderScheduleRows(schedules) {
   const body = document.getElementById('scheduleBody');
   if (!schedules.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">No content schedules yet. Create one on the left.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">No content schedules yet. Create one on the left.</td></tr>';
     return;
   }
   body.innerHTML = schedules
@@ -25,6 +25,7 @@ function renderScheduleRows(schedules) {
         <td>${escapeHtml(s.page_name)}</td>
         <td>${s.target_duration_seconds}s</td>
         <td style="text-transform:capitalize;">${s.repeat_type === 'interval_hours' ? `Every ${s.interval_hours || '?'}h` : s.repeat_type === 'multiple_times' ? (Array.isArray(s.times) ? s.times.join(', ') : 'multiple times') : s.repeat_type.replace('_', ' ')}</td>
+        <td>${s.repeat_type === 'interval_hours' || s.repeat_type === 'multiple_times' ? '—' : `${escapeHtml(s.upload_time || '—')}${s.timezone ? ` (${escapeHtml(s.timezone)})` : ''}`}</td>
         <td><span class="badge ${s.is_active ? 'success' : 'failed'}">${s.is_active ? 'Active' : 'Paused'}</span></td>
         <td style="display:flex; gap:6px;">
           <button class="btn sm" data-toggle="${s.id}" data-active="${s.is_active}">${s.is_active ? 'Pause' : 'Resume'}</button>
@@ -55,7 +56,7 @@ async function loadSchedules() {
     const { data } = await apiFetch('/content-schedules');
     renderScheduleRows(data);
   } catch (err) {
-    document.getElementById('scheduleBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    document.getElementById('scheduleBody').innerHTML = `<tr><td colspan="7" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
