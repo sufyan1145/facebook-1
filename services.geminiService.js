@@ -27,15 +27,22 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
   ]
 }`;
 
-  const resp = await retryOn429(
-    () =>
-      axios.post(
-        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-        { contents: [{ parts: [{ text: prompt }] }] },
-        { params: { key: env.googleAi.geminiApiKey } }
-      ),
-    { label: 'Gemini script' }
-  );
+  let resp;
+  try {
+    resp = await retryOn429(
+      () =>
+        axios.post(
+          `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+          { contents: [{ parts: [{ text: prompt }] }] },
+          { params: { key: env.googleAi.geminiApiKey } }
+        ),
+      { label: 'Gemini script' }
+    );
+  } catch (err) {
+    const geminiError = err.response?.data?.error;
+    logger.error(`[Gemini] writeScript FAILED: ${JSON.stringify(geminiError || err.message)}`);
+    throw new Error(geminiError?.message || err.message);
+  }
 
   const text = resp.data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini returned no script text');
