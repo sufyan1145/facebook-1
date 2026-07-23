@@ -11,14 +11,16 @@ const client = axios.create({
 
 // Kicks off a text-to-video generation job. Returns Kie's taskId (job is async).
 async function createVideoTask({ prompt, duration, aspectRatio }) {
-  const resp = await client.post('/api/v1/jobs/createTask', {
+  const requestBody = {
     model: env.kie.model,
     input: {
       prompt,
       duration: String(duration || '5'),
       aspect_ratio: aspectRatio || '9:16',
     },
-  });
+  };
+  logger.info(`[video-gen] createTask request: ${JSON.stringify(requestBody)}`);
+  const resp = await client.post('/api/v1/jobs/createTask', requestBody);
 
   const body = resp.data;
   logger.info(`[video-gen] createTask response: ${JSON.stringify(body)}`);
