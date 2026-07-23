@@ -5,7 +5,7 @@ const logger = require('./utils.logger');
 
 function run(args) {
   return new Promise((resolve, reject) => {
-    execFile('ffmpeg', args, { maxBuffer: 1024 * 1024 * 50 }, (err, stdout, stderr) => {
+    execFile('ffmpeg', args, { maxBuffer: 1024 * 1024 * 50, timeout: 120000 }, (err, stdout, stderr) => {
       if (err) {
         logger.error(`[ffmpeg] failed: ${stderr?.slice(-2000) || err.message}`);
         return reject(new Error(`ffmpeg failed: ${err.message}`));
@@ -76,11 +76,11 @@ async function normalizeClip(inputPath, durationSeconds, outputPath) {
     '-y',
     '-stream_loop', '-1',
     '-i', inputPath,
-    '-t', String(durationSeconds),
     '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p',
     '-r', '25',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
     '-an',
+    '-t', String(durationSeconds),
     outputPath,
   ]);
   return outputPath;
