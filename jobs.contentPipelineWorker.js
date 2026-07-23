@@ -174,6 +174,7 @@ async function runPipeline(schedule) {
     const sceneAudioPaths = [];
     const sceneDurations = [];
     for (let i = 0; i < script.scenes.length; i++) {
+      if (i > 0) await sleep(21000); // Gemini TTS free tier is ~3 requests/minute - space calls out to avoid 429s
       const sceneAudioPath = path.join(env.upload.tempDir, `${run.id}_voice${i}.mp3`);
       await googleTtsService.synthesizeToFile(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
       const duration = await ffmpeg.getMediaDuration(sceneAudioPath);
