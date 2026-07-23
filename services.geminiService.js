@@ -11,6 +11,7 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
  * (what the video clip for that scene should show).
  */
 async function writeScript(keyword, { sceneCount, sceneSeconds }) {
+  logger.info(`[Gemini] Using model value: ${JSON.stringify(env.googleAi.geminiModel)} (length: ${env.googleAi.geminiModel.length})`);
   const prompt = `You are writing a short documentary-style video script about: "${keyword}".
 
 Pick ONE specific, interesting angle or fact within this topic (not a generic overview) so the video feels fresh.
