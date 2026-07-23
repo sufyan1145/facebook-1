@@ -63,4 +63,42 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
   return parsed;
 }
 
-module.exports = { writeScript };
+module.exports = { writeScript, generateImage };
+
+/**
+ * Generates a still image from a text prompt using Gemini's own image model
+ * (gemini-2.5-flash-image, aka "Nano Banana"). Saves the result as a PNG file.
+ * This is a free-tier alternative to paying for Kie.ai image credits.
+ */
+async function generateImage(prompt, destPath) {
+  const fs = require('fs');
+  const model = env.googleAi.imageModel;
+  logger.info(`[Gemini] generateImage using model: ${JSON.stringify(model)}`);
+
+  let resp;
+  try {
+    resp = await retryOn429(
+      () =>
+        axios.post(
+          `${BASE_URL}/models/${model}:generateContent`,
+          {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseModalities: ['IMAGE'] },
+          },
+          { params: { key: env.googleAi.geminiApiKey } }
+        ),
+      { label: 'Gemini image' }
+    );
+  } catch (err) {
+    const geminiError = err.response?.data?.error;
+    logger.error(`[Gemini] generateImage FAILED: ${JSON.stringify(geminiError || err.message)}`);
+    throw new Error(geminiError?.message || err.message);
+  }
+
+  const parts = resp.data.candidates?.[0]?.content?.parts || [];
+  const imagePart = parts.find((p) => p.inlineData?.data);
+  if (!imagePart) throw new Error('Gemini returned no image data');
+
+  fs.writeFileSync(destPath, Buffer.from(imagePart.inlineData.data, 'base64'));
+  return destPath;
+}

@@ -103,25 +103,31 @@ async function generateClip(prompt, durationSeconds, destPath) {
 // Cheaper path: one AI-generated still image per scene, animated with a zoom/pan
 // (Ken Burns) effect instead of a full AI text-to-video render.
 async function generateClipFromImage(prompt, durationSeconds, destPath) {
-  const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: '9:16' });
-  const maxAttempts = 30; // images are much faster than video, ~5 min ceiling
-  let imagePath = null;
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(5000);
-    const status = await kieVideoService.getTaskStatus(taskId);
-    const state = status.state || status.status;
-    if (state === 'success') {
-      const url = kieVideoService.extractResultUrl(status);
-      if (!url) throw new Error('Image generated but no result URL was returned');
-      imagePath = destPath.replace(/\.mp4$/, '.png');
-      await kieVideoService.downloadResult(url, imagePath);
-      break;
+  const imagePath = destPath.replace(/\.mp4$/, '.png');
+
+  if (env.contentPipeline.imageProvider === 'gemini') {
+    await geminiService.generateImage(prompt, imagePath);
+  } else {
+    const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: '9:16' });
+    const maxAttempts = 30; // images are much faster than video, ~5 min ceiling
+    let done = false;
+    for (let i = 0; i < maxAttempts; i++) {
+      await sleep(5000);
+      const status = await kieVideoService.getTaskStatus(taskId);
+      const state = status.state || status.status;
+      if (state === 'success') {
+        const url = kieVideoService.extractResultUrl(status);
+        if (!url) throw new Error('Image generated but no result URL was returned');
+        await kieVideoService.downloadResult(url, imagePath);
+        done = true;
+        break;
+      }
+      if (state === 'fail') {
+        throw new Error(status.failMsg || status.failReason || 'Image generation failed');
+      }
     }
-    if (state === 'fail') {
-      throw new Error(status.failMsg || status.failReason || 'Image generation failed');
-    }
+    if (!done) throw new Error('Image generation timed out');
   }
-  if (!imagePath) throw new Error('Image generation timed out');
 
   await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath);
   fs.unlinkSync(imagePath);
