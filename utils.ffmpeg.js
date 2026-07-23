@@ -7,8 +7,9 @@ function run(args) {
   return new Promise((resolve, reject) => {
     execFile('ffmpeg', args, { maxBuffer: 1024 * 1024 * 50, timeout: 120000 }, (err, stdout, stderr) => {
       if (err) {
-        logger.error(`[ffmpeg] failed: ${stderr?.slice(-2000) || err.message}`);
-        return reject(new Error(`ffmpeg failed: ${err.message}`));
+        const detail = stderr?.slice(-2000) || '(no stderr output)';
+        logger.error(`[ffmpeg] failed: code=${err.code} signal=${err.signal} message=${err.message} | stderr tail: ${detail}`);
+        return reject(new Error(`ffmpeg failed (code=${err.code}, signal=${err.signal}): ${err.message}`));
       }
       resolve({ stdout, stderr });
     });
@@ -21,7 +22,7 @@ async function concatClips(clipPaths, outputPath) {
   const listContent = clipPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
   fs.writeFileSync(listPath, listContent);
 
-  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-an', outputPath]);
+  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2', '-an', outputPath]);
   fs.unlinkSync(listPath);
   return outputPath;
 }
@@ -62,7 +63,7 @@ async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath) {
       `format=yuv420p`,
     '-t', String(durationSeconds),
     '-r', String(fps),
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
     '-an',
     outputPath,
   ]);
@@ -78,7 +79,7 @@ async function normalizeClip(inputPath, durationSeconds, outputPath) {
     '-i', inputPath,
     '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p',
     '-r', '25',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
     '-an',
     '-t', String(durationSeconds),
     outputPath,
