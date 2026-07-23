@@ -5,6 +5,7 @@
  */
 const cron = require('node-cron');
 const path = require('path');
+const fs = require('fs');
 const env = require('./config.env');
 const logger = require('./utils.logger');
 const ContentSchedule = require('./models.ContentSchedule');
@@ -77,6 +78,9 @@ function sleep(ms) {
 }
 
 async function generateClip(prompt, durationSeconds, destPath) {
+  if (env.contentPipeline.clipMode === 'image_kenburns') {
+    return generateClipFromImage(prompt, durationSeconds, destPath);
+  }
   const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: '9:16' });
   const maxAttempts = 60; // up to ~10 minutes per clip
   for (let i = 0; i < maxAttempts; i++) {
@@ -94,6 +98,34 @@ async function generateClip(prompt, durationSeconds, destPath) {
     }
   }
   throw new Error('Clip generation timed out');
+}
+
+// Cheaper path: one AI-generated still image per scene, animated with a zoom/pan
+// (Ken Burns) effect instead of a full AI text-to-video render.
+async function generateClipFromImage(prompt, durationSeconds, destPath) {
+  const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: '9:16' });
+  const maxAttempts = 30; // images are much faster than video, ~5 min ceiling
+  let imagePath = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(5000);
+    const status = await kieVideoService.getTaskStatus(taskId);
+    const state = status.state || status.status;
+    if (state === 'success') {
+      const url = kieVideoService.extractResultUrl(status);
+      if (!url) throw new Error('Image generated but no result URL was returned');
+      imagePath = destPath.replace(/\.mp4$/, '.jpg');
+      await kieVideoService.downloadResult(url, imagePath);
+      break;
+    }
+    if (state === 'fail') {
+      throw new Error(status.failMsg || status.failReason || 'Image generation failed');
+    }
+  }
+  if (!imagePath) throw new Error('Image generation timed out');
+
+  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath);
+  fs.unlinkSync(imagePath);
+  return destPath;
 }
 
 async function runPipeline(schedule) {

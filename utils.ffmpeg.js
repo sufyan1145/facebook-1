@@ -42,4 +42,31 @@ async function pcmToMp3(pcmPath, mp3Path) {
   return mp3Path;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3 };
+// Turns a still image into a short video clip with a slow zoom/pan (Ken Burns) effect.
+// Cheaper alternative to AI text-to-video: one AI image per scene instead of per-second video credits.
+async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath) {
+  const fps = 25;
+  const frames = Math.max(1, Math.round(durationSeconds * fps));
+  const maxZoom = 1.15; // slow, subtle zoom-in over the clip
+  const zoomStep = ((maxZoom - 1) / frames).toFixed(8);
+  const width = 1080;
+  const height = 1920;
+
+  await run([
+    '-y',
+    '-loop', '1',
+    '-i', imagePath,
+    '-vf',
+    `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},` +
+      `zoompan=z='min(zoom+${zoomStep},${maxZoom})':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps},` +
+      `format=yuv420p`,
+    '-t', String(durationSeconds),
+    '-r', String(fps),
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    '-an',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip };

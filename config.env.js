@@ -80,6 +80,7 @@ module.exports = {
     apiKey: process.env.KIE_API_KEY,
     baseUrl: process.env.KIE_BASE_URL || 'https://api.kie.ai',
     model: (process.env.KIE_VIDEO_MODEL || 'kling/v2-1-standard').trim(),
+    imageModel: (process.env.KIE_IMAGE_MODEL || 'gpt-image-2-text-to-image').trim(),
     pollCron: process.env.VIDEOGEN_POLL_CRON || '*/1 * * * *', // check every minute
   },
 
@@ -92,5 +93,8 @@ module.exports = {
   contentPipeline: {
     checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip
+    // 'video'  = AI text-to-video clips (Kie/Kling, costs credits per second of video)
+    // 'image_kenburns' = one AI image per scene + pan/zoom effect (much cheaper, no video-gen credits needed)
+    clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
   },
 };

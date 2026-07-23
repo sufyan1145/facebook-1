@@ -76,4 +76,31 @@ function extractResultUrl(statusData) {
   return (rj.resultUrls && rj.resultUrls[0]) || (rj.urls && rj.urls[0]) || rj.url || null;
 }
 
-module.exports = { createVideoTask, getTaskStatus, downloadResult, extractResultUrl };
+// Kicks off a text-to-image generation job (used by the cheaper 'image_kenburns' clip mode).
+// Returns Kie's taskId (job is async) — reuse getTaskStatus/downloadResult/extractResultUrl below.
+async function createImageTask({ prompt, aspectRatio }) {
+  const requestBody = {
+    model: env.kie.imageModel,
+    input: {
+      prompt,
+      aspect_ratio: aspectRatio || '9:16',
+    },
+  };
+  logger.info(`[image-gen] createTask request: ${JSON.stringify(requestBody)}`);
+  const resp = await client.post('/api/v1/jobs/createTask', requestBody);
+
+  const body = resp.data;
+  logger.info(`[image-gen] createTask response: ${JSON.stringify(body)}`);
+
+  if (body.code !== undefined && body.code !== 200 && body.code !== 0) {
+    throw new Error(body.msg || body.message || `Kie.ai rejected the request (code ${body.code})`);
+  }
+
+  const taskId = body.data?.taskId || body.taskId;
+  if (!taskId) {
+    throw new Error(`Kie.ai did not return a taskId: ${JSON.stringify(body)}`);
+  }
+  return taskId;
+}
+
+module.exports = { createVideoTask, createImageTask, getTaskStatus, downloadResult, extractResultUrl };
