@@ -16,6 +16,7 @@ const geminiService = require('./services.geminiService');
 const googleTtsService = require('./services.googleTtsService');
 const kieVideoService = require('./services.kieVideoService');
 const pollinationsService = require('./services.pollinationsService');
+const pexelsService = require('./services.pexelsService');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const ffmpeg = require('./utils.ffmpeg');
@@ -82,6 +83,9 @@ async function generateClip(prompt, durationSeconds, destPath) {
   if (env.contentPipeline.clipMode === 'image_kenburns') {
     return generateClipFromImage(prompt, durationSeconds, destPath);
   }
+  if (env.contentPipeline.clipMode === 'stock_video') {
+    return generateClipFromStock(prompt, durationSeconds, destPath);
+  }
   const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: '9:16' });
   const maxAttempts = 60; // up to ~10 minutes per clip
   for (let i = 0; i < maxAttempts; i++) {
@@ -134,6 +138,20 @@ async function generateClipFromImage(prompt, durationSeconds, destPath) {
 
   await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath);
   fs.unlinkSync(imagePath);
+  return destPath;
+}
+
+// Free path: real stock footage from Pexels instead of any AI generation.
+// Uses a short keyword query (first few words of the scene's visual prompt)
+// since stock search engines work better with simple terms than full sentences.
+async function generateClipFromStock(prompt, durationSeconds, destPath) {
+  const query = prompt.split(/\s+/).slice(0, 6).join(' ');
+  const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
+
+  const url = await pexelsService.searchVideoUrl(query);
+  await pexelsService.downloadVideo(url, rawPath);
+  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath);
+  fs.unlinkSync(rawPath);
   return destPath;
 }
 

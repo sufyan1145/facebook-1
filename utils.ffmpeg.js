@@ -69,4 +69,21 @@ async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip };
+// Trims/loops a downloaded stock clip to the exact target duration and scales/crops
+// it to a consistent 1080x1920 so it can be concatenated with the other clips.
+async function normalizeClip(inputPath, durationSeconds, outputPath) {
+  await run([
+    '-y',
+    '-stream_loop', '-1',
+    '-i', inputPath,
+    '-t', String(durationSeconds),
+    '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p',
+    '-r', '25',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+    '-an',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip };
