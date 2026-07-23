@@ -113,7 +113,7 @@ async function generateClipFromImage(prompt, durationSeconds, destPath) {
     if (state === 'success') {
       const url = kieVideoService.extractResultUrl(status);
       if (!url) throw new Error('Image generated but no result URL was returned');
-      imagePath = destPath.replace(/\.mp4$/, '.jpg');
+      imagePath = destPath.replace(/\.mp4$/, '.png');
       await kieVideoService.downloadResult(url, imagePath);
       break;
     }

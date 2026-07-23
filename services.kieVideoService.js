@@ -83,7 +83,8 @@ async function createImageTask({ prompt, aspectRatio }) {
     model: env.kie.imageModel,
     input: {
       prompt,
-      aspect_ratio: aspectRatio || '9:16',
+      image_size: aspectRatio || '9:16',
+      output_format: 'png',
     },
   };
   logger.info(`[image-gen] createTask request: ${JSON.stringify(requestBody)}`);

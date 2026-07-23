@@ -80,7 +80,7 @@ module.exports = {
     apiKey: process.env.KIE_API_KEY,
     baseUrl: process.env.KIE_BASE_URL || 'https://api.kie.ai',
     model: (process.env.KIE_VIDEO_MODEL || 'kling/v2-1-standard').trim(),
-    imageModel: (process.env.KIE_IMAGE_MODEL || 'gpt-image-2-text-to-image').trim(),
+    imageModel: (process.env.KIE_IMAGE_MODEL || 'google/nano-banana').trim(),
     pollCron: process.env.VIDEOGEN_POLL_CRON || '*/1 * * * *', // check every minute
   },
 
