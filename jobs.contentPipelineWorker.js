@@ -15,6 +15,7 @@ const Log = require('./models.Log');
 const geminiService = require('./services.geminiService');
 const googleTtsService = require('./services.googleTtsService');
 const kieVideoService = require('./services.kieVideoService');
+const pollinationsService = require('./services.pollinationsService');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const ffmpeg = require('./utils.ffmpeg');
@@ -107,6 +108,8 @@ async function generateClipFromImage(prompt, durationSeconds, destPath) {
 
   if (env.contentPipeline.imageProvider === 'gemini') {
     await geminiService.generateImage(prompt, imagePath);
+  } else if (env.contentPipeline.imageProvider === 'pollinations') {
+    await pollinationsService.generateImage(prompt, imagePath);
   } else {
     const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: '9:16' });
     const maxAttempts = 30; // images are much faster than video, ~5 min ceiling

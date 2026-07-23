@@ -97,7 +97,7 @@ module.exports = {
     // 'video'  = AI text-to-video clips (Kie/Kling, costs credits per second of video)
     // 'image_kenburns' = one AI image per scene + pan/zoom effect (much cheaper, no video-gen credits needed)
     clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
-    // who generates the still image when clipMode is 'image_kenburns': 'kie' (paid credits) or 'gemini' (free tier)
+    // who generates the still image when clipMode is 'image_kenburns': 'kie' (paid credits), 'gemini' (free tier, may be 0 quota), or 'pollinations' (free, no API key)
     imageProvider: (process.env.IMAGE_PROVIDER || 'kie').trim(),
   },
 };
