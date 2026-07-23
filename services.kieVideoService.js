@@ -17,6 +17,7 @@ async function createVideoTask({ prompt, duration, aspectRatio }) {
       prompt,
       duration: String(duration || '5'),
       aspect_ratio: aspectRatio || '9:16',
+      sound: false,
     },
   };
   logger.info(`[video-gen] createTask request: ${JSON.stringify(requestBody)}`);
