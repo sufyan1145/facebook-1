@@ -10,15 +10,20 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
  * Each scene has narration (what the voiceover says) and a visual_prompt
  * (what the video clip for that scene should show).
  */
-async function writeScript(keyword, { sceneCount, sceneSeconds }) {
+async function writeScript(keyword, { sceneCount, sceneSeconds, language }) {
   logger.info(`[Gemini] Using model value: ${JSON.stringify(env.googleAi.geminiModel)} (length: ${env.googleAi.geminiModel.length})`);
+  const narrationInstruction =
+    language === 'roman_urdu'
+      ? 'what the voiceover says, written in Roman Urdu (Urdu language, but spelled out using English/Latin letters, e.g. "aap kaisay hain" not Urdu script), no stage directions'
+      : 'what the voiceover says (plain spoken English, no stage directions)';
+
   const prompt = `You are writing a short documentary-style video script about: "${keyword}".
 
 Pick ONE specific, interesting angle or fact within this topic (not a generic overview) so the video feels fresh.
 Write exactly ${sceneCount} scenes. Each scene is about ${sceneSeconds} seconds of narration (roughly ${Math.round(sceneSeconds * 2.5)} words).
 For each scene, give:
-- "narration": what the voiceover says (plain spoken English, no stage directions)
-- "visual_prompt": a short, concrete visual description (for an AI video generator) of what should be shown on screen during that narration, cinematic and specific.
+- "narration": ${narrationInstruction}
+- "visual_prompt": a short, concrete visual description IN ENGLISH (used for an AI video generator / stock footage search, regardless of narration language) of what should be shown on screen during that narration, cinematic and specific.
 
 Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
 {

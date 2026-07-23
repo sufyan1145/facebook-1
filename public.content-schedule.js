@@ -159,6 +159,7 @@ async function loadOptions() {
           folderId: document.getElementById('folderId').value,
           targetDurationSeconds: Number(document.getElementById('duration').value),
           voiceName: document.getElementById('voiceName').value,
+          language: document.getElementById('language').value,
           uploadTime: document.getElementById('uploadTime').value,
           timezone: document.getElementById('timezone').value,
           repeat: document.getElementById('repeat').value,

@@ -165,7 +165,7 @@ async function runPipeline(schedule) {
     await ContentScheduleRun.setStatus(run.id, 'writing_script');
     const sceneSeconds = env.contentPipeline.clipSeconds;
     const sceneCount = Math.max(1, Math.round(schedule.target_duration_seconds / sceneSeconds));
-    const script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds });
+    const script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language });
     await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
     logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);
 
