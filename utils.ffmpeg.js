@@ -87,4 +87,32 @@ async function normalizeClip(inputPath, durationSeconds, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip };
+
+// Returns the duration (in seconds, float) of an audio/video file using ffprobe.
+function getMediaDuration(filePath) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'ffprobe',
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath],
+      (err, stdout) => {
+        if (err) return reject(new Error(`ffprobe failed: ${err.message}`));
+        const seconds = parseFloat(stdout.trim());
+        if (!seconds || Number.isNaN(seconds)) return reject(new Error(`ffprobe returned no duration for ${filePath}`));
+        resolve(seconds);
+      }
+    );
+  });
+}
+
+// Concatenates per-scene voiceover audio files (same codec expected) into one track.
+async function concatAudio(audioPaths, outputPath) {
+  const listPath = outputPath.replace(/\.mp3$/, '.txt');
+  const listContent = audioPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
+  fs.writeFileSync(listPath, listContent);
+
+  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', outputPath]);
+  fs.unlinkSync(listPath);
+  return outputPath;
+}
+
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio };

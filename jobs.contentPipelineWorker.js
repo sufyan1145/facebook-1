@@ -171,9 +171,18 @@ async function runPipeline(schedule) {
 
     stage = 'generating_voiceover';
     await ContentScheduleRun.setStatus(run.id, 'generating_voiceover');
-    const fullNarration = script.scenes.map((s) => s.narration).join(' ');
+    const sceneAudioPaths = [];
+    const sceneDurations = [];
+    for (let i = 0; i < script.scenes.length; i++) {
+      const sceneAudioPath = path.join(env.upload.tempDir, `${run.id}_voice${i}.mp3`);
+      await googleTtsService.synthesizeToFile(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+      const duration = await ffmpeg.getMediaDuration(sceneAudioPath);
+      sceneAudioPaths.push(sceneAudioPath);
+      sceneDurations.push(duration);
+      tempFiles.push(sceneAudioPath);
+    }
     const voiceoverPath = path.join(env.upload.tempDir, `${run.id}_voice.mp3`);
-    await googleTtsService.synthesizeToFile(fullNarration, voiceoverPath, schedule.voice_name);
+    await ffmpeg.concatAudio(sceneAudioPaths, voiceoverPath);
     tempFiles.push(voiceoverPath);
 
     stage = 'generating_clips';
@@ -181,7 +190,9 @@ async function runPipeline(schedule) {
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
       const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-      await generateClip(script.scenes[i].visual_prompt, sceneSeconds, clipPath);
+      // Match this scene's clip length to its own narration's actual duration,
+      // instead of a fixed estimate, so audio and visuals stay in sync per-scene.
+      await generateClip(script.scenes[i].visual_prompt, sceneDurations[i], clipPath);
       clipPaths.push(clipPath);
       tempFiles.push(clipPath);
     }
