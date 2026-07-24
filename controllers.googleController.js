@@ -10,7 +10,7 @@ function getAuthUrl(req, res) {
   const oAuth2Client = getOAuth2Client();
   const url = oAuth2Client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent',
+    prompt: 'consent select_account', // always show the account picker so a different Gmail can be chosen, even if the browser is already signed into another Google account
     scope: env.google.scopes,
     state: req.user.id,
   });
