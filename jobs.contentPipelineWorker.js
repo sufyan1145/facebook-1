@@ -17,6 +17,7 @@ const googleTtsService = require('./services.googleTtsService');
 const kieVideoService = require('./services.kieVideoService');
 const pollinationsService = require('./services.pollinationsService');
 const pexelsService = require('./services.pexelsService');
+const youtubeService = require('./services.youtubeService');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const ffmpeg = require('./utils.ffmpeg');
@@ -218,6 +219,29 @@ async function runPipeline(schedule) {
     await Log.record(schedule.user_id, 'Content Pipeline Completed', { keyword: schedule.keyword, topic: script.topic, page: schedule.page_name });
     await notifyUploadEvent(schedule.user_id, { type: 'success', videoName: fileName, pageName: schedule.page_name });
     logger.info(`[content-pipeline] completed for schedule ${schedule.id}, fb video id: ${fbVideoId}`);
+
+    // YouTube is optional and best-effort: a failure here should NOT mark an
+    // otherwise-successful run (Facebook already posted) as failed.
+    if (schedule.post_to_youtube) {
+      try {
+        stage = 'posting_youtube';
+        await ContentScheduleRun.setStatus(run.id, 'posting_youtube');
+        const tags = (schedule.hashtags || '')
+          .split(/\s+/)
+          .map((h) => h.replace(/^#/, '').trim())
+          .filter(Boolean);
+        const youtubeVideoId = await youtubeService.uploadVideo(schedule.user_id, finalPath, {
+          title: script.topic,
+          description: schedule.caption || script.topic,
+          tags,
+        });
+        await Log.record(schedule.user_id, 'YouTube Upload Completed', { keyword: schedule.keyword, youtubeVideoId });
+        logger.info(`[content-pipeline] YouTube upload succeeded for schedule ${schedule.id}, video id: ${youtubeVideoId}`);
+      } catch (ytErr) {
+        await Log.record(schedule.user_id, 'YouTube Upload Failed', { keyword: schedule.keyword, error: ytErr.message }, 'error');
+        logger.error(`[content-pipeline] YouTube upload failed for schedule ${schedule.id}: ${ytErr.message}`);
+      }
+    }
   } catch (err) {
     const message = `[${stage}] ${err.message}`;
     await ContentScheduleRun.markFailed(run.id, message);

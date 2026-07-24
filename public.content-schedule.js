@@ -169,6 +169,7 @@ async function loadOptions() {
           caption: document.getElementById('caption').value,
           hashtags: document.getElementById('hashtags').value,
           publishImmediately: document.getElementById('publishImmediately').checked,
+          postToYoutube: document.getElementById('postToYoutube').checked,
         }),
       });
       e.target.reset();
