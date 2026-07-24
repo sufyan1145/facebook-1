@@ -27,7 +27,7 @@ Pick ONE specific, interesting angle or fact within this topic (not a generic ov
 Write exactly ${sceneCount} scenes. Each scene is about ${sceneSeconds} seconds of narration (roughly ${Math.round(sceneSeconds * 2.5)} words).
 For each scene, give:
 - "narration": ${narrationInstruction}
-- "visual_prompt": a short, concrete visual description IN ENGLISH (used for an AI video generator / stock footage search, regardless of narration language) of what should be shown on screen during that narration, cinematic and specific.
+- "visual_prompt": a detailed, specific still-image description IN ENGLISH (used to generate a single AI photo for this scene, regardless of narration language) of exactly what should be shown. Describe: the specific subject/action tied directly to what the narration says (not a generic stand-in image), the setting/background, camera framing (e.g. "close-up", "wide establishing shot", "aerial view"), lighting mood (e.g. "golden hour", "moody overcast", "dramatic side-lighting"), and visual style ("photorealistic, cinematic, highly detailed"). Each scene's visual_prompt must be visually distinct from the others (avoid repeating the same shot/subject/framing twice).
 ${languageReminder}
 Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
 {

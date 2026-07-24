@@ -95,6 +95,9 @@ async function generateClip(prompt, durationSeconds, destPath, format) {
   if (env.contentPipeline.clipMode === 'stock_video') {
     return generateClipFromStock(prompt, durationSeconds, destPath, format);
   }
+  if (env.contentPipeline.clipMode === 'veo') {
+    return generateClipFromVeo(prompt, durationSeconds, destPath, format);
+  }
   const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
   const maxAttempts = 60; // up to ~10 minutes per clip
   for (let i = 0; i < maxAttempts; i++) {
@@ -116,13 +119,16 @@ async function generateClip(prompt, durationSeconds, destPath, format) {
 
 // Cheaper path: one AI-generated still image per scene, animated with a zoom/pan
 // (Ken Burns) effect instead of a full AI text-to-video render.
-async function generateClipFromImage(prompt, durationSeconds, destPath, format) {
+async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format) {
   const imagePath = destPath.replace(/\.mp4$/, '.png');
+  // Boost every image's visual quality consistently, regardless of what the
+  // script prompt already included and regardless of which image provider is used.
+  const prompt = `${rawPrompt}, professional cinematography, photorealistic, highly detailed, dramatic lighting, sharp focus, 8k quality`;
 
   if (env.contentPipeline.imageProvider === 'gemini') {
     await geminiService.generateImage(prompt, imagePath);
   } else if (env.contentPipeline.imageProvider === 'pollinations') {
-    await pollinationsService.generateImage(prompt, imagePath);
+    await pollinationsService.generateImage(prompt, imagePath, format.width, format.height);
   } else {
     const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: format.aspectRatio });
     const maxAttempts = 30; // images are much faster than video, ~5 min ceiling
@@ -171,6 +177,36 @@ function getVideoFormat(youtubeVideoType) {
     return { aspectRatio: '16:9', orientation: 'landscape', width: 1920, height: 1080 };
   }
   return { aspectRatio: '9:16', orientation: 'portrait', width: 1080, height: 1920 };
+}
+
+// Google Veo3 (via Kie.ai) - highest cinematic quality and the strongest prompt
+// adherence of the available options, at higher cost. Veo always renders a fixed
+// ~8-second clip regardless of requested length, so we trim/loop it afterwards
+// to match this scene's actual duration (keeping it in sync with the voiceover).
+async function generateClipFromVeo(prompt, durationSeconds, destPath, format) {
+  const taskId = await kieVideoService.createVeoVideoTask({ prompt, aspectRatio: format.aspectRatio });
+  const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
+  const maxAttempts = 60; // Veo can take several minutes per clip
+  let done = false;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(10000);
+    const status = await kieVideoService.getVeoTaskStatus(taskId);
+    if (status.successFlag === 1) {
+      const url = kieVideoService.extractVeoResultUrl(status);
+      if (!url) throw new Error('Veo clip generated but no result URL was returned');
+      await kieVideoService.downloadResult(url, rawPath);
+      done = true;
+      break;
+    }
+    if (status.successFlag && status.successFlag !== 1) {
+      throw new Error(status.errorMessage || 'Veo clip generation failed');
+    }
+  }
+  if (!done) throw new Error('Veo clip generation timed out');
+
+  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
+  fs.unlinkSync(rawPath);
+  return destPath;
 }
 
 async function runPipeline(schedule) {
