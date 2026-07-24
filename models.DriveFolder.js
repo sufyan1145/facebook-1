@@ -38,6 +38,13 @@ const DriveFolder = {
     );
     return res.rows;
   },
+
+  // Clears the cached folder list for this user - used when they disconnect Drive,
+  // so a stale list from a previous Google account doesn't linger after reconnecting
+  // with a different one.
+  async deleteAllForUser(userId) {
+    await query('DELETE FROM drive_folders WHERE user_id = $1', [userId]);
+  },
 };
 
 module.exports = DriveFolder;

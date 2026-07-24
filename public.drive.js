@@ -64,8 +64,9 @@ function renderFolders(folders) {
 
   loadYoutubeAccounts();
 
+  const justConnected = new URLSearchParams(window.location.search).get('drive_connected') === '1';
   try {
-    const { data } = await apiFetch('/drive/folders');
+    const { data } = justConnected ? await apiFetch('/drive/browse') : await apiFetch('/drive/folders');
     renderFolders(data);
     if (data.length) document.getElementById('disconnectBtn').style.display = 'inline-flex';
   } catch (err) {

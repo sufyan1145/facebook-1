@@ -2,6 +2,7 @@ const { getOAuth2Client } = require('./services.tokenService');
 const { google } = require('googleapis');
 const env = require('./config.env');
 const GoogleToken = require('./models.GoogleToken');
+const DriveFolder = require('./models.DriveFolder');
 const User = require('./models.User');
 const Log = require('./models.Log');
 
@@ -46,6 +47,7 @@ async function handleCallback(req, res, next) {
 async function disconnect(req, res, next) {
   try {
     await GoogleToken.remove(req.user.id);
+    await DriveFolder.deleteAllForUser(req.user.id);
     await Log.record(req.user.id, 'Drive Disconnected', {});
     res.json({ success: true, message: 'Google Drive disconnected' });
   } catch (err) {
