@@ -93,10 +93,18 @@ async function loadRuns() {
 async function loadOptions() {
   const pageSelect = document.getElementById('pageId');
   const folderSelect = document.getElementById('folderId');
+  const youtubeSelect = document.getElementById('youtubeTokenId');
   try {
-    const [{ data: pages }, { data: folders }] = await Promise.all([apiFetch('/pages'), apiFetch('/drive/folders')]);
+    const [{ data: pages }, { data: folders }, { data: youtubeAccounts }] = await Promise.all([
+      apiFetch('/pages'),
+      apiFetch('/drive/folders'),
+      apiFetch('/auth/youtube/accounts'),
+    ]);
     pageSelect.innerHTML = pages.filter((p) => p.is_connected).map((p) => `<option value="${p.id}">${escapeHtml(p.page_name)}${p.fb_user_name ? ' — ' + escapeHtml(p.fb_user_name) : ''}</option>`).join('') || '<option value="">No pages connected</option>';
     folderSelect.innerHTML = folders.map((f) => `<option value="${f.id}">${escapeHtml(f.folder_name)}</option>`).join('') || '<option value="">No folders scanned</option>';
+    youtubeSelect.innerHTML =
+      '<option value="">Don\'t post to YouTube</option>' +
+      youtubeAccounts.map((a) => `<option value="${a.id}">${escapeHtml(a.channel_title || a.google_user_email || a.google_user_id)}</option>`).join('');
   } catch {
     /* leave empty */
   }
@@ -169,7 +177,7 @@ async function loadOptions() {
           caption: document.getElementById('caption').value,
           hashtags: document.getElementById('hashtags').value,
           publishImmediately: document.getElementById('publishImmediately').checked,
-          postToYoutube: document.getElementById('postToYoutube').checked,
+          youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
         }),
       });
       e.target.reset();

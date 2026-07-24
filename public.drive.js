@@ -1,3 +1,36 @@
+function renderYoutubeAccounts(accounts) {
+  const el = document.getElementById('youtubeAccountsList');
+  if (!accounts.length) {
+    el.innerHTML = '<span class="empty">No YouTube channels connected yet.</span>';
+    return;
+  }
+  el.innerHTML = accounts
+    .map(
+      (a) => `<span class="account-chip">
+        <span class="dot ok"></span>${escapeHtml(a.channel_title || a.google_user_email || a.google_user_id)}
+        <button class="btn xs danger" data-yt-id="${a.id}" title="Disconnect this YouTube channel">✕</button>
+      </span>`
+    )
+    .join('');
+
+  el.querySelectorAll('button[data-yt-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Disconnect this YouTube channel? Schedules posting to it will stop working.')) return;
+      await apiFetch(`/auth/youtube/disconnect/${btn.dataset.ytId}`, { method: 'POST' });
+      loadYoutubeAccounts();
+    });
+  });
+}
+
+async function loadYoutubeAccounts() {
+  try {
+    const { data } = await apiFetch('/auth/youtube/accounts');
+    renderYoutubeAccounts(data);
+  } catch (err) {
+    document.getElementById('youtubeAccountsList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`;
+  }
+}
+
 function formatBytes(bytes) {
   if (!bytes) return '0 MB';
   const mb = bytes / (1024 * 1024);
@@ -29,6 +62,8 @@ function renderFolders(folders) {
   if (!user) return;
   renderNav('drive');
 
+  loadYoutubeAccounts();
+
   try {
     const { data } = await apiFetch('/drive/folders');
     renderFolders(data);
@@ -49,7 +84,7 @@ function renderFolders(folders) {
 
   document.getElementById('connectYoutubeBtn').addEventListener('click', async () => {
     try {
-      const res = await fetch('/api/auth/google/connect?type=youtube', { credentials: 'include' });
+      const res = await fetch('/api/auth/youtube/connect', { credentials: 'include' });
       const json = await res.json();
       window.location.href = json.data.url;
     } catch (err) {

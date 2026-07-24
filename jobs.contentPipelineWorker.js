@@ -222,7 +222,7 @@ async function runPipeline(schedule) {
 
     // YouTube is optional and best-effort: a failure here should NOT mark an
     // otherwise-successful run (Facebook already posted) as failed.
-    if (schedule.post_to_youtube) {
+    if (schedule.youtube_token_id) {
       try {
         stage = 'posting_youtube';
         await ContentScheduleRun.setStatus(run.id, 'posting_youtube');
@@ -230,7 +230,7 @@ async function runPipeline(schedule) {
           .split(/\s+/)
           .map((h) => h.replace(/^#/, '').trim())
           .filter(Boolean);
-        const youtubeVideoId = await youtubeService.uploadVideo(schedule.user_id, finalPath, {
+        const youtubeVideoId = await youtubeService.uploadVideo(schedule.user_id, schedule.youtube_token_id, finalPath, {
           title: script.topic,
           description: schedule.caption || script.topic,
           tags,

@@ -35,6 +35,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth', require('./routes.auth'));
 app.use('/api/auth/google', require('./routes.google'));
 app.use('/api/auth/facebook', require('./routes.facebook'));
+app.use('/api/auth/youtube', require('./routes.youtube'));
 app.use('/api/drive', require('./routes.drive'));
 app.use('/api/folder-mapping', require('./routes.folderMapping'));
 app.use('/api/pages', require('./routes.pages'));

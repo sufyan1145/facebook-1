@@ -1,16 +1,17 @@
 const { google } = require('googleapis');
 const fs = require('fs');
-const { getValidGoogleClient } = require('./services.tokenService');
+const { getValidYoutubeClient } = require('./services.tokenService');
 const logger = require('./utils.logger');
 
 /**
- * Uploads a video to the connected Google account's YouTube channel.
+ * Uploads a video to a specific connected YouTube channel (identified by youtubeTokenId,
+ * since a user may have connected multiple channels, each its own separate Google login).
  * Vertical AI-generated clips are uploaded as YouTube Shorts by including
  * #Shorts in the title/description, which is how YouTube auto-detects them
  * (no separate "Shorts" API endpoint exists).
  */
-async function uploadVideo(userId, filePath, { title, description, tags, privacyStatus }) {
-  const auth = await getValidGoogleClient(userId);
+async function uploadVideo(userId, youtubeTokenId, filePath, { title, description, tags, privacyStatus }) {
+  const auth = await getValidYoutubeClient(userId, youtubeTokenId);
   const youtube = google.youtube({ version: 'v3', auth });
 
   const shortsTitle = title.length > 90 ? title.slice(0, 87) + '...' : title;

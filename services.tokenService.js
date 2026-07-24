@@ -3,10 +3,45 @@ const axios = require('axios');
 const env = require('./config.env');
 const GoogleToken = require('./models.GoogleToken');
 const FacebookToken = require('./models.FacebookToken');
+const YoutubeToken = require('./models.YoutubeToken');
 const logger = require('./utils.logger');
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(env.google.clientId, env.google.clientSecret, env.google.redirectUri);
+}
+
+// Separate OAuth2 client/redirect for YouTube, since each connected channel is its
+// own independent Google login (not the same account as the Drive connection).
+function getYoutubeOAuth2Client() {
+  return new google.auth.OAuth2(env.google.clientId, env.google.clientSecret, `${env.appUrl}/api/auth/youtube/callback`);
+}
+
+async function getValidYoutubeClient(userId, youtubeTokenId) {
+  const tokenRow = await YoutubeToken.findById(userId, youtubeTokenId);
+  if (!tokenRow) throw new Error('YouTube channel not connected');
+
+  const oAuth2Client = getYoutubeOAuth2Client();
+  oAuth2Client.setCredentials({
+    access_token: tokenRow.access_token,
+    refresh_token: tokenRow.refresh_token,
+    expiry_date: tokenRow.expiry_time ? new Date(tokenRow.expiry_time).getTime() : undefined,
+  });
+
+  const isExpired = !tokenRow.expiry_time || new Date(tokenRow.expiry_time).getTime() - Date.now() < 60000;
+  if (isExpired && tokenRow.refresh_token) {
+    const { credentials } = await oAuth2Client.refreshAccessToken();
+    oAuth2Client.setCredentials(credentials);
+    await YoutubeToken.upsert(userId, {
+      googleUserId: tokenRow.google_user_id,
+      accessToken: credentials.access_token,
+      refreshToken: credentials.refresh_token || tokenRow.refresh_token,
+      expiryTime: credentials.expiry_date ? new Date(credentials.expiry_date) : null,
+      scope: credentials.scope,
+    });
+    logger.info(`Refreshed YouTube token for user ${userId}, channel ${tokenRow.channel_title || tokenRow.google_user_id}`);
+  }
+
+  return oAuth2Client;
 }
 
 async function getValidGoogleClient(userId) {
@@ -67,4 +102,4 @@ async function getValidFacebookToken(userId, facebookTokenId) {
   return tokenRow.access_token;
 }
 
-module.exports = { getOAuth2Client, getValidGoogleClient, getValidFacebookToken };
+module.exports = { getOAuth2Client, getYoutubeOAuth2Client, getValidGoogleClient, getValidYoutubeClient, getValidFacebookToken };

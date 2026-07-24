@@ -18,11 +18,17 @@
       <h1>Google Drive Folders</h1>
       <div class="status-pills">
         <button class="btn sm" id="connectBtn">Connect Drive</button>
-        <button class="btn sm" id="connectYoutubeBtn">Connect YouTube</button>
         <button class="btn sm danger" id="disconnectBtn" style="display:none;">Disconnect</button>
       </div>
     </div>
     <div class="content">
+      <div class="card mb-16">
+        <div class="flex-between mb-16">
+          <div class="section-title" style="margin-bottom:0;">Connected YouTube Channels</div>
+          <button class="btn sm" id="connectYoutubeBtn">+ Add YouTube channel</button>
+        </div>
+        <div id="youtubeAccountsList" class="accounts-list"><span class="empty">Loading…</span></div>
+      </div>
       <div class="card mb-16">
         <input id="searchInput" placeholder="Search folders by name…" style="width:100%; background:var(--panel-2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; color:var(--text);" />
       </div>

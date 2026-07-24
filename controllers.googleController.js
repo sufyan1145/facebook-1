@@ -7,13 +7,11 @@ const Log = require('./models.Log');
 
 function getAuthUrl(req, res) {
   const oAuth2Client = getOAuth2Client();
-  const scope = req.query.type === 'youtube' ? env.google.youtubeScopes : env.google.scopes;
   const url = oAuth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope,
+    scope: env.google.scopes,
     state: req.user.id,
-    include_granted_scopes: true,
   });
   res.json({ success: true, data: { url } });
 }
