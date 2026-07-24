@@ -46,6 +46,10 @@
                   <option value="30">30 seconds</option>
                   <option value="60" selected>1 minute</option>
                   <option value="120">2 minutes</option>
+                  <option value="180">3 minutes (Long-form only)</option>
+                  <option value="300">5 minutes (Long-form only)</option>
+                  <option value="480">8 minutes (Long-form only)</option>
+                  <option value="600">10 minutes (Long-form only)</option>
                 </select>
               </div>
               <div class="field">
@@ -134,11 +138,10 @@
                 </select>
               </div>
               <div class="field">
-                <label for="youtubeVideoType">YouTube video type</label>
+                <label for="youtubeVideoType">Video format</label>
                 <select id="youtubeVideoType">
-                  <option value="auto" selected>Auto-detect (recommended)</option>
-                  <option value="shorts">Force Shorts</option>
-                  <option value="long">Force Long-form</option>
+                  <option value="shorts" selected>Shorts (vertical, up to 2 min)</option>
+                  <option value="long">Long-form (landscape, any length)</option>
                 </select>
               </div>
             </div>

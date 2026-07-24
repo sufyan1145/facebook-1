@@ -8,11 +8,12 @@ const client = axios.create({
   headers: { Authorization: env.pexels.apiKey },
 });
 
-// Searches Pexels for a portrait video matching the query and returns a direct
-// downloadable file URL (prefers a smaller HD file over the full 4K original).
-async function searchVideoUrl(query) {
+// Searches Pexels for a video matching the query in the given orientation and
+// returns a direct downloadable file URL (prefers a smaller HD file over the
+// full 4K original).
+async function searchVideoUrl(query, orientation = 'portrait') {
   const resp = await client.get('/videos/search', {
-    params: { query, orientation: 'portrait', per_page: 5 },
+    params: { query, orientation, per_page: 5 },
   });
 
   const videos = resp.data.videos || [];
@@ -20,11 +21,14 @@ async function searchVideoUrl(query) {
     throw new Error(`Pexels found no stock video for "${query}"`);
   }
 
-  // Prefer a reasonably-sized portrait mp4 (avoid the huge 4K original file).
+  // Prefer a reasonably-sized file matching the target orientation (avoid the huge 4K original file).
   const video = videos[0];
   const files = (video.video_files || []).filter((f) => f.file_type === 'video/mp4');
-  const preferred =
-    files.find((f) => f.height >= 1280 && f.height <= 1920) || files.sort((a, b) => (b.height || 0) - (a.height || 0))[0];
+  const inRange =
+    orientation === 'landscape'
+      ? (f) => f.width >= 1280 && f.width <= 1920
+      : (f) => f.height >= 1280 && f.height <= 1920;
+  const preferred = files.find(inRange) || files.sort((a, b) => (b.height || 0) - (a.height || 0))[0];
 
   if (!preferred) {
     throw new Error(`Pexels result for "${query}" had no usable video file`);

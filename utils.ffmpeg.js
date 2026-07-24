@@ -45,13 +45,11 @@ async function pcmToMp3(pcmPath, mp3Path) {
 
 // Turns a still image into a short video clip with a slow zoom/pan (Ken Burns) effect.
 // Cheaper alternative to AI text-to-video: one AI image per scene instead of per-second video credits.
-async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath) {
+async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath, width = 1080, height = 1920) {
   const fps = 25;
   const frames = Math.max(1, Math.round(durationSeconds * fps));
   const maxZoom = 1.15; // slow, subtle zoom-in over the clip
   const zoomStep = ((maxZoom - 1) / frames).toFixed(8);
-  const width = 1080;
-  const height = 1920;
 
   await run([
     '-y',
@@ -71,13 +69,13 @@ async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath) {
 }
 
 // Trims/loops a downloaded stock clip to the exact target duration and scales/crops
-// it to a consistent 1080x1920 so it can be concatenated with the other clips.
-async function normalizeClip(inputPath, durationSeconds, outputPath) {
+// it to a consistent size (matching the other clips) so they can all be concatenated.
+async function normalizeClip(inputPath, durationSeconds, outputPath, width = 1080, height = 1920) {
   await run([
     '-y',
     '-stream_loop', '-1',
     '-i', inputPath,
-    '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p',
+    '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p`,
     '-r', '25',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
     '-an',

@@ -80,14 +80,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function generateClip(prompt, durationSeconds, destPath) {
+async function generateClip(prompt, durationSeconds, destPath, format) {
   if (env.contentPipeline.clipMode === 'image_kenburns') {
-    return generateClipFromImage(prompt, durationSeconds, destPath);
+    return generateClipFromImage(prompt, durationSeconds, destPath, format);
   }
   if (env.contentPipeline.clipMode === 'stock_video') {
-    return generateClipFromStock(prompt, durationSeconds, destPath);
+    return generateClipFromStock(prompt, durationSeconds, destPath, format);
   }
-  const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: '9:16' });
+  const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
   const maxAttempts = 60; // up to ~10 minutes per clip
   for (let i = 0; i < maxAttempts; i++) {
     await sleep(10000);
@@ -108,7 +108,7 @@ async function generateClip(prompt, durationSeconds, destPath) {
 
 // Cheaper path: one AI-generated still image per scene, animated with a zoom/pan
 // (Ken Burns) effect instead of a full AI text-to-video render.
-async function generateClipFromImage(prompt, durationSeconds, destPath) {
+async function generateClipFromImage(prompt, durationSeconds, destPath, format) {
   const imagePath = destPath.replace(/\.mp4$/, '.png');
 
   if (env.contentPipeline.imageProvider === 'gemini') {
@@ -116,7 +116,7 @@ async function generateClipFromImage(prompt, durationSeconds, destPath) {
   } else if (env.contentPipeline.imageProvider === 'pollinations') {
     await pollinationsService.generateImage(prompt, imagePath);
   } else {
-    const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: '9:16' });
+    const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: format.aspectRatio });
     const maxAttempts = 30; // images are much faster than video, ~5 min ceiling
     let done = false;
     for (let i = 0; i < maxAttempts; i++) {
@@ -137,7 +137,7 @@ async function generateClipFromImage(prompt, durationSeconds, destPath) {
     if (!done) throw new Error('Image generation timed out');
   }
 
-  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath);
+  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath, format.width, format.height);
   fs.unlinkSync(imagePath);
   return destPath;
 }
@@ -145,15 +145,24 @@ async function generateClipFromImage(prompt, durationSeconds, destPath) {
 // Free path: real stock footage from Pexels instead of any AI generation.
 // Uses a short keyword query (first few words of the scene's visual prompt)
 // since stock search engines work better with simple terms than full sentences.
-async function generateClipFromStock(prompt, durationSeconds, destPath) {
+async function generateClipFromStock(prompt, durationSeconds, destPath, format) {
   const query = prompt.split(/\s+/).slice(0, 6).join(' ');
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
 
-  const url = await pexelsService.searchVideoUrl(query);
+  const url = await pexelsService.searchVideoUrl(query, format.orientation);
   await pexelsService.downloadVideo(url, rawPath);
-  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath);
+  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
   fs.unlinkSync(rawPath);
   return destPath;
+}
+
+// Shorts = vertical (9:16), Long-form = landscape (16:9). Everything downstream
+// (AI video/image generation, stock footage search, ffmpeg output size) follows this.
+function getVideoFormat(youtubeVideoType) {
+  if (youtubeVideoType === 'long') {
+    return { aspectRatio: '16:9', orientation: 'landscape', width: 1920, height: 1080 };
+  }
+  return { aspectRatio: '9:16', orientation: 'portrait', width: 1080, height: 1920 };
 }
 
 async function runPipeline(schedule) {
@@ -164,8 +173,13 @@ async function runPipeline(schedule) {
   try {
     stage = 'writing_script';
     await ContentScheduleRun.setStatus(run.id, 'writing_script');
-    const sceneSeconds = env.contentPipeline.clipSeconds;
-    const sceneCount = Math.max(1, Math.round(schedule.target_duration_seconds / sceneSeconds));
+    // Keep scene count manageable even for long-form videos (10 min at a fixed
+    // 10s/scene would mean 60 scenes - too many for one Gemini script call and
+    // too many stock-footage searches). Aim for a reasonable scene count and
+    // scale each scene's length up for longer target durations instead.
+    const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
+    const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
+    const sceneCount = desiredSceneCount;
     const script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language });
     await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
     logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);
@@ -177,12 +191,20 @@ async function runPipeline(schedule) {
     await googleTtsService.synthesizeToFile(fullNarration, voiceoverPath, schedule.voice_name);
     tempFiles.push(voiceoverPath);
 
+    // The actual spoken audio rarely matches our word-count estimate exactly.
+    // Measure it and size the video clips to that real duration so the video
+    // covers the full voiceover instead of cutting off early or running long.
+    const actualVoiceoverSeconds = await ffmpeg.getMediaDuration(voiceoverPath);
+    const actualSceneSeconds = actualVoiceoverSeconds / script.scenes.length;
+    logger.info(`[content-pipeline] voiceover duration: ${actualVoiceoverSeconds.toFixed(1)}s (estimated ${schedule.target_duration_seconds}s) -> ${actualSceneSeconds.toFixed(1)}s/scene`);
+
     stage = 'generating_clips';
     await ContentScheduleRun.setStatus(run.id, 'generating_clips');
+    const format = getVideoFormat(schedule.youtube_video_type);
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
       const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-      await generateClip(script.scenes[i].visual_prompt, sceneSeconds, clipPath);
+      await generateClip(script.scenes[i].visual_prompt, actualSceneSeconds, clipPath, format);
       clipPaths.push(clipPath);
       tempFiles.push(clipPath);
     }

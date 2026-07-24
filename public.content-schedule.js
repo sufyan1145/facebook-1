@@ -125,6 +125,18 @@ async function loadOptions() {
     document.getElementById('pageIdField').style.display = e.target.checked ? 'block' : 'none';
   });
 
+  function syncDurationOptions() {
+    const isLongForm = document.getElementById('youtubeVideoType').value === 'long';
+    const durationSelect = document.getElementById('duration');
+    Array.from(durationSelect.options).forEach((opt) => {
+      const isLongOnly = Number(opt.value) > 120;
+      opt.disabled = isLongOnly && !isLongForm;
+    });
+    if (durationSelect.options[durationSelect.selectedIndex].disabled) durationSelect.value = '60';
+  }
+  document.getElementById('youtubeVideoType').addEventListener('change', syncDurationOptions);
+  syncDurationOptions();
+
   document.getElementById('repeat').addEventListener('change', (e) => {
     document.getElementById('specificDaysField').style.display = e.target.value === 'specific_days' ? 'block' : 'none';
     document.getElementById('intervalHoursField').style.display = e.target.value === 'interval_hours' ? 'block' : 'none';
