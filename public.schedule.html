@@ -21,9 +21,12 @@
         <div class="card">
           <div class="section-title">New Schedule</div>
           <form id="scheduleForm">
-            <div class="field">
+            <label class="checkbox-row">
+              <input id="postToFacebook" type="checkbox" checked /> Also post to Facebook
+            </label>
+            <div class="field" id="pageIdField">
               <label for="pageId">Facebook Page</label>
-              <select id="pageId" required></select>
+              <select id="pageId"></select>
             </div>
             <div class="field">
               <label for="folderId">Google Drive Folder</label>
@@ -112,6 +115,22 @@
                 <label class="checkbox-row" style="margin-top:22px;">
                   <input id="publishImmediately" type="checkbox" checked /> Publish immediately
                 </label>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="youtubeTokenId">Also post to YouTube</label>
+                <select id="youtubeTokenId">
+                  <option value="">Don't post to YouTube</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="youtubeVideoType">YouTube video type</label>
+                <select id="youtubeVideoType">
+                  <option value="auto" selected>Auto-detect (recommended)</option>
+                  <option value="shorts">Force Shorts</option>
+                  <option value="long">Force Long-form</option>
+                </select>
               </div>
             </div>
             <div class="error-text" id="errorText"></div>

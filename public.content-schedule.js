@@ -22,7 +22,7 @@ function renderScheduleRows(schedules) {
     .map(
       (s) => `<tr>
         <td>${escapeHtml(s.keyword)}</td>
-        <td>${escapeHtml(s.page_name)}</td>
+        <td>${escapeHtml(s.page_name || '—')}</td>
         <td>${s.target_duration_seconds}s</td>
         <td style="text-transform:capitalize;">${s.repeat_type === 'interval_hours' ? `Every ${s.interval_hours || '?'}h` : s.repeat_type === 'multiple_times' ? (Array.isArray(s.times) ? s.times.join(', ') : 'multiple times') : s.repeat_type.replace('_', ' ')}</td>
         <td>${s.repeat_type === 'interval_hours' || s.repeat_type === 'multiple_times' ? '—' : `${escapeHtml(s.upload_time || '—')}${s.timezone ? ` (${escapeHtml(s.timezone)})` : ''}`}</td>
@@ -121,6 +121,10 @@ async function loadOptions() {
   loadRuns();
   document.getElementById('refreshRunsBtn').addEventListener('click', loadRuns);
 
+  document.getElementById('postToFacebook').addEventListener('change', (e) => {
+    document.getElementById('pageIdField').style.display = e.target.checked ? 'block' : 'none';
+  });
+
   document.getElementById('repeat').addEventListener('change', (e) => {
     document.getElementById('specificDaysField').style.display = e.target.value === 'specific_days' ? 'block' : 'none';
     document.getElementById('intervalHoursField').style.display = e.target.value === 'interval_hours' ? 'block' : 'none';
@@ -163,7 +167,8 @@ async function loadOptions() {
         method: 'POST',
         body: JSON.stringify({
           keyword: document.getElementById('keyword').value,
-          pageId: document.getElementById('pageId').value,
+          pageId: document.getElementById('postToFacebook').checked ? document.getElementById('pageId').value : null,
+          postToFacebook: document.getElementById('postToFacebook').checked,
           folderId: document.getElementById('folderId').value,
           targetDurationSeconds: Number(document.getElementById('duration').value),
           voiceName: document.getElementById('voiceName').value,
@@ -178,6 +183,7 @@ async function loadOptions() {
           hashtags: document.getElementById('hashtags').value,
           publishImmediately: document.getElementById('publishImmediately').checked,
           youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
+          youtubeVideoType: document.getElementById('youtubeVideoType').value,
         }),
       });
       e.target.reset();

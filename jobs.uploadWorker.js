@@ -3,6 +3,7 @@ const connection = require('./queue.connection');
 const logger = require('./utils.logger');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
+const youtubeService = require('./services.youtubeService');
 const UploadHistory = require('./models.UploadHistory');
 const Log = require('./models.Log');
 const QueueJob = require('./models.QueueJob');
@@ -12,7 +13,10 @@ const Page = require('./models.Page');
 const worker = new Worker(
   'video-upload',
   async (job) => {
-    const { userId, scheduleId, pageDbId, folderGoogleId, file, caption, hashtags, privacy, publishImmediately, pageName } = job.data;
+    const {
+      userId, scheduleId, pageDbId, folderGoogleId, file, caption, hashtags, privacy,
+      publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
+    } = job.data;
 
     await QueueJob.upsertFromBullJob(job, 'active', userId, scheduleId);
 
@@ -27,25 +31,46 @@ const worker = new Worker(
 
     let tempPath;
     try {
-      const page = await Page.findById(userId, pageDbId);
-      if (!page) throw new Error('Facebook page not found or disconnected');
-
       tempPath = await driveService.downloadFile(userId, file.id, file.name);
 
-      const fbVideoId = await facebookService.uploadVideoToPage({
-        pageId: page.page_id,
-        pageAccessToken: page.page_access_token,
-        filePath: tempPath,
-        caption,
-        hashtags,
-        privacy,
-        publishImmediately,
-      });
+      let fbVideoId = null;
+      if (postToFacebook !== false && pageDbId) {
+        const page = await Page.findById(userId, pageDbId);
+        if (!page) throw new Error('Facebook page not found or disconnected');
+
+        fbVideoId = await facebookService.uploadVideoToPage({
+          pageId: page.page_id,
+          pageAccessToken: page.page_access_token,
+          filePath: tempPath,
+          caption,
+          hashtags,
+          privacy,
+          publishImmediately,
+        });
+        await Log.record(userId, 'Video Uploaded', { file: file.name, page: pageName });
+        await notifyUploadEvent(userId, { type: 'success', videoName: file.name, pageName });
+      }
+
+      // YouTube is optional and best-effort: a failure here should not undo an
+      // already-successful (or intentionally skipped) Facebook post.
+      if (youtubeTokenId) {
+        try {
+          const tags = (hashtags || '').split(/\s+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean);
+          const youtubeVideoId = await youtubeService.uploadVideo(userId, youtubeTokenId, tempPath, {
+            title: file.name.replace(/\.[^.]+$/, ''),
+            description: caption || file.name,
+            tags,
+            videoType: youtubeVideoType,
+          });
+          await Log.record(userId, 'YouTube Upload Completed', { file: file.name, youtubeVideoId });
+        } catch (ytErr) {
+          await Log.record(userId, 'YouTube Upload Failed', { file: file.name, error: ytErr.message }, 'error');
+          logger.error(`YouTube upload failed for schedule ${scheduleId}: ${ytErr.message}`);
+        }
+      }
 
       if (historyRow) await UploadHistory.markSuccess(historyRow.id, fbVideoId);
       await QueueJob.upsertFromBullJob(job, 'completed', userId, scheduleId);
-      await Log.record(userId, 'Video Uploaded', { file: file.name, page: pageName });
-      await notifyUploadEvent(userId, { type: 'success', videoName: file.name, pageName });
 
       return { fbVideoId };
     } catch (err) {

@@ -5,15 +5,17 @@ const Schedule = {
     const res = await query(
       `INSERT INTO schedules
         (user_id, page_id, folder_id, upload_time, timezone, repeat_type, specific_days,
-         max_uploads, random_delay_seconds, caption, hashtags, privacy, publish_immediately, interval_hours, times)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         max_uploads, random_delay_seconds, caption, hashtags, privacy, publish_immediately, interval_hours, times,
+         post_to_facebook, youtube_token_id, youtube_video_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [
-        userId, data.pageId, data.folderId, data.uploadTime, data.timezone, data.repeat,
+        userId, data.pageId || null, data.folderId, data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.maxUploads || 1, data.randomDelaySeconds || 0,
         data.caption || null, data.hashtags || null, data.privacy || 'PUBLISHED',
         data.publishImmediately !== false, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
+        data.postToFacebook !== false, data.youtubeTokenId || null, data.youtubeVideoType || 'auto',
       ]
     );
     return res.rows[0];
@@ -23,7 +25,7 @@ const Schedule = {
     const res = await query(
       `SELECT s.*, p.page_name, df.folder_name
        FROM schedules s
-       JOIN pages p ON p.id = s.page_id
+       LEFT JOIN pages p ON p.id = s.page_id
        JOIN drive_folders df ON df.id = s.folder_id
        WHERE s.user_id = $1 ORDER BY s.created_at DESC`,
       [userId]

@@ -9,7 +9,7 @@ function renderScheduleRows(schedules) {
   body.innerHTML = schedules
     .map(
       (s) => `<tr>
-        <td>${escapeHtml(s.page_name)}</td>
+        <td>${escapeHtml(s.page_name || '—')}</td>
         <td>${escapeHtml(s.folder_name)}</td>
         <td class="mono">${s.upload_time} <span style="color:var(--text-faint);">${escapeHtml(s.timezone)}</span></td>
         <td style="text-transform:capitalize;">${s.repeat_type === 'interval_hours' ? `Every ${s.interval_hours || '?'}h` : s.repeat_type === 'multiple_times' ? (Array.isArray(s.times) ? s.times.join(', ') : 'multiple times') : s.repeat_type.replace('_', ' ')}</td>
@@ -53,10 +53,18 @@ async function loadSchedules() {
 async function loadOptions() {
   const pageSelect = document.getElementById('pageId');
   const folderSelect = document.getElementById('folderId');
+  const youtubeSelect = document.getElementById('youtubeTokenId');
   try {
-    const [{ data: pages }, { data: folders }] = await Promise.all([apiFetch('/pages'), apiFetch('/drive/folders')]);
+    const [{ data: pages }, { data: folders }, { data: youtubeAccounts }] = await Promise.all([
+      apiFetch('/pages'),
+      apiFetch('/drive/folders'),
+      apiFetch('/auth/youtube/accounts'),
+    ]);
     pageSelect.innerHTML = pages.filter((p) => p.is_connected).map((p) => `<option value="${p.id}">${escapeHtml(p.page_name)}${p.fb_user_name ? ' — ' + escapeHtml(p.fb_user_name) : ''}</option>`).join('') || '<option value="">No pages connected</option>';
     folderSelect.innerHTML = folders.map((f) => `<option value="${f.id}">${escapeHtml(f.folder_name)}</option>`).join('') || '<option value="">No folders scanned</option>';
+    youtubeSelect.innerHTML =
+      '<option value="">Don\'t post to YouTube</option>' +
+      youtubeAccounts.map((a) => `<option value="${a.id}">${escapeHtml(a.channel_title || a.google_user_email || a.google_user_id)}</option>`).join('');
   } catch {
     /* leave empty */
   }
@@ -70,6 +78,10 @@ async function loadOptions() {
 
   loadOptions();
   loadSchedules();
+
+  document.getElementById('postToFacebook').addEventListener('change', (e) => {
+    document.getElementById('pageIdField').style.display = e.target.checked ? 'block' : 'none';
+  });
 
   document.getElementById('repeat').addEventListener('change', (e) => {
     document.getElementById('specificDaysField').style.display = e.target.value === 'specific_days' ? 'block' : 'none';
@@ -112,7 +124,8 @@ async function loadOptions() {
       await apiFetch('/schedules', {
         method: 'POST',
         body: JSON.stringify({
-          pageId: document.getElementById('pageId').value,
+          pageId: document.getElementById('postToFacebook').checked ? document.getElementById('pageId').value : null,
+          postToFacebook: document.getElementById('postToFacebook').checked,
           folderId: document.getElementById('folderId').value,
           uploadTime: document.getElementById('uploadTime').value,
           timezone: document.getElementById('timezone').value,
@@ -128,6 +141,8 @@ async function loadOptions() {
           hashtags: document.getElementById('hashtags').value,
           privacy: document.getElementById('privacy').value,
           publishImmediately: document.getElementById('publishImmediately').checked,
+          youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
+          youtubeVideoType: document.getElementById('youtubeVideoType').value,
         }),
       });
       e.target.reset();

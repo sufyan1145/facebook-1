@@ -59,11 +59,12 @@ function shouldRunToday(schedule, weekday) {
 
 async function checkSchedules() {
   const res = await query(
-    `SELECT s.*, p.id as page_db_id, p.page_id as fb_page_id, p.page_name, df.folder_id as drive_folder_id, df.folder_name
+    `SELECT s.*, p.id as page_db_id, p.page_id as fb_page_id, p.page_name, p.page_access_token, p.is_connected as page_is_connected,
+            df.folder_id as drive_folder_id, df.folder_name
      FROM schedules s
-     JOIN pages p ON p.id = s.page_id
+     LEFT JOIN pages p ON p.id = s.page_id
      JOIN drive_folders df ON df.id = s.folder_id
-     WHERE s.is_active = TRUE AND p.is_connected = TRUE`
+     WHERE s.is_active = TRUE AND (s.page_id IS NULL OR p.is_connected = TRUE)`
   );
 
   for (const schedule of res.rows) {
@@ -132,6 +133,9 @@ async function checkSchedules() {
             privacy: schedule.privacy,
             publishImmediately: schedule.publish_immediately,
             pageName: schedule.page_name,
+            postToFacebook: schedule.post_to_facebook,
+            youtubeTokenId: schedule.youtube_token_id,
+            youtubeVideoType: schedule.youtube_video_type,
           },
           { delay }
         );

@@ -6,16 +6,18 @@ const ContentSchedule = {
       `INSERT INTO content_schedules
         (user_id, page_id, folder_id, keyword, target_duration_seconds, voice_name,
          upload_time, timezone, repeat_type, specific_days, interval_hours, times,
-         caption, hashtags, publish_immediately, language, youtube_token_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         caption, hashtags, publish_immediately, language, youtube_token_id,
+         post_to_facebook, youtube_video_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [
-        userId, data.pageId, data.folderId, data.keyword, data.targetDurationSeconds || 60,
+        userId, data.pageId || null, data.folderId, data.keyword, data.targetDurationSeconds || 60,
         data.voiceName || 'Kore', data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
         data.caption || null, data.hashtags || null, data.publishImmediately !== false,
         data.language || 'english', data.youtubeTokenId || null,
+        data.postToFacebook !== false, data.youtubeVideoType || 'auto',
       ]
     );
     return res.rows[0];
@@ -25,7 +27,7 @@ const ContentSchedule = {
     const res = await query(
       `SELECT cs.*, p.page_name, df.folder_name
        FROM content_schedules cs
-       JOIN pages p ON p.id = cs.page_id
+       LEFT JOIN pages p ON p.id = cs.page_id
        JOIN drive_folders df ON df.id = cs.folder_id
        WHERE cs.user_id = $1 ORDER BY cs.created_at DESC`,
       [userId]
@@ -38,9 +40,9 @@ const ContentSchedule = {
       `SELECT cs.*, p.id as page_db_id, p.page_id as fb_page_id, p.page_name,
               df.folder_id as drive_folder_id, df.folder_name
        FROM content_schedules cs
-       JOIN pages p ON p.id = cs.page_id
+       LEFT JOIN pages p ON p.id = cs.page_id
        JOIN drive_folders df ON df.id = cs.folder_id
-       WHERE cs.is_active = TRUE AND p.is_connected = TRUE`
+       WHERE cs.is_active = TRUE AND (cs.page_id IS NULL OR p.is_connected = TRUE)`
     );
     return res.rows;
   },

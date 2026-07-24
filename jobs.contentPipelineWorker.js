@@ -202,26 +202,32 @@ async function runPipeline(schedule) {
     const fileName = `${script.topic.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.mp4`;
     const uploaded = await driveService.uploadFile(schedule.user_id, schedule.drive_folder_id, finalPath, fileName);
 
-    stage = 'posting_facebook';
-    await ContentScheduleRun.setStatus(run.id, 'posting_facebook');
-    const page = await Page.findById(schedule.user_id, schedule.page_db_id);
-    const fbVideoId = await facebookService.uploadVideoToPage({
-      pageId: page.page_id,
-      pageAccessToken: page.page_access_token,
-      filePath: finalPath,
-      caption: schedule.caption || script.topic,
-      hashtags: schedule.hashtags,
-      publishImmediately: schedule.publish_immediately,
-    });
+    let fbVideoId = null;
+    if (schedule.post_to_facebook !== false && schedule.page_db_id) {
+      stage = 'posting_facebook';
+      await ContentScheduleRun.setStatus(run.id, 'posting_facebook');
+      const page = await Page.findById(schedule.user_id, schedule.page_db_id);
+      fbVideoId = await facebookService.uploadVideoToPage({
+        pageId: page.page_id,
+        pageAccessToken: page.page_access_token,
+        filePath: finalPath,
+        caption: schedule.caption || script.topic,
+        hashtags: schedule.hashtags,
+        publishImmediately: schedule.publish_immediately,
+      });
+      await Log.record(schedule.user_id, 'Content Pipeline Completed', { keyword: schedule.keyword, topic: script.topic, page: schedule.page_name });
+      await notifyUploadEvent(schedule.user_id, { type: 'success', videoName: fileName, pageName: schedule.page_name });
+      logger.info(`[content-pipeline] completed for schedule ${schedule.id}, fb video id: ${fbVideoId}`);
+    } else {
+      await Log.record(schedule.user_id, 'Content Pipeline Completed', { keyword: schedule.keyword, topic: script.topic, note: 'Facebook posting skipped' });
+      logger.info(`[content-pipeline] completed for schedule ${schedule.id} (Facebook posting skipped)`);
+    }
 
     await ContentScheduleRun.markCompleted(run.id, { driveFileId: uploaded.id, fbVideoId });
     await ContentSchedule.updateLastRun(schedule.id);
-    await Log.record(schedule.user_id, 'Content Pipeline Completed', { keyword: schedule.keyword, topic: script.topic, page: schedule.page_name });
-    await notifyUploadEvent(schedule.user_id, { type: 'success', videoName: fileName, pageName: schedule.page_name });
-    logger.info(`[content-pipeline] completed for schedule ${schedule.id}, fb video id: ${fbVideoId}`);
 
     // YouTube is optional and best-effort: a failure here should NOT mark an
-    // otherwise-successful run (Facebook already posted) as failed.
+    // otherwise-successful run (Facebook already posted, or intentionally skipped) as failed.
     if (schedule.youtube_token_id) {
       try {
         stage = 'posting_youtube';
@@ -234,6 +240,7 @@ async function runPipeline(schedule) {
           title: script.topic,
           description: schedule.caption || script.topic,
           tags,
+          videoType: schedule.youtube_video_type,
         });
         await Log.record(schedule.user_id, 'YouTube Upload Completed', { keyword: schedule.keyword, youtubeVideoId });
         logger.info(`[content-pipeline] YouTube upload succeeded for schedule ${schedule.id}, video id: ${youtubeVideoId}`);
