@@ -183,6 +183,58 @@ function getVideoFormat(youtubeVideoType) {
   return { aspectRatio: '9:16', orientation: 'portrait', width: 1080, height: 1920 };
 }
 
+function assTimestamp(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const cs = Math.round((seconds - Math.floor(seconds)) * 100);
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+}
+
+// Builds a bold, high-contrast animated-caption (.ass) file for one scene, in the
+// short-form "2-3 words on screen at a time" style. Timing is an even split of the
+// narration's words across the scene's actual clip duration - not perfectly
+// word-accurate (no per-word speech timestamps are available from the TTS), but
+// close enough to look natural and dramatically improves perceived polish.
+function buildCaptionAss(narration, durationSeconds, format) {
+  const words = narration.trim().split(/\s+/).filter(Boolean);
+  const wordsPerChunk = 3;
+  const chunks = [];
+  for (let i = 0; i < words.length; i += wordsPerChunk) {
+    chunks.push(words.slice(i, i + wordsPerChunk).join(' '));
+  }
+  if (!chunks.length) chunks.push('');
+
+  const perChunkSeconds = durationSeconds / chunks.length;
+  const fontSize = format.orientation === 'landscape' ? 64 : 72;
+  const marginV = format.orientation === 'landscape' ? 80 : 220;
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${format.width}
+PlayResY: ${format.height}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Arial Black,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,40,40,${marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  const events = chunks
+    .map((chunk, i) => {
+      const start = assTimestamp(i * perChunkSeconds);
+      const end = assTimestamp((i + 1) * perChunkSeconds);
+      const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
+      return `Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`;
+    })
+    .join('\n');
+
+  return header + events + '\n';
+}
+
 // Google Veo3 (via Kie.ai) - highest cinematic quality and the strongest prompt
 // adherence of the available options, at higher cost. Veo always renders a fixed
 // ~8-second clip regardless of requested length, so we trim/loop it afterwards
@@ -280,10 +332,24 @@ async function runPipeline(schedule) {
     const format = getVideoFormat(schedule.youtube_video_type);
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
-      const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-      await generateClip(script.scenes[i].visual_prompt, actualSceneSeconds, clipPath, format);
-      clipPaths.push(clipPath);
-      tempFiles.push(clipPath);
+      const rawClipPath = env.contentPipeline.captionsEnabled
+        ? path.join(env.upload.tempDir, `${run.id}_clip${i}_nocaption.mp4`)
+        : path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
+      await generateClip(script.scenes[i].visual_prompt, actualSceneSeconds, rawClipPath, format);
+      tempFiles.push(rawClipPath);
+
+      if (env.contentPipeline.captionsEnabled) {
+        const assPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.ass`);
+        fs.writeFileSync(assPath, buildCaptionAss(script.scenes[i].narration, actualSceneSeconds, format));
+        tempFiles.push(assPath);
+
+        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
+        await ffmpeg.burnCaptions(rawClipPath, assPath, clipPath);
+        clipPaths.push(clipPath);
+        tempFiles.push(clipPath);
+      } else {
+        clipPaths.push(rawClipPath);
+      }
     }
 
     stage = 'stitching';

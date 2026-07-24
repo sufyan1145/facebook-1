@@ -113,4 +113,17 @@ async function concatAudio(audioPaths, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio };
+// Burns pre-built .ass (Advanced SubStation) animated captions onto a video clip.
+async function burnCaptions(inputPath, assPath, outputPath) {
+  await run([
+    '-y',
+    '-i', inputPath,
+    '-vf', `subtitles=${assPath.replace(/:/g, '\\:')}`,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
+    '-an',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions };
