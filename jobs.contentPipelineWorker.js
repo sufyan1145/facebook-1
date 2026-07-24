@@ -298,8 +298,12 @@ function startContentPipelineWorker() {
     try {
       const schedules = await ContentSchedule.listActiveDue();
       for (const schedule of schedules) {
-        if (isDueNow(schedule)) {
-          await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
+        try {
+          if (isDueNow(schedule)) {
+            await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
+          }
+        } catch (err) {
+          logger.error(`Content pipeline worker error for schedule ${schedule.id} (keyword: "${schedule.keyword}"): ${err.message}`);
         }
       }
     } catch (err) {
