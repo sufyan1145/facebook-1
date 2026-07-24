@@ -47,6 +47,16 @@ function renderFolders(folders) {
     }
   });
 
+  document.getElementById('connectYoutubeBtn').addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/auth/google/connect?type=youtube', { credentials: 'include' });
+      const json = await res.json();
+      window.location.href = json.data.url;
+    } catch (err) {
+      alert('Could not start YouTube connection: ' + err.message);
+    }
+  });
+
   document.getElementById('disconnectBtn').addEventListener('click', async () => {
     if (!confirm('Disconnect Google Drive?')) return;
     await apiFetch('/auth/google/disconnect', { method: 'POST' });
