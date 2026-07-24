@@ -12,10 +12,14 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
  */
 async function writeScript(keyword, { sceneCount, sceneSeconds, language }) {
   logger.info(`[Gemini] Using model value: ${JSON.stringify(env.googleAi.geminiModel)} (length: ${env.googleAi.geminiModel.length})`);
-  const narrationInstruction =
-    language === 'roman_urdu'
-      ? 'what the voiceover says, written in Roman Urdu (Urdu language, but spelled out using English/Latin letters, e.g. "aap kaisay hain" not Urdu script), no stage directions'
-      : 'what the voiceover says (plain spoken English, no stage directions)';
+  const isRomanUrdu = language === 'roman_urdu';
+  const narrationInstruction = isRomanUrdu
+    ? 'what the voiceover says. MUST be written ENTIRELY in Roman Urdu (the Urdu language, spelled phonetically using English/Latin letters — NOT Urdu script, NOT English). Example of the required style: "Yeh jungle hazaron saal purana hai aur iski kahani bohot dilchasp hai." Do not write the narration in English.'
+    : 'what the voiceover says (plain spoken English, no stage directions)';
+
+  const languageReminder = isRomanUrdu
+    ? `\n\nIMPORTANT: Every single "narration" field MUST be in Roman Urdu, not English. This is a strict requirement — only "topic" and "visual_prompt" stay in English.`
+    : '';
 
   const prompt = `You are writing a short documentary-style video script about: "${keyword}".
 
@@ -24,7 +28,7 @@ Write exactly ${sceneCount} scenes. Each scene is about ${sceneSeconds} seconds 
 For each scene, give:
 - "narration": ${narrationInstruction}
 - "visual_prompt": a short, concrete visual description IN ENGLISH (used for an AI video generator / stock footage search, regardless of narration language) of what should be shown on screen during that narration, cinematic and specific.
-
+${languageReminder}
 Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
 {
   "topic": "specific title for this video",
