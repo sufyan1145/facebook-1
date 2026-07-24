@@ -86,6 +86,8 @@ module.exports = {
     baseUrl: process.env.KIE_BASE_URL || 'https://api.kie.ai',
     model: (process.env.KIE_VIDEO_MODEL || 'kling/v2-1-standard').trim(),
     imageModel: (process.env.KIE_IMAGE_MODEL || 'google/nano-banana').trim(),
+    // veo3_fast = cheap/fast ($0.40/8s), veo3 = higher quality ($2/8s)
+    veoModel: (process.env.KIE_VEO_MODEL || 'veo3_fast').trim(),
     pollCron: process.env.VIDEOGEN_POLL_CRON || '*/1 * * * *', // check every minute
   },
 
@@ -100,10 +102,17 @@ module.exports = {
     apiKey: (process.env.PEXELS_API_KEY || '').trim(),
   },
 
+  grok: {
+    apiKey: process.env.XAI_API_KEY,
+    videoModel: (process.env.GROK_VIDEO_MODEL || 'grok-imagine-video').trim(),
+  },
+
   contentPipeline: {
     checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip
     // 'video'          = AI text-to-video clips (Kie/Kling, costs credits per second of video)
+    // 'veo'             = Google Veo3 via Kie.ai - cinematic, highly story-accurate (fixed ~8s clips, trimmed to fit)
+    // 'grok'            = xAI Grok Imagine text-to-video - cinematic, has a $175/month free credit program
     // 'image_kenburns' = one AI image per scene + pan/zoom effect (cheap/free depending on imageProvider)
     // 'stock_video'     = free real stock footage clip per scene (Pexels, no AI generation at all)
     // 'hybrid'          = try Pexels stock footage first; if no good match for that scene, fall back to an AI image + Ken Burns effect

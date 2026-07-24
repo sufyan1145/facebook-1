@@ -15,6 +15,7 @@ const Log = require('./models.Log');
 const geminiService = require('./services.geminiService');
 const googleTtsService = require('./services.googleTtsService');
 const kieVideoService = require('./services.kieVideoService');
+const grokVideoService = require('./services.grokVideoService');
 const pollinationsService = require('./services.pollinationsService');
 const pexelsService = require('./services.pexelsService');
 const youtubeService = require('./services.youtubeService');
@@ -97,6 +98,9 @@ async function generateClip(prompt, durationSeconds, destPath, format) {
   }
   if (env.contentPipeline.clipMode === 'veo') {
     return generateClipFromVeo(prompt, durationSeconds, destPath, format);
+  }
+  if (env.contentPipeline.clipMode === 'grok') {
+    return generateClipFromGrok(prompt, durationSeconds, destPath, format);
   }
   const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
   const maxAttempts = 60; // up to ~10 minutes per clip
@@ -203,6 +207,35 @@ async function generateClipFromVeo(prompt, durationSeconds, destPath, format) {
     }
   }
   if (!done) throw new Error('Veo clip generation timed out');
+
+  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
+  fs.unlinkSync(rawPath);
+  return destPath;
+}
+
+// xAI Grok Imagine - cinematic text-to-video with a $175/month free-credit program.
+// Unlike Veo, Grok accepts an explicit duration (capped at 15s), so we only need
+// ffmpeg normalization as a safety net for scenes longer than that cap.
+async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
+  const requestId = await grokVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
+  const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
+  const maxAttempts = 40; // Grok clips are usually faster than Veo, but allow room
+  let done = false;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(8000);
+    const status = await grokVideoService.getTaskStatus(requestId);
+    if (status.status === 'done') {
+      const url = grokVideoService.extractResultUrl(status);
+      if (!url) throw new Error('Grok clip generated but no result URL was returned');
+      await grokVideoService.downloadResult(url, rawPath);
+      done = true;
+      break;
+    }
+    if (status.status === 'failed' || status.status === 'error') {
+      throw new Error(status.error || 'Grok clip generation failed');
+    }
+  }
+  if (!done) throw new Error('Grok clip generation timed out');
 
   await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
   fs.unlinkSync(rawPath);
