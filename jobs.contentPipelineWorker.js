@@ -84,6 +84,14 @@ async function generateClip(prompt, durationSeconds, destPath, format) {
   if (env.contentPipeline.clipMode === 'image_kenburns') {
     return generateClipFromImage(prompt, durationSeconds, destPath, format);
   }
+  if (env.contentPipeline.clipMode === 'hybrid') {
+    try {
+      return await generateClipFromStock(prompt, durationSeconds, destPath, format);
+    } catch (err) {
+      logger.info(`[content-pipeline] no stock footage match for scene ("${err.message}"), falling back to AI image for this scene`);
+      return generateClipFromImage(prompt, durationSeconds, destPath, format);
+    }
+  }
   if (env.contentPipeline.clipMode === 'stock_video') {
     return generateClipFromStock(prompt, durationSeconds, destPath, format);
   }
