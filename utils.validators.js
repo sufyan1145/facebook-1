@@ -24,7 +24,7 @@ const loginRules = [
 ];
 
 const scheduleRules = [
-  body('pageId').notEmpty().withMessage('Facebook Page is required'),
+  body('pageId').optional({ checkFalsy: true }).isUUID().withMessage('Invalid Facebook Page selection'),
   body('folderId').notEmpty().withMessage('Google Drive folder is required'),
   body('uploadTime').matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('uploadTime must be HH:mm'),
   body('timezone').notEmpty().withMessage('Timezone is required'),
@@ -32,6 +32,12 @@ const scheduleRules = [
   body('intervalHours').optional({ checkFalsy: true }).isInt({ min: 1, max: 168 }).withMessage('intervalHours must be between 1 and 168'),
   body('times').optional().isArray({ max: 24 }).withMessage('times must be an array'),
   body('times.*').optional().matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('each time must be HH:mm'),
+  body().custom((_, { req }) => {
+    if (!req.body.pageId && !req.body.youtubeTokenId) {
+      throw new Error('Select at least a Facebook Page or a YouTube channel to post to');
+    }
+    return true;
+  }),
 ];
 
 const idParamRule = [param('id').isUUID().withMessage('Invalid id')];
