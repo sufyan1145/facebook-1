@@ -7,8 +7,8 @@ const ContentSchedule = {
         (user_id, page_id, folder_id, keyword, target_duration_seconds, voice_name,
          upload_time, timezone, repeat_type, specific_days, interval_hours, times,
          caption, hashtags, publish_immediately, language, youtube_token_id,
-         post_to_facebook, youtube_video_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+         post_to_facebook, youtube_video_type, master_prompt)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
       [
         userId, data.pageId || null, data.folderId, data.keyword, data.targetDurationSeconds || 60,
@@ -18,6 +18,7 @@ const ContentSchedule = {
         data.caption || null, data.hashtags || null, data.publishImmediately !== false,
         data.language || 'english', data.youtubeTokenId || null,
         data.postToFacebook !== false, data.youtubeVideoType || 'auto',
+        data.masterPrompt || null,
       ]
     );
     return res.rows[0];

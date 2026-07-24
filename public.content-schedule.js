@@ -191,6 +191,7 @@ async function loadOptions() {
           specificDays: Array.from(selectedDays),
           intervalHours: document.getElementById('intervalHours').value || null,
           times: Array.from(document.querySelectorAll('.multi-time-input')).map((el) => el.value).filter(Boolean),
+          masterPrompt: document.getElementById('masterPrompt').value,
           caption: document.getElementById('caption').value,
           hashtags: document.getElementById('hashtags').value,
           publishImmediately: document.getElementById('publishImmediately').checked,
