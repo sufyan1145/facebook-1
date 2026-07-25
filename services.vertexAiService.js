@@ -97,11 +97,12 @@ async function generateImage(prompt, destPath) {
 
 async function synthesizeSpeech(text, destPath, voiceName) {
   const token = await getAccessToken();
+  const chirpVoiceName = `en-US-Chirp3-HD-${voiceName || 'Charon'}`;
   const resp = await axios.post(
     'https://texttospeech.googleapis.com/v1/text:synthesize',
     {
       input: { text },
-      voice: { languageCode: 'en-US', name: voiceName || 'en-US-Chirp3-HD-Achernar' },
+      voice: { languageCode: 'en-US', name: chirpVoiceName },
       audioConfig: { audioEncoding: 'MP3' },
     },
     { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
