@@ -178,9 +178,9 @@ async function generateClipFromStock(prompt, durationSeconds, destPath, format) 
 // (AI video/image generation, stock footage search, ffmpeg output size) follows this.
 function getVideoFormat(youtubeVideoType) {
   if (youtubeVideoType === 'long') {
-    return { aspectRatio: '16:9', orientation: 'landscape', width: 1920, height: 1080 };
+    return { aspectRatio: '16:9', orientation: 'landscape', width: 3840, height: 2160 };
   }
-  return { aspectRatio: '9:16', orientation: 'portrait', width: 1080, height: 1920 };
+  return { aspectRatio: '9:16', orientation: 'portrait', width: 2160, height: 3840 };
 }
 
 function assTimestamp(seconds) {

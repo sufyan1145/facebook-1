@@ -56,12 +56,12 @@ async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath, width
     '-loop', '1',
     '-i', imagePath,
     '-vf',
-    `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase,crop=${width * 2}:${height * 2},` +
+    `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2},` +
       `zoompan=z='min(zoom+${zoomStep},${maxZoom})':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps},` +
       `format=yuv420p`,
     '-t', String(durationSeconds),
     '-r', String(fps),
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-threads', '2',
     '-an',
     outputPath,
   ]);
