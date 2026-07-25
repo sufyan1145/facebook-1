@@ -191,21 +191,12 @@ function assTimestamp(seconds) {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
 }
 
-// Builds a bold, high-contrast animated-caption (.ass) file for one scene, in the
-// short-form "2-3 words on screen at a time" style. Timing is an even split of the
-// narration's words across the scene's actual clip duration - not perfectly
-// word-accurate (no per-word speech timestamps are available from the TTS), but
-// close enough to look natural and dramatically improves perceived polish.
-function buildCaptionAss(narration, durationSeconds, format) {
-  const words = narration.trim().split(/\s+/).filter(Boolean);
-  const wordsPerChunk = 3;
-  const chunks = [];
-  for (let i = 0; i < words.length; i += wordsPerChunk) {
-    chunks.push(words.slice(i, i + wordsPerChunk).join(' '));
-  }
-  if (!chunks.length) chunks.push('');
-
-  const perChunkSeconds = durationSeconds / chunks.length;
+// Builds a bold, high-contrast animated-caption (.ass) file for the WHOLE video in
+// one pass, in the short-form "2-3 words on screen at a time" style. Each scene gets
+// an even split of its own narration across its own time window (cumulative offset
+// from all prior scenes) - not perfectly word-accurate (no per-word speech
+// timestamps are available from the TTS), but close enough to look natural.
+function buildFullCaptionAss(scenes, sceneSeconds, format) {
   const fontSize = format.orientation === 'landscape' ? 64 : 72;
   const marginV = format.orientation === 'landscape' ? 80 : 220;
 
@@ -223,16 +214,27 @@ Style: Caption,Arial Black,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H000000
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-  const events = chunks
-    .map((chunk, i) => {
-      const start = assTimestamp(i * perChunkSeconds);
-      const end = assTimestamp((i + 1) * perChunkSeconds);
-      const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
-      return `Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`;
-    })
-    .join('\n');
+  const wordsPerChunk = 3;
+  const events = [];
+  scenes.forEach((scene, sceneIndex) => {
+    const sceneStart = sceneIndex * sceneSeconds;
+    const words = scene.narration.trim().split(/\s+/).filter(Boolean);
+    const chunks = [];
+    for (let i = 0; i < words.length; i += wordsPerChunk) {
+      chunks.push(words.slice(i, i + wordsPerChunk).join(' '));
+    }
+    if (!chunks.length) chunks.push('');
+    const perChunkSeconds = sceneSeconds / chunks.length;
 
-  return header + events + '\n';
+    chunks.forEach((chunk, i) => {
+      const start = assTimestamp(sceneStart + i * perChunkSeconds);
+      const end = assTimestamp(sceneStart + (i + 1) * perChunkSeconds);
+      const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
+      events.push(`Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`);
+    });
+  });
+
+  return header + events.join('\n') + '\n';
 }
 
 // Google Veo3 (via Kie.ai) - highest cinematic quality and the strongest prompt
@@ -332,24 +334,10 @@ async function runPipeline(schedule) {
     const format = getVideoFormat(schedule.youtube_video_type);
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
-      const rawClipPath = env.contentPipeline.captionsEnabled
-        ? path.join(env.upload.tempDir, `${run.id}_clip${i}_nocaption.mp4`)
-        : path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-      await generateClip(script.scenes[i].visual_prompt, actualSceneSeconds, rawClipPath, format);
-      tempFiles.push(rawClipPath);
-
-      if (env.contentPipeline.captionsEnabled) {
-        const assPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.ass`);
-        fs.writeFileSync(assPath, buildCaptionAss(script.scenes[i].narration, actualSceneSeconds, format));
-        tempFiles.push(assPath);
-
-        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-        await ffmpeg.burnCaptions(rawClipPath, assPath, clipPath);
-        clipPaths.push(clipPath);
-        tempFiles.push(clipPath);
-      } else {
-        clipPaths.push(rawClipPath);
-      }
+      const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
+      await generateClip(script.scenes[i].visual_prompt, actualSceneSeconds, clipPath, format);
+      clipPaths.push(clipPath);
+      tempFiles.push(clipPath);
     }
 
     stage = 'stitching';
@@ -358,8 +346,21 @@ async function runPipeline(schedule) {
     await ffmpeg.concatClips(clipPaths, stitchedPath);
     tempFiles.push(stitchedPath);
 
+    let captionedPath = stitchedPath;
+    if (env.contentPipeline.captionsEnabled) {
+      // One caption pass for the whole video (instead of one per clip) - much
+      // faster, since each ffmpeg re-encode is the expensive part.
+      const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
+      fs.writeFileSync(assPath, buildFullCaptionAss(script.scenes, actualSceneSeconds, format));
+      tempFiles.push(assPath);
+
+      captionedPath = path.join(env.upload.tempDir, `${run.id}_captioned.mp4`);
+      await ffmpeg.burnCaptions(stitchedPath, assPath, captionedPath);
+      tempFiles.push(captionedPath);
+    }
+
     const finalPath = path.join(env.upload.tempDir, `${run.id}_final.mp4`);
-    await ffmpeg.mergeAudioVideo(stitchedPath, voiceoverPath, finalPath);
+    await ffmpeg.mergeAudioVideo(captionedPath, voiceoverPath, finalPath);
     tempFiles.push(finalPath);
 
     stage = 'uploading_drive';
