@@ -43,13 +43,20 @@ async function createVeoVideoTask({ prompt, duration, aspectRatio }) {
       resolution: '720p',
     },
   };
-  logger.info(`[vertex] veo generate request: ${JSON.stringify(requestBody)}`);
+  logger.info(`[vertex] veo generate request: ${JSON.stringify(requestBody)}, url: ${baseUrl()}/${env.vertexAi.veoModel}:predictLongRunning`);
 
-  const resp = await axios.post(
-    `${baseUrl()}/${env.vertexAi.veoModel}:predictLongRunning`,
-    requestBody,
-    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-  );
+  let resp;
+  try {
+    resp = await axios.post(
+      `${baseUrl()}/${env.vertexAi.veoModel}:predictLongRunning`,
+      requestBody,
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] veo generate FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
   logger.info(`[vertex] veo generate response: ${JSON.stringify(resp.data)}`);
 
   const operationName = resp.data.name;
@@ -76,14 +83,21 @@ function extractVeoResultBytes(status) {
 
 async function generateImage(prompt, destPath) {
   const token = await getAccessToken();
-  const resp = await axios.post(
-    `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ['IMAGE'] },
-    },
-    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-  );
+  let resp;
+  try {
+    resp = await axios.post(
+      `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ['IMAGE'] },
+      },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] image generate FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
 
   const parts = resp.data.candidates?.[0]?.content?.parts || [];
   const imagePart = parts.find((p) => p.inlineData?.data);
