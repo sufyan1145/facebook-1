@@ -16,6 +16,7 @@ const geminiService = require('./services.geminiService');
 const googleTtsService = require('./services.googleTtsService');
 const kieVideoService = require('./services.kieVideoService');
 const grokVideoService = require('./services.grokVideoService');
+const vertexAiService = require('./services.vertexAiService');
 const pollinationsService = require('./services.pollinationsService');
 const pexelsService = require('./services.pexelsService');
 const youtubeService = require('./services.youtubeService');
@@ -102,6 +103,9 @@ async function generateClip(prompt, durationSeconds, destPath, format) {
   if (env.contentPipeline.clipMode === 'grok') {
     return generateClipFromGrok(prompt, durationSeconds, destPath, format);
   }
+  if (env.contentPipeline.clipMode === 'vertex_veo') {
+    return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format);
+  }
   const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
   const maxAttempts = 60; // up to ~10 minutes per clip
   for (let i = 0; i < maxAttempts; i++) {
@@ -123,18 +127,17 @@ async function generateClip(prompt, durationSeconds, destPath, format) {
 
 // Cheaper path: one AI-generated still image per scene, animated with a zoom/pan
 // (Ken Burns) effect instead of a full AI text-to-video render.
-async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format) {
-  const imagePath = destPath.replace(/\.mp4$/, '.png');
-  // Boost every image's visual quality consistently, regardless of what the
-  // script prompt already included and regardless of which image provider is used.
-  const prompt = `${rawPrompt}, professional cinematography, photorealistic, highly detailed, dramatic lighting, sharp focus, 8k quality`;
-
+// Generates a single still image via whichever provider is configured
+// (kie/gemini/pollinations). Reused for both Ken Burns clips and thumbnails.
+async function generateStandaloneImage(prompt, imagePath, width, height, aspectRatio) {
   if (env.contentPipeline.imageProvider === 'gemini') {
     await geminiService.generateImage(prompt, imagePath);
+  } else if (env.contentPipeline.imageProvider === 'vertex') {
+    await vertexAiService.generateImage(prompt, imagePath);
   } else if (env.contentPipeline.imageProvider === 'pollinations') {
-    await pollinationsService.generateImage(prompt, imagePath, format.width, format.height);
+    await pollinationsService.generateImage(prompt, imagePath, width, height);
   } else {
-    const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio: format.aspectRatio });
+    const taskId = await kieVideoService.createImageTask({ prompt, aspectRatio });
     const maxAttempts = 30; // images are much faster than video, ~5 min ceiling
     let done = false;
     for (let i = 0; i < maxAttempts; i++) {
@@ -154,6 +157,15 @@ async function generateClipFromImage(rawPrompt, durationSeconds, destPath, forma
     }
     if (!done) throw new Error('Image generation timed out');
   }
+  return imagePath;
+}
+
+async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format) {
+  const imagePath = destPath.replace(/\.mp4$/, '.png');
+  // Boost every image's visual quality consistently, regardless of what the
+  // script prompt already included and regardless of which image provider is used.
+  const prompt = `${rawPrompt}, professional cinematography, photorealistic, highly detailed, dramatic lighting, sharp focus, 8k quality`;
+  await generateStandaloneImage(prompt, imagePath, format.width, format.height, format.aspectRatio);
 
   await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath, format.width, format.height);
   fs.unlinkSync(imagePath);
@@ -296,6 +308,32 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
   return destPath;
 }
 
+// Google Veo3 via Vertex AI (own billing account/credit, separate from the
+// Kie.ai-based 'veo' mode). Veo3 always renders a fixed ~8-second clip, so we
+// trim/loop it afterwards to match this scene's actual duration.
+async function generateClipFromVertexVeo(prompt, durationSeconds, destPath, format) {
+  const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
+  const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
+  const maxAttempts = 60; // Veo can take several minutes per clip
+  let done = false;
+  for (let i = 0; i < maxAttempts; i++) {
+    await sleep(10000);
+    const status = await vertexAiService.getVeoOperationStatus(operationName);
+    if (status.done) {
+      const bytes = vertexAiService.extractVeoResultBytes(status);
+      if (!bytes) throw new Error(`Veo (Vertex) clip generated but no video bytes were returned: ${JSON.stringify(status).slice(0, 300)}`);
+      fs.writeFileSync(rawPath, Buffer.from(bytes, 'base64'));
+      done = true;
+      break;
+    }
+  }
+  if (!done) throw new Error('Veo (Vertex) clip generation timed out');
+
+  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
+  fs.unlinkSync(rawPath);
+  return destPath;
+}
+
 async function runPipeline(schedule) {
   const run = await ContentScheduleRun.create(schedule.user_id, schedule.id);
   const tempFiles = [];
@@ -319,7 +357,11 @@ async function runPipeline(schedule) {
     await ContentScheduleRun.setStatus(run.id, 'generating_voiceover');
     const fullNarration = script.scenes.map((s) => s.narration).join(' ');
     const voiceoverPath = path.join(env.upload.tempDir, `${run.id}_voice.mp3`);
-    await googleTtsService.synthesizeToFile(fullNarration, voiceoverPath, schedule.voice_name);
+    if (env.contentPipeline.ttsProvider === 'vertex') {
+      await vertexAiService.synthesizeSpeech(fullNarration, voiceoverPath, schedule.voice_name);
+    } else {
+      await googleTtsService.synthesizeToFile(fullNarration, voiceoverPath, schedule.voice_name);
+    }
     tempFiles.push(voiceoverPath);
 
     // The actual spoken audio rarely matches our word-count estimate exactly.
@@ -410,6 +452,21 @@ async function runPipeline(schedule) {
         });
         await Log.record(schedule.user_id, 'YouTube Upload Completed', { keyword: schedule.keyword, youtubeVideoId });
         logger.info(`[content-pipeline] YouTube upload succeeded for schedule ${schedule.id}, video id: ${youtubeVideoId}`);
+
+        // Custom thumbnail is also best-effort - a failure here shouldn't affect the video upload above.
+        try {
+          const thumbBgPath = path.join(env.upload.tempDir, `${run.id}_thumb_bg.png`);
+          const thumbPath = path.join(env.upload.tempDir, `${run.id}_thumb.jpg`);
+          const thumbPrompt = `${script.topic}, dramatic, eye-catching, vibrant colors, high contrast, professional YouTube thumbnail background, cinematic, no text, no words, no logos`;
+          await generateStandaloneImage(thumbPrompt, thumbBgPath, 1280, 720, '16:9');
+          tempFiles.push(thumbBgPath);
+          await ffmpeg.generateThumbnail(thumbBgPath, script.topic, thumbPath);
+          tempFiles.push(thumbPath);
+          await youtubeService.uploadThumbnail(schedule.user_id, schedule.youtube_token_id, youtubeVideoId, thumbPath);
+          logger.info(`[content-pipeline] custom thumbnail set for schedule ${schedule.id}`);
+        } catch (thumbErr) {
+          logger.error(`[content-pipeline] thumbnail generation/upload failed for schedule ${schedule.id}: ${thumbErr.message}`);
+        }
       } catch (ytErr) {
         await Log.record(schedule.user_id, 'YouTube Upload Failed', { keyword: schedule.keyword, error: ytErr.message }, 'error');
         logger.error(`[content-pipeline] YouTube upload failed for schedule ${schedule.id}: ${ytErr.message}`);

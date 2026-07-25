@@ -102,6 +102,16 @@ module.exports = {
     apiKey: (process.env.PEXELS_API_KEY || '').trim(),
   },
 
+  vertexAi: {
+    projectId: process.env.VERTEX_PROJECT_ID,
+    location: (process.env.VERTEX_LOCATION || 'us-central1').trim(),
+    // Full service-account JSON, base64-encoded, in one env var (safe for Railway).
+    credentialsBase64: process.env.VERTEX_CREDENTIALS_BASE64,
+    veoModel: (process.env.VERTEX_VEO_MODEL || 'veo-3.0-generate-preview').trim(),
+    imageModel: (process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image').trim(),
+    ttsModel: (process.env.VERTEX_TTS_MODEL || 'gemini-2.5-flash-preview-tts').trim(),
+  },
+
   grok: {
     apiKey: process.env.XAI_API_KEY,
     videoModel: (process.env.GROK_VIDEO_MODEL || 'grok-imagine-video').trim(),
@@ -112,6 +122,7 @@ module.exports = {
     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip
     // 'video'          = AI text-to-video clips (Kie/Kling, costs credits per second of video)
     // 'veo'             = Google Veo3 via Kie.ai - cinematic, highly story-accurate (fixed ~8s clips, trimmed to fit)
+    // 'vertex_veo'      = Google Veo3 via Vertex AI (own billing account/credit, not Kie.ai)
     // 'grok'            = xAI Grok Imagine text-to-video - cinematic, has a $175/month free credit program
     // 'image_kenburns' = one AI image per scene + pan/zoom effect (cheap/free depending on imageProvider)
     // 'stock_video'     = free real stock footage clip per scene (Pexels, no AI generation at all)
@@ -119,7 +130,9 @@ module.exports = {
     // Burns short-form style animated captions (2-3 words at a time) onto every clip.
     captionsEnabled: (process.env.CONTENT_CAPTIONS_ENABLED || 'true').trim() === 'true',
     clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
-    // who generates the still image when clipMode is 'image_kenburns': 'kie' (paid credits), 'gemini' (free tier, may be 0 quota), or 'pollinations' (free, no API key)
+    // who generates the still image when clipMode is 'image_kenburns': 'kie' (paid credits), 'gemini' (free tier, may be 0 quota), 'pollinations' (free, no API key), or 'vertex' (Nano Banana via Vertex AI billing account)
     imageProvider: (process.env.IMAGE_PROVIDER || 'kie').trim(),
+    // 'gemini' (AI Studio, simple API key) or 'vertex' (Cloud Text-to-Speech via Vertex AI billing account)
+    ttsProvider: (process.env.TTS_PROVIDER || 'gemini').trim(),
   },
 };
