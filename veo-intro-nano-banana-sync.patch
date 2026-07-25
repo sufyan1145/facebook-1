@@ -16,7 +16,7 @@ index b83748a..9248aba 100644
      captionsEnabled: (process.env.CONTENT_CAPTIONS_ENABLED || 'true').trim() === 'true',
      clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
 diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
-index 225054d..7919fe5 100644
+index 225054d..01d2f35 100644
 --- a/jobs.contentPipelineWorker.js
 +++ b/jobs.contentPipelineWorker.js
 @@ -82,16 +82,24 @@ function sleep(ms) {
@@ -97,7 +97,7 @@ index 225054d..7919fe5 100644
    });
  
    return header + events.join('\n') + '\n';
-@@ -311,8 +326,9 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
+@@ -311,27 +326,50 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
  // Google Veo3 via Vertex AI (own billing account/credit, separate from the
  // Kie.ai-based 'veo' mode). Veo3 always renders a fixed ~8-second clip, so we
  // trim/loop it afterwards to match this scene's actual duration.
@@ -105,11 +105,99 @@ index 225054d..7919fe5 100644
 -  const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
 +async function generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, veoRequestSeconds) {
 +  const requestDuration = veoRequestSeconds || durationSeconds;
-+  const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: requestDuration, aspectRatio: format.aspectRatio });
    const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
++  const maxRetries = 2; // Vertex occasionally returns a transient "Internal error" on the operation - worth a couple of fresh attempts
    const maxAttempts = 60; // Veo can take several minutes per clip
-   let done = false;
-@@ -355,21 +371,31 @@ async function runPipeline(schedule) {
+-  let done = false;
+-  for (let i = 0; i < maxAttempts; i++) {
+-    await sleep(10000);
+-    const status = await vertexAiService.getVeoOperationStatus(operationName);
+-    if (status.done) {
+-      const bytes = vertexAiService.extractVeoResultBytes(status);
+-      if (!bytes) throw new Error(`Veo (Vertex) clip generated but no video bytes were returned: ${JSON.stringify(status).slice(0, 300)}`);
+-      fs.writeFileSync(rawPath, Buffer.from(bytes, 'base64'));
+-      done = true;
+-      break;
++
++  for (let retry = 0; retry <= maxRetries; retry++) {
++    const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: requestDuration, aspectRatio: format.aspectRatio });
++    let done = false;
++    let bytes = null;
++    let operationError = null;
++
++    for (let i = 0; i < maxAttempts; i++) {
++      await sleep(10000);
++      const status = await vertexAiService.getVeoOperationStatus(operationName);
++      if (status.done) {
++        if (status.error) {
++          operationError = status.error;
++        } else {
++          bytes = vertexAiService.extractVeoResultBytes(status);
++        }
++        done = true;
++        break;
++      }
+     }
+-  }
+-  if (!done) throw new Error('Veo (Vertex) clip generation timed out');
+ 
+-  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
+-  fs.unlinkSync(rawPath);
+-  return destPath;
++    if (!done) throw new Error('Veo (Vertex) clip generation timed out');
++
++    if (operationError) {
++      logger.error(`[vertex] veo operation ${operationName} finished with an error (attempt ${retry + 1}/${maxRetries + 1}): ${JSON.stringify(operationError)}`);
++      if (retry < maxRetries) {
++        await sleep(5000);
++        continue; // resubmit a fresh Veo request
++      }
++      throw new Error(`Veo (Vertex) generation failed after ${maxRetries + 1} attempts: ${operationError.message || JSON.stringify(operationError)}`);
++    }
++
++    if (!bytes) throw new Error('Veo (Vertex) clip generated but no video bytes were returned and no error was reported');
++
++    fs.writeFileSync(rawPath, Buffer.from(bytes, 'base64'));
++    await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
++    fs.unlinkSync(rawPath);
++    return destPath;
++  }
+ }
+ 
+ async function runPipeline(schedule) {
+@@ -342,34 +380,55 @@ async function runPipeline(schedule) {
+   try {
+     stage = 'writing_script';
+     await ContentScheduleRun.setStatus(run.id, 'writing_script');
+-    // Keep scene count manageable even for long-form videos (10 min at a fixed
+-    // 10s/scene would mean 60 scenes - too many for one Gemini script call and
+-    // too many stock-footage searches). Aim for a reasonable scene count and
+-    // scale each scene's length up for longer target durations instead.
+-    const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
+-    const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
+-    const sceneCount = desiredSceneCount;
+-    const script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format });
++    let script;
++    if (schedule.custom_script && schedule.custom_script.trim()) {
++      // User supplied their own narration - use it word-for-word. We only ask
++      // Gemini to split it into scenes and describe an image for each one.
++      script = await geminiService.writeVisualPromptsForScript(schedule.custom_script, {
++        clipSeconds: env.contentPipeline.clipSeconds,
++        masterPrompt: schedule.master_prompt,
++        contentFormat: schedule.content_format,
++      });
++    } else {
++      // Keep scene count manageable even for long-form videos (10 min at a fixed
++      // 10s/scene would mean 60 scenes - too many for one Gemini script call and
++      // too many stock-footage searches). Aim for a reasonable scene count and
++      // scale each scene's length up for longer target durations instead.
++      const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
++      const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
++      const sceneCount = desiredSceneCount;
++      script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format });
++    }
+     await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
+     logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);
  
      stage = 'generating_voiceover';
      await ContentScheduleRun.setStatus(run.id, 'generating_voiceover');
@@ -153,7 +241,7 @@ index 225054d..7919fe5 100644
  
      stage = 'generating_clips';
      await ContentScheduleRun.setStatus(run.id, 'generating_clips');
-@@ -377,7 +403,7 @@ async function runPipeline(schedule) {
+@@ -377,7 +436,7 @@ async function runPipeline(schedule) {
      const clipPaths = [];
      for (let i = 0; i < script.scenes.length; i++) {
        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
@@ -162,7 +250,7 @@ index 225054d..7919fe5 100644
        clipPaths.push(clipPath);
        tempFiles.push(clipPath);
      }
-@@ -393,7 +419,7 @@ async function runPipeline(schedule) {
+@@ -393,7 +452,7 @@ async function runPipeline(schedule) {
        // One caption pass for the whole video (instead of one per clip) - much
        // faster, since each ffmpeg re-encode is the expensive part.
        const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
@@ -171,6 +259,160 @@ index 225054d..7919fe5 100644
        tempFiles.push(assPath);
  
        captionedPath = path.join(env.upload.tempDir, `${run.id}_captioned.mp4`);
+diff --git a/models.ContentSchedule.js b/models.ContentSchedule.js
+index 6b63126..517e6ad 100644
+--- a/models.ContentSchedule.js
++++ b/models.ContentSchedule.js
+@@ -7,8 +7,8 @@ const ContentSchedule = {
+         (user_id, page_id, folder_id, keyword, target_duration_seconds, voice_name,
+          upload_time, timezone, repeat_type, specific_days, interval_hours, times,
+          caption, hashtags, publish_immediately, language, youtube_token_id,
+-         post_to_facebook, youtube_video_type, master_prompt, content_format)
+-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
++         post_to_facebook, youtube_video_type, master_prompt, content_format, custom_script)
++       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        RETURNING *`,
+       [
+         userId, data.pageId || null, data.folderId, data.keyword, data.targetDurationSeconds || 60,
+@@ -19,6 +19,7 @@ const ContentSchedule = {
+         data.language || 'english', data.youtubeTokenId || null,
+         data.postToFacebook !== false, data.youtubeVideoType || 'auto',
+         data.masterPrompt || null, data.contentFormat || 'documentary',
++        data.customScript || null,
+       ]
+     );
+     return res.rows[0];
+diff --git a/public.content-schedule.html b/public.content-schedule.html
+index e51b9e5..2d80736 100644
+--- a/public.content-schedule.html
++++ b/public.content-schedule.html
+@@ -28,6 +28,11 @@
+               <label for="keyword">Keyword / topic area</label>
+               <input id="keyword" type="text" placeholder="e.g. world history" required />
+             </div>
++            <div class="field">
++              <label for="customScript">Your own voiceover script (optional)</label>
++              <textarea id="customScript" rows="6" placeholder="Paste your own narration here. If filled, this exact text is used word-for-word for the voiceover instead of an AI-written script — the AI will only generate matching images/scenes for it."></textarea>
++              <div style="font-size:11px; color:var(--text-faint); margin-top:4px;">Leave empty to let the AI write the script from the keyword above.</div>
++            </div>
+             <label class="checkbox-row">
+               <input id="postToFacebook" type="checkbox" checked /> Also post to Facebook
+             </label>
+diff --git a/public.content-schedule.js b/public.content-schedule.js
+index 1c369ce..346fe7d 100644
+--- a/public.content-schedule.js
++++ b/public.content-schedule.js
+@@ -179,6 +179,7 @@ async function loadOptions() {
+         method: 'POST',
+         body: JSON.stringify({
+           keyword: document.getElementById('keyword').value,
++          customScript: document.getElementById('customScript').value,
+           pageId: document.getElementById('postToFacebook').checked ? document.getElementById('pageId').value : null,
+           postToFacebook: document.getElementById('postToFacebook').checked,
+           folderId: document.getElementById('folderId').value,
+diff --git a/services.geminiService.js b/services.geminiService.js
+index 575952c..dd80b38 100644
+--- a/services.geminiService.js
++++ b/services.geminiService.js
+@@ -85,7 +85,97 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
+   return parsed;
+ }
+ 
+-module.exports = { writeScript, generateImage };
++module.exports = { writeScript, writeVisualPromptsForScript, generateImage };
++
++/**
++ * Splits the user's OWN narration text into roughly even scenes (by word
++ * count, so each scene is a similar length to speak) and asks Gemini for a
++ * matching visual_prompt for each one. The narration text itself is never
++ * altered - only used to describe what image each chunk needs.
++ */
++function splitCustomScriptIntoScenes(customScript, clipSeconds) {
++  const words = customScript.trim().split(/\s+/).filter(Boolean);
++  const wordsPerSecond = 2.5; // rough average speaking pace, matches writeScript's estimate
++  const estimatedTotalSeconds = words.length / wordsPerSecond;
++  const desiredSceneCount = Math.min(20, Math.max(3, Math.round(estimatedTotalSeconds / clipSeconds)));
++  const wordsPerScene = Math.ceil(words.length / desiredSceneCount);
++
++  // Split on sentence boundaries first so we never cut a sentence in half,
++  // then group sentences into scenes close to the target word count each.
++  const sentences = customScript.trim().match(/[^.!?]+[.!?]*/g) || [customScript.trim()];
++  const scenes = [];
++  let current = [];
++  let currentWordCount = 0;
++  sentences.forEach((sentence) => {
++    const sentenceWords = sentence.trim().split(/\s+/).filter(Boolean).length;
++    if (currentWordCount > 0 && currentWordCount + sentenceWords > wordsPerScene && scenes.length < desiredSceneCount - 1) {
++      scenes.push(current.join(' ').trim());
++      current = [];
++      currentWordCount = 0;
++    }
++    current.push(sentence.trim());
++    currentWordCount += sentenceWords;
++  });
++  if (current.length) scenes.push(current.join(' ').trim());
++  return scenes.filter(Boolean);
++}
++
++async function writeVisualPromptsForScript(customScript, { clipSeconds, masterPrompt, contentFormat }) {
++  const sceneNarrations = splitCustomScriptIntoScenes(customScript, clipSeconds);
++
++  const masterPromptBlock = masterPrompt && masterPrompt.trim()
++    ? `\n\nCREATOR'S CUSTOM INSTRUCTIONS (follow these closely for the visual_prompt's look/style):\n"""\n${masterPrompt.trim()}\n"""`
++    : '';
++
++  const prompt = `Here is a video's narration, already split into ${sceneNarrations.length} scenes. For EACH scene, write a detailed, specific still-image description IN ENGLISH (used to generate one AI photo for that scene) describing exactly what should be shown: the specific subject/action tied directly to what that scene's narration says (not a generic stand-in image), the setting/background, camera framing (e.g. "close-up", "wide establishing shot", "aerial view"), lighting mood (e.g. "golden hour", "moody overcast", "dramatic side-lighting"), and visual style ("photorealistic, cinematic, highly detailed"). Each scene's visual_prompt must be visually distinct from the others (avoid repeating the same shot/subject/framing twice).${masterPromptBlock}
++
++Scenes (do not change or repeat this text back, just reference it for context):
++${sceneNarrations.map((s, i) => `${i + 1}. ${s}`).join('\n')}
++
++Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape (exactly ${sceneNarrations.length} items, same order as above):
++{
++  "topic": "a short descriptive title for this video, inferred from the narration",
++  "visual_prompts": ["...", "..."]
++}`;
++
++  let resp;
++  try {
++    resp = await retryOn429(
++      () =>
++        axios.post(
++          `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
++          { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
++          { params: { key: env.googleAi.geminiApiKey } }
++        ),
++      { label: 'Gemini writeVisualPromptsForScript' }
++    );
++  } catch (err) {
++    const geminiError = err.response?.data?.error;
++    logger.error(`[Gemini] writeVisualPromptsForScript FAILED: ${JSON.stringify(geminiError || err.message)}`);
++    throw new Error(geminiError?.message || err.message);
++  }
++
++  const text = resp.data.candidates?.[0]?.content?.parts?.[0]?.text;
++  if (!text) throw new Error('Gemini returned no visual-prompt text');
++
++  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
++  let parsed;
++  try {
++    parsed = JSON.parse(cleaned);
++  } catch (e) {
++    logger.error(`[content-pipeline] failed to parse Gemini visual-prompts JSON: ${cleaned.slice(0, 300)}`);
++    throw new Error('Gemini did not return valid JSON for the visual prompts');
++  }
++
++  if (!Array.isArray(parsed.visual_prompts) || parsed.visual_prompts.length !== sceneNarrations.length) {
++    throw new Error('Gemini visual-prompts response did not match the scene count');
++  }
++
++  return {
++    topic: parsed.topic || 'Custom script video',
++    scenes: sceneNarrations.map((narration, i) => ({ narration, visual_prompt: parsed.visual_prompts[i] })),
++  };
++}
+ 
+ /**
+  * Generates a still image from a text prompt using Gemini's own image model
 diff --git a/services.vertexAiService.js b/services.vertexAiService.js
 index 3318437..e289eb1 100644
 --- a/services.vertexAiService.js

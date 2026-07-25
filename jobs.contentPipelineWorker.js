@@ -328,26 +328,48 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
 // trim/loop it afterwards to match this scene's actual duration.
 async function generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, veoRequestSeconds) {
   const requestDuration = veoRequestSeconds || durationSeconds;
-  const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: requestDuration, aspectRatio: format.aspectRatio });
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
+  const maxRetries = 2; // Vertex occasionally returns a transient "Internal error" on the operation - worth a couple of fresh attempts
   const maxAttempts = 60; // Veo can take several minutes per clip
-  let done = false;
-  for (let i = 0; i < maxAttempts; i++) {
-    await sleep(10000);
-    const status = await vertexAiService.getVeoOperationStatus(operationName);
-    if (status.done) {
-      const bytes = vertexAiService.extractVeoResultBytes(status);
-      if (!bytes) throw new Error(`Veo (Vertex) clip generated but no video bytes were returned: ${JSON.stringify(status).slice(0, 300)}`);
-      fs.writeFileSync(rawPath, Buffer.from(bytes, 'base64'));
-      done = true;
-      break;
-    }
-  }
-  if (!done) throw new Error('Veo (Vertex) clip generation timed out');
 
-  await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
-  fs.unlinkSync(rawPath);
-  return destPath;
+  for (let retry = 0; retry <= maxRetries; retry++) {
+    const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: requestDuration, aspectRatio: format.aspectRatio });
+    let done = false;
+    let bytes = null;
+    let operationError = null;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await sleep(10000);
+      const status = await vertexAiService.getVeoOperationStatus(operationName);
+      if (status.done) {
+        if (status.error) {
+          operationError = status.error;
+        } else {
+          bytes = vertexAiService.extractVeoResultBytes(status);
+        }
+        done = true;
+        break;
+      }
+    }
+
+    if (!done) throw new Error('Veo (Vertex) clip generation timed out');
+
+    if (operationError) {
+      logger.error(`[vertex] veo operation ${operationName} finished with an error (attempt ${retry + 1}/${maxRetries + 1}): ${JSON.stringify(operationError)}`);
+      if (retry < maxRetries) {
+        await sleep(5000);
+        continue; // resubmit a fresh Veo request
+      }
+      throw new Error(`Veo (Vertex) generation failed after ${maxRetries + 1} attempts: ${operationError.message || JSON.stringify(operationError)}`);
+    }
+
+    if (!bytes) throw new Error('Veo (Vertex) clip generated but no video bytes were returned and no error was reported');
+
+    fs.writeFileSync(rawPath, Buffer.from(bytes, 'base64'));
+    await ffmpeg.normalizeClip(rawPath, durationSeconds, destPath, format.width, format.height);
+    fs.unlinkSync(rawPath);
+    return destPath;
+  }
 }
 
 async function runPipeline(schedule) {
@@ -358,14 +380,25 @@ async function runPipeline(schedule) {
   try {
     stage = 'writing_script';
     await ContentScheduleRun.setStatus(run.id, 'writing_script');
-    // Keep scene count manageable even for long-form videos (10 min at a fixed
-    // 10s/scene would mean 60 scenes - too many for one Gemini script call and
-    // too many stock-footage searches). Aim for a reasonable scene count and
-    // scale each scene's length up for longer target durations instead.
-    const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
-    const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
-    const sceneCount = desiredSceneCount;
-    const script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format });
+    let script;
+    if (schedule.custom_script && schedule.custom_script.trim()) {
+      // User supplied their own narration - use it word-for-word. We only ask
+      // Gemini to split it into scenes and describe an image for each one.
+      script = await geminiService.writeVisualPromptsForScript(schedule.custom_script, {
+        clipSeconds: env.contentPipeline.clipSeconds,
+        masterPrompt: schedule.master_prompt,
+        contentFormat: schedule.content_format,
+      });
+    } else {
+      // Keep scene count manageable even for long-form videos (10 min at a fixed
+      // 10s/scene would mean 60 scenes - too many for one Gemini script call and
+      // too many stock-footage searches). Aim for a reasonable scene count and
+      // scale each scene's length up for longer target durations instead.
+      const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
+      const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
+      const sceneCount = desiredSceneCount;
+      script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format });
+    }
     await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
     logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);
 
