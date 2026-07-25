@@ -10,7 +10,7 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
  * Each scene has narration (what the voiceover says) and a visual_prompt
  * (what the video clip for that scene should show).
  */
-async function writeScript(keyword, { sceneCount, sceneSeconds, language, masterPrompt }) {
+async function writeScript(keyword, { sceneCount, sceneSeconds, language, masterPrompt, contentFormat }) {
   logger.info(`[Gemini] Using model value: ${JSON.stringify(env.googleAi.geminiModel)} (length: ${env.googleAi.geminiModel.length})`);
   const isRomanUrdu = language === 'roman_urdu';
   const narrationInstruction = isRomanUrdu
@@ -25,7 +25,16 @@ async function writeScript(keyword, { sceneCount, sceneSeconds, language, master
     ? `\n\nCREATOR'S CUSTOM INSTRUCTIONS (follow these closely for both the narration's tone/style and the visual_prompt's look/style, in addition to everything else above):\n"""\n${masterPrompt.trim()}\n"""`
     : '';
 
-  const prompt = `You are writing a short documentary-style video script about: "${keyword}".
+  const formatFramings = {
+    documentary: 'a short documentary-style video script',
+    tutorial: 'a short step-by-step tutorial/how-to video script (practical, instructional, second-person "you" voice)',
+    tips: 'a fast-paced "tips and tricks" style video script (punchy, listicle-style, one clear tip per scene)',
+    vlog: 'a personal, casual talking-head vlog-style video script (first-person, conversational, like a creator sharing their own experience/opinion)',
+    news: 'a news/commentary-style video script (informative, current-events framing, neutral-to-opinionated tone)',
+  };
+  const framing = formatFramings[contentFormat] || formatFramings.documentary;
+
+  const prompt = `You are writing ${framing} about: "${keyword}".
 
 Pick ONE specific, interesting angle or fact within this topic (not a generic overview) so the video feels fresh.
 Write exactly ${sceneCount} scenes. Each scene is about ${sceneSeconds} seconds of narration (roughly ${Math.round(sceneSeconds * 2.5)} words).
