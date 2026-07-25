@@ -138,3 +138,16 @@ index 225054d..bc7fcf2 100644
        tempFiles.push(assPath);
  
        captionedPath = path.join(env.upload.tempDir, `${run.id}_captioned.mp4`);
+diff --git a/services.vertexAiService.js b/services.vertexAiService.js
+index 3318437..e289eb1 100644
+--- a/services.vertexAiService.js
++++ b/services.vertexAiService.js
+@@ -88,7 +88,7 @@ async function generateImage(prompt, destPath) {
+     resp = await axios.post(
+       `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
+       {
+-        contents: [{ parts: [{ text: prompt }] }],
++        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+         generationConfig: { responseModalities: ['IMAGE'] },
+       },
+       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }

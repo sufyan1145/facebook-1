@@ -88,7 +88,7 @@ async function generateImage(prompt, destPath) {
     resp = await axios.post(
       `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
       {
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: { responseModalities: ['IMAGE'] },
       },
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
