@@ -16,10 +16,10 @@ index b83748a..9248aba 100644
      captionsEnabled: (process.env.CONTENT_CAPTIONS_ENABLED || 'true').trim() === 'true',
      clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
 diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
-index 225054d..01d2f35 100644
+index 225054d..26a7e26 100644
 --- a/jobs.contentPipelineWorker.js
 +++ b/jobs.contentPipelineWorker.js
-@@ -82,16 +82,24 @@ function sleep(ms) {
+@@ -82,16 +82,32 @@ function sleep(ms) {
    return new Promise((resolve) => setTimeout(resolve, ms));
  }
  
@@ -28,8 +28,16 @@ index 225054d..01d2f35 100644
 +  if (env.contentPipeline.clipMode === 'veo_intro_kenburns') {
 +    if (sceneIndex < env.contentPipeline.veoIntroScenes) {
 +      // First N scenes: short Veo3 render (cheap/fast), then normalized/looped
-+      // to this scene's real voiceover length so timing stays exact.
-+      return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
++      // to this scene's real voiceover length so timing stays exact. If Veo3
++      // keeps failing (e.g. a persistent Google-side error) after its own
++      // retries, fall back to an AI image for just this scene instead of
++      // failing the whole video.
++      try {
++        return await generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
++      } catch (err) {
++        logger.info(`[content-pipeline] Veo3 intro scene ${sceneIndex} failed ("${err.message}"), falling back to AI image for this scene`);
++        return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
++      }
 +    }
 +    return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
 +  }
@@ -47,7 +55,7 @@ index 225054d..01d2f35 100644
      }
    }
    if (env.contentPipeline.clipMode === 'stock_video') {
-@@ -160,14 +168,19 @@ async function generateStandaloneImage(prompt, imagePath, width, height, aspectR
+@@ -160,14 +176,19 @@ async function generateStandaloneImage(prompt, imagePath, width, height, aspectR
    return imagePath;
  }
  
@@ -69,7 +77,7 @@ index 225054d..01d2f35 100644
    fs.unlinkSync(imagePath);
    return destPath;
  }
-@@ -208,7 +221,7 @@ function assTimestamp(seconds) {
+@@ -208,7 +229,7 @@ function assTimestamp(seconds) {
  // an even split of its own narration across its own time window (cumulative offset
  // from all prior scenes) - not perfectly word-accurate (no per-word speech
  // timestamps are available from the TTS), but close enough to look natural.
@@ -78,7 +86,7 @@ index 225054d..01d2f35 100644
    const fontSize = format.orientation === 'landscape' ? 64 : 72;
    const marginV = format.orientation === 'landscape' ? 80 : 220;
  
-@@ -228,8 +241,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+@@ -228,8 +249,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
  
    const wordsPerChunk = 3;
    const events = [];
@@ -89,7 +97,7 @@ index 225054d..01d2f35 100644
      const words = scene.narration.trim().split(/\s+/).filter(Boolean);
      const chunks = [];
      for (let i = 0; i < words.length; i += wordsPerChunk) {
-@@ -244,6 +258,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+@@ -244,6 +266,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
        const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
        events.push(`Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`);
      });
@@ -97,7 +105,7 @@ index 225054d..01d2f35 100644
    });
  
    return header + events.join('\n') + '\n';
-@@ -311,27 +326,50 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
+@@ -311,27 +334,50 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
  // Google Veo3 via Vertex AI (own billing account/credit, separate from the
  // Kie.ai-based 'veo' mode). Veo3 always renders a fixed ~8-second clip, so we
  // trim/loop it afterwards to match this scene's actual duration.
@@ -165,7 +173,7 @@ index 225054d..01d2f35 100644
  }
  
  async function runPipeline(schedule) {
-@@ -342,34 +380,55 @@ async function runPipeline(schedule) {
+@@ -342,34 +388,55 @@ async function runPipeline(schedule) {
    try {
      stage = 'writing_script';
      await ContentScheduleRun.setStatus(run.id, 'writing_script');
@@ -241,7 +249,7 @@ index 225054d..01d2f35 100644
  
      stage = 'generating_clips';
      await ContentScheduleRun.setStatus(run.id, 'generating_clips');
-@@ -377,7 +436,7 @@ async function runPipeline(schedule) {
+@@ -377,7 +444,7 @@ async function runPipeline(schedule) {
      const clipPaths = [];
      for (let i = 0; i < script.scenes.length; i++) {
        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
@@ -250,7 +258,7 @@ index 225054d..01d2f35 100644
        clipPaths.push(clipPath);
        tempFiles.push(clipPath);
      }
-@@ -393,7 +452,7 @@ async function runPipeline(schedule) {
+@@ -393,7 +460,7 @@ async function runPipeline(schedule) {
        // One caption pass for the whole video (instead of one per clip) - much
        // faster, since each ffmpeg re-encode is the expensive part.
        const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);

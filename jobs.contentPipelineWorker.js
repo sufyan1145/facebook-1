@@ -86,8 +86,16 @@ async function generateClip(prompt, durationSeconds, destPath, format, sceneInde
   if (env.contentPipeline.clipMode === 'veo_intro_kenburns') {
     if (sceneIndex < env.contentPipeline.veoIntroScenes) {
       // First N scenes: short Veo3 render (cheap/fast), then normalized/looped
-      // to this scene's real voiceover length so timing stays exact.
-      return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
+      // to this scene's real voiceover length so timing stays exact. If Veo3
+      // keeps failing (e.g. a persistent Google-side error) after its own
+      // retries, fall back to an AI image for just this scene instead of
+      // failing the whole video.
+      try {
+        return await generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
+      } catch (err) {
+        logger.info(`[content-pipeline] Veo3 intro scene ${sceneIndex} failed ("${err.message}"), falling back to AI image for this scene`);
+        return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
+      }
     }
     return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
   }
