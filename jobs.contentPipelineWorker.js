@@ -63,7 +63,19 @@ function isDueNow(schedule) {
 
   if (schedule.repeat_type === 'multiple_times') {
     const times = Array.isArray(schedule.times) ? schedule.times : [];
-    return times.includes(hhmm);
+    const [curH, curM] = hhmm.split(':').map(Number);
+    const curMinutes = curH * 60 + curM;
+    const GRACE_MINUTES = 15;
+    const withinAnySlot = times.some((t) => {
+      const [th, tm] = t.split(':').map(Number);
+      const targetMinutes = th * 60 + tm;
+      return curMinutes >= targetMinutes && curMinutes <= targetMinutes + GRACE_MINUTES;
+    });
+    if (!withinAnySlot) return false;
+    if (!schedule.last_run_at) return true;
+    // Don't re-fire repeatedly for the same slot while still inside its grace window.
+    const minutesSinceLastRun = (Date.now() - new Date(schedule.last_run_at).getTime()) / 60000;
+    return minutesSinceLastRun >= GRACE_MINUTES;
   }
 
   if (!shouldRunToday(schedule, weekday)) return false;
@@ -555,22 +567,38 @@ async function runPipeline(schedule) {
 
 function startContentPipelineWorker() {
   let running = false;
+  const queue = [];
+  const queuedIds = new Set();
+
   cron.schedule(env.contentPipeline.checkCron, async () => {
-    if (running) return; // a pipeline run can take several minutes; don't overlap ticks
-    running = true;
+    // Always check for newly-due schedules, even while a previous run is still
+    // in progress - this used to be skipped entirely while `running` was true,
+    // which silently dropped triggers (especially exact-time "multiple times a
+    // day" slots) whenever a video was still generating from an earlier tick.
     try {
       const schedules = await ContentSchedule.listActiveDue();
       for (const schedule of schedules) {
-        try {
-          if (isDueNow(schedule)) {
-            await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
-          }
-        } catch (err) {
-          logger.error(`Content pipeline worker error for schedule ${schedule.id} (keyword: "${schedule.keyword}"): ${err.message}`);
+        if (!queuedIds.has(schedule.id) && isDueNow(schedule)) {
+          queue.push(schedule);
+          queuedIds.add(schedule.id);
         }
       }
     } catch (err) {
       logger.error(`Content pipeline worker error: ${err.message}`);
+    }
+
+    if (running) return; // a pipeline run is already in progress; queued schedules will run once it finishes
+    running = true;
+    try {
+      while (queue.length) {
+        const schedule = queue.shift();
+        queuedIds.delete(schedule.id);
+        try {
+          await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
+        } catch (err) {
+          logger.error(`Content pipeline worker error for schedule ${schedule.id} (keyword: "${schedule.keyword}"): ${err.message}`);
+        }
+      }
     } finally {
       running = false;
     }

@@ -33,10 +33,31 @@ index b83748a..c955d30 100644
    },
  };
 diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
-index 225054d..b2a20ff 100644
+index 225054d..08c2be6 100644
 --- a/jobs.contentPipelineWorker.js
 +++ b/jobs.contentPipelineWorker.js
-@@ -82,16 +82,32 @@ function sleep(ms) {
+@@ -63,7 +63,19 @@ function isDueNow(schedule) {
+ 
+   if (schedule.repeat_type === 'multiple_times') {
+     const times = Array.isArray(schedule.times) ? schedule.times : [];
+-    return times.includes(hhmm);
++    const [curH, curM] = hhmm.split(':').map(Number);
++    const curMinutes = curH * 60 + curM;
++    const GRACE_MINUTES = 15;
++    const withinAnySlot = times.some((t) => {
++      const [th, tm] = t.split(':').map(Number);
++      const targetMinutes = th * 60 + tm;
++      return curMinutes >= targetMinutes && curMinutes <= targetMinutes + GRACE_MINUTES;
++    });
++    if (!withinAnySlot) return false;
++    if (!schedule.last_run_at) return true;
++    // Don't re-fire repeatedly for the same slot while still inside its grace window.
++    const minutesSinceLastRun = (Date.now() - new Date(schedule.last_run_at).getTime()) / 60000;
++    return minutesSinceLastRun >= GRACE_MINUTES;
+   }
+ 
+   if (!shouldRunToday(schedule, weekday)) return false;
+@@ -82,16 +94,32 @@ function sleep(ms) {
    return new Promise((resolve) => setTimeout(resolve, ms));
  }
  
@@ -72,7 +93,7 @@ index 225054d..b2a20ff 100644
      }
    }
    if (env.contentPipeline.clipMode === 'stock_video') {
-@@ -160,14 +176,19 @@ async function generateStandaloneImage(prompt, imagePath, width, height, aspectR
+@@ -160,14 +188,19 @@ async function generateStandaloneImage(prompt, imagePath, width, height, aspectR
    return imagePath;
  }
  
@@ -94,7 +115,7 @@ index 225054d..b2a20ff 100644
    fs.unlinkSync(imagePath);
    return destPath;
  }
-@@ -208,7 +229,7 @@ function assTimestamp(seconds) {
+@@ -208,7 +241,7 @@ function assTimestamp(seconds) {
  // an even split of its own narration across its own time window (cumulative offset
  // from all prior scenes) - not perfectly word-accurate (no per-word speech
  // timestamps are available from the TTS), but close enough to look natural.
@@ -103,7 +124,7 @@ index 225054d..b2a20ff 100644
    const fontSize = format.orientation === 'landscape' ? 64 : 72;
    const marginV = format.orientation === 'landscape' ? 80 : 220;
  
-@@ -228,8 +249,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+@@ -228,8 +261,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
  
    const wordsPerChunk = 3;
    const events = [];
@@ -114,7 +135,7 @@ index 225054d..b2a20ff 100644
      const words = scene.narration.trim().split(/\s+/).filter(Boolean);
      const chunks = [];
      for (let i = 0; i < words.length; i += wordsPerChunk) {
-@@ -244,6 +266,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+@@ -244,6 +278,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
        const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
        events.push(`Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`);
      });
@@ -122,7 +143,7 @@ index 225054d..b2a20ff 100644
    });
  
    return header + events.join('\n') + '\n';
-@@ -311,27 +334,50 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
+@@ -311,27 +346,50 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
  // Google Veo3 via Vertex AI (own billing account/credit, separate from the
  // Kie.ai-based 'veo' mode). Veo3 always renders a fixed ~8-second clip, so we
  // trim/loop it afterwards to match this scene's actual duration.
@@ -190,7 +211,7 @@ index 225054d..b2a20ff 100644
  }
  
  async function runPipeline(schedule) {
-@@ -342,34 +388,58 @@ async function runPipeline(schedule) {
+@@ -342,34 +400,58 @@ async function runPipeline(schedule) {
    try {
      stage = 'writing_script';
      await ContentScheduleRun.setStatus(run.id, 'writing_script');
@@ -269,7 +290,7 @@ index 225054d..b2a20ff 100644
  
      stage = 'generating_clips';
      await ContentScheduleRun.setStatus(run.id, 'generating_clips');
-@@ -377,7 +447,7 @@ async function runPipeline(schedule) {
+@@ -377,7 +459,7 @@ async function runPipeline(schedule) {
      const clipPaths = [];
      for (let i = 0; i < script.scenes.length; i++) {
        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
@@ -278,7 +299,7 @@ index 225054d..b2a20ff 100644
        clipPaths.push(clipPath);
        tempFiles.push(clipPath);
      }
-@@ -393,7 +463,7 @@ async function runPipeline(schedule) {
+@@ -393,7 +475,7 @@ async function runPipeline(schedule) {
        // One caption pass for the whole video (instead of one per clip) - much
        // faster, since each ffmpeg re-encode is the expensive part.
        const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
@@ -287,6 +308,52 @@ index 225054d..b2a20ff 100644
        tempFiles.push(assPath);
  
        captionedPath = path.join(env.upload.tempDir, `${run.id}_captioned.mp4`);
+@@ -485,22 +567,38 @@ async function runPipeline(schedule) {
+ 
+ function startContentPipelineWorker() {
+   let running = false;
++  const queue = [];
++  const queuedIds = new Set();
++
+   cron.schedule(env.contentPipeline.checkCron, async () => {
+-    if (running) return; // a pipeline run can take several minutes; don't overlap ticks
+-    running = true;
++    // Always check for newly-due schedules, even while a previous run is still
++    // in progress - this used to be skipped entirely while `running` was true,
++    // which silently dropped triggers (especially exact-time "multiple times a
++    // day" slots) whenever a video was still generating from an earlier tick.
+     try {
+       const schedules = await ContentSchedule.listActiveDue();
+       for (const schedule of schedules) {
++        if (!queuedIds.has(schedule.id) && isDueNow(schedule)) {
++          queue.push(schedule);
++          queuedIds.add(schedule.id);
++        }
++      }
++    } catch (err) {
++      logger.error(`Content pipeline worker error: ${err.message}`);
++    }
++
++    if (running) return; // a pipeline run is already in progress; queued schedules will run once it finishes
++    running = true;
++    try {
++      while (queue.length) {
++        const schedule = queue.shift();
++        queuedIds.delete(schedule.id);
+         try {
+-          if (isDueNow(schedule)) {
+-            await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
+-          }
++          await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
+         } catch (err) {
+           logger.error(`Content pipeline worker error for schedule ${schedule.id} (keyword: "${schedule.keyword}"): ${err.message}`);
+         }
+       }
+-    } catch (err) {
+-      logger.error(`Content pipeline worker error: ${err.message}`);
+     } finally {
+       running = false;
+     }
 diff --git a/models.ContentSchedule.js b/models.ContentSchedule.js
 index 6b63126..517e6ad 100644
 --- a/models.ContentSchedule.js
