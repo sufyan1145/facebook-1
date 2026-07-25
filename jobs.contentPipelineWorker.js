@@ -82,7 +82,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function generateClip(prompt, durationSeconds, destPath, format) {
+async function generateClip(prompt, durationSeconds, destPath, format, sceneIndex = 0) {
+  if (env.contentPipeline.clipMode === 'veo_intro_kenburns') {
+    if (sceneIndex < env.contentPipeline.veoIntroScenes) {
+      // First N scenes: short Veo3 render (cheap/fast), then normalized/looped
+      // to this scene's real voiceover length so timing stays exact.
+      return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
+    }
+    return generateClipFromImage(prompt, durationSeconds, destPath, format);
+  }
   if (env.contentPipeline.clipMode === 'image_kenburns') {
     return generateClipFromImage(prompt, durationSeconds, destPath, format);
   }
@@ -208,7 +216,7 @@ function assTimestamp(seconds) {
 // an even split of its own narration across its own time window (cumulative offset
 // from all prior scenes) - not perfectly word-accurate (no per-word speech
 // timestamps are available from the TTS), but close enough to look natural.
-function buildFullCaptionAss(scenes, sceneSeconds, format) {
+function buildFullCaptionAss(scenes, sceneDurations, format) {
   const fontSize = format.orientation === 'landscape' ? 64 : 72;
   const marginV = format.orientation === 'landscape' ? 80 : 220;
 
@@ -228,8 +236,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   const wordsPerChunk = 3;
   const events = [];
+  let sceneStart = 0;
   scenes.forEach((scene, sceneIndex) => {
-    const sceneStart = sceneIndex * sceneSeconds;
+    const sceneSeconds = sceneDurations[sceneIndex];
     const words = scene.narration.trim().split(/\s+/).filter(Boolean);
     const chunks = [];
     for (let i = 0; i < words.length; i += wordsPerChunk) {
@@ -244,6 +253,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
       events.push(`Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`);
     });
+    sceneStart += sceneSeconds;
   });
 
   return header + events.join('\n') + '\n';
@@ -311,8 +321,9 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
 // Google Veo3 via Vertex AI (own billing account/credit, separate from the
 // Kie.ai-based 'veo' mode). Veo3 always renders a fixed ~8-second clip, so we
 // trim/loop it afterwards to match this scene's actual duration.
-async function generateClipFromVertexVeo(prompt, durationSeconds, destPath, format) {
-  const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
+async function generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, veoRequestSeconds) {
+  const requestDuration = veoRequestSeconds || durationSeconds;
+  const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: requestDuration, aspectRatio: format.aspectRatio });
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
   const maxAttempts = 60; // Veo can take several minutes per clip
   let done = false;
@@ -355,21 +366,31 @@ async function runPipeline(schedule) {
 
     stage = 'generating_voiceover';
     await ContentScheduleRun.setStatus(run.id, 'generating_voiceover');
-    const fullNarration = script.scenes.map((s) => s.narration).join(' ');
-    const voiceoverPath = path.join(env.upload.tempDir, `${run.id}_voice.mp3`);
-    if (env.contentPipeline.ttsProvider === 'vertex') {
-      await vertexAiService.synthesizeSpeech(fullNarration, voiceoverPath, schedule.voice_name);
-    } else {
-      await googleTtsService.synthesizeToFile(fullNarration, voiceoverPath, schedule.voice_name);
+    // Synthesize each scene's narration SEPARATELY (instead of one TTS call for
+    // the whole script) so we know each scene's exact spoken duration - not an
+    // even split. This is what keeps the visuals lined up with the voiceover:
+    // scene N's clip is exactly as long as scene N's own narration audio.
+    const sceneAudioPaths = [];
+    const sceneDurations = [];
+    for (let i = 0; i < script.scenes.length; i++) {
+      const sceneAudioPath = path.join(env.upload.tempDir, `${run.id}_voice${i}.mp3`);
+      if (env.contentPipeline.ttsProvider === 'vertex') {
+        await vertexAiService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+      } else {
+        await googleTtsService.synthesizeToFile(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+      }
+      const sceneDuration = await ffmpeg.getMediaDuration(sceneAudioPath);
+      sceneAudioPaths.push(sceneAudioPath);
+      sceneDurations.push(sceneDuration);
+      tempFiles.push(sceneAudioPath);
     }
+
+    const voiceoverPath = path.join(env.upload.tempDir, `${run.id}_voice.mp3`);
+    await ffmpeg.concatAudio(sceneAudioPaths, voiceoverPath);
     tempFiles.push(voiceoverPath);
 
-    // The actual spoken audio rarely matches our word-count estimate exactly.
-    // Measure it and size the video clips to that real duration so the video
-    // covers the full voiceover instead of cutting off early or running long.
-    const actualVoiceoverSeconds = await ffmpeg.getMediaDuration(voiceoverPath);
-    const actualSceneSeconds = actualVoiceoverSeconds / script.scenes.length;
-    logger.info(`[content-pipeline] voiceover duration: ${actualVoiceoverSeconds.toFixed(1)}s (estimated ${schedule.target_duration_seconds}s) -> ${actualSceneSeconds.toFixed(1)}s/scene`);
+    const actualVoiceoverSeconds = sceneDurations.reduce((sum, d) => sum + d, 0);
+    logger.info(`[content-pipeline] voiceover duration: ${actualVoiceoverSeconds.toFixed(1)}s (estimated ${schedule.target_duration_seconds}s) across ${script.scenes.length} scenes: [${sceneDurations.map((d) => d.toFixed(1)).join(', ')}]s`);
 
     stage = 'generating_clips';
     await ContentScheduleRun.setStatus(run.id, 'generating_clips');
@@ -377,7 +398,7 @@ async function runPipeline(schedule) {
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
       const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-      await generateClip(script.scenes[i].visual_prompt, actualSceneSeconds, clipPath, format);
+      await generateClip(script.scenes[i].visual_prompt, sceneDurations[i], clipPath, format, i);
       clipPaths.push(clipPath);
       tempFiles.push(clipPath);
     }
@@ -393,7 +414,7 @@ async function runPipeline(schedule) {
       // One caption pass for the whole video (instead of one per clip) - much
       // faster, since each ffmpeg re-encode is the expensive part.
       const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
-      fs.writeFileSync(assPath, buildFullCaptionAss(script.scenes, actualSceneSeconds, format));
+      fs.writeFileSync(assPath, buildFullCaptionAss(script.scenes, sceneDurations, format));
       tempFiles.push(assPath);
 
       captionedPath = path.join(env.upload.tempDir, `${run.id}_captioned.mp4`);

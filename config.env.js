@@ -127,6 +127,12 @@ module.exports = {
     // 'image_kenburns' = one AI image per scene + pan/zoom effect (cheap/free depending on imageProvider)
     // 'stock_video'     = free real stock footage clip per scene (Pexels, no AI generation at all)
     // 'hybrid'          = try Pexels stock footage first; if no good match for that scene, fall back to an AI image + Ken Burns effect
+    // 'veo_intro_kenburns' = only the first N scenes use Veo3 (Vertex), rest use image_kenburns (Nano Banana) - fast + cheap
+    // Only used when clipMode === 'veo_intro_kenburns'. First N scenes render via Veo3.
+    veoIntroScenes: Number(process.env.CONTENT_VEO_INTRO_SCENES) || 2,
+    // The duration (seconds) requested FROM Veo3 itself for those intro scenes (kept short = faster/cheaper).
+    // The final clip is still normalized/looped to match that scene's actual voiceover length, so sync is unaffected.
+    veoIntroSeconds: Number(process.env.CONTENT_VEO_INTRO_SECONDS) || 4,
     // Burns short-form style animated captions (2-3 words at a time) onto every clip.
     captionsEnabled: (process.env.CONTENT_CAPTIONS_ENABLED || 'true').trim() === 'true',
     clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
