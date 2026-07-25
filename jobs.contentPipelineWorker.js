@@ -89,17 +89,17 @@ async function generateClip(prompt, durationSeconds, destPath, format, sceneInde
       // to this scene's real voiceover length so timing stays exact.
       return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
     }
-    return generateClipFromImage(prompt, durationSeconds, destPath, format);
+    return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
   }
   if (env.contentPipeline.clipMode === 'image_kenburns') {
-    return generateClipFromImage(prompt, durationSeconds, destPath, format);
+    return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
   }
   if (env.contentPipeline.clipMode === 'hybrid') {
     try {
       return await generateClipFromStock(prompt, durationSeconds, destPath, format);
     } catch (err) {
       logger.info(`[content-pipeline] no stock footage match for scene ("${err.message}"), falling back to AI image for this scene`);
-      return generateClipFromImage(prompt, durationSeconds, destPath, format);
+      return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
     }
   }
   if (env.contentPipeline.clipMode === 'stock_video') {
@@ -168,14 +168,19 @@ async function generateStandaloneImage(prompt, imagePath, width, height, aspectR
   return imagePath;
 }
 
-async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format) {
+// Cycled across scenes (by scene index) so consecutive clips don't repeat the
+// same motion - gives the video visual variety instead of one repeated zoom.
+const KEN_BURNS_EFFECTS = ['zoom_in', 'pan_left', 'popup', 'zoom_out', 'pan_right', 'pan_up', 'pan_down'];
+
+async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format, sceneIndex = 0) {
   const imagePath = destPath.replace(/\.mp4$/, '.png');
   // Boost every image's visual quality consistently, regardless of what the
   // script prompt already included and regardless of which image provider is used.
   const prompt = `${rawPrompt}, professional cinematography, photorealistic, highly detailed, dramatic lighting, sharp focus, 8k quality`;
   await generateStandaloneImage(prompt, imagePath, format.width, format.height, format.aspectRatio);
 
-  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath, format.width, format.height);
+  const effect = KEN_BURNS_EFFECTS[sceneIndex % KEN_BURNS_EFFECTS.length];
+  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath, format.width, format.height, effect);
   fs.unlinkSync(imagePath);
   return destPath;
 }

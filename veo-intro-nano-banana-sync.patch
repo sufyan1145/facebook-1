@@ -16,10 +16,10 @@ index b83748a..9248aba 100644
      captionsEnabled: (process.env.CONTENT_CAPTIONS_ENABLED || 'true').trim() === 'true',
      clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
 diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
-index 225054d..bc7fcf2 100644
+index 225054d..7919fe5 100644
 --- a/jobs.contentPipelineWorker.js
 +++ b/jobs.contentPipelineWorker.js
-@@ -82,7 +82,15 @@ function sleep(ms) {
+@@ -82,16 +82,24 @@ function sleep(ms) {
    return new Promise((resolve) => setTimeout(resolve, ms));
  }
  
@@ -31,12 +31,45 @@ index 225054d..bc7fcf2 100644
 +      // to this scene's real voiceover length so timing stays exact.
 +      return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format, env.contentPipeline.veoIntroSeconds);
 +    }
-+    return generateClipFromImage(prompt, durationSeconds, destPath, format);
++    return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
 +  }
    if (env.contentPipeline.clipMode === 'image_kenburns') {
-     return generateClipFromImage(prompt, durationSeconds, destPath, format);
+-    return generateClipFromImage(prompt, durationSeconds, destPath, format);
++    return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
    }
-@@ -208,7 +216,7 @@ function assTimestamp(seconds) {
+   if (env.contentPipeline.clipMode === 'hybrid') {
+     try {
+       return await generateClipFromStock(prompt, durationSeconds, destPath, format);
+     } catch (err) {
+       logger.info(`[content-pipeline] no stock footage match for scene ("${err.message}"), falling back to AI image for this scene`);
+-      return generateClipFromImage(prompt, durationSeconds, destPath, format);
++      return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
+     }
+   }
+   if (env.contentPipeline.clipMode === 'stock_video') {
+@@ -160,14 +168,19 @@ async function generateStandaloneImage(prompt, imagePath, width, height, aspectR
+   return imagePath;
+ }
+ 
+-async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format) {
++// Cycled across scenes (by scene index) so consecutive clips don't repeat the
++// same motion - gives the video visual variety instead of one repeated zoom.
++const KEN_BURNS_EFFECTS = ['zoom_in', 'pan_left', 'popup', 'zoom_out', 'pan_right', 'pan_up', 'pan_down'];
++
++async function generateClipFromImage(rawPrompt, durationSeconds, destPath, format, sceneIndex = 0) {
+   const imagePath = destPath.replace(/\.mp4$/, '.png');
+   // Boost every image's visual quality consistently, regardless of what the
+   // script prompt already included and regardless of which image provider is used.
+   const prompt = `${rawPrompt}, professional cinematography, photorealistic, highly detailed, dramatic lighting, sharp focus, 8k quality`;
+   await generateStandaloneImage(prompt, imagePath, format.width, format.height, format.aspectRatio);
+ 
+-  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath, format.width, format.height);
++  const effect = KEN_BURNS_EFFECTS[sceneIndex % KEN_BURNS_EFFECTS.length];
++  await ffmpeg.imageToKenBurnsClip(imagePath, durationSeconds, destPath, format.width, format.height, effect);
+   fs.unlinkSync(imagePath);
+   return destPath;
+ }
+@@ -208,7 +221,7 @@ function assTimestamp(seconds) {
  // an even split of its own narration across its own time window (cumulative offset
  // from all prior scenes) - not perfectly word-accurate (no per-word speech
  // timestamps are available from the TTS), but close enough to look natural.
@@ -45,7 +78,7 @@ index 225054d..bc7fcf2 100644
    const fontSize = format.orientation === 'landscape' ? 64 : 72;
    const marginV = format.orientation === 'landscape' ? 80 : 220;
  
-@@ -228,8 +236,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+@@ -228,8 +241,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
  
    const wordsPerChunk = 3;
    const events = [];
@@ -56,7 +89,7 @@ index 225054d..bc7fcf2 100644
      const words = scene.narration.trim().split(/\s+/).filter(Boolean);
      const chunks = [];
      for (let i = 0; i < words.length; i += wordsPerChunk) {
-@@ -244,6 +253,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+@@ -244,6 +258,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
        const escaped = chunk.replace(/[{}]/g, '').toUpperCase();
        events.push(`Dialogue: 0,${start},${end},Caption,,0,0,0,,{\\fad(80,80)}${escaped}`);
      });
@@ -64,7 +97,7 @@ index 225054d..bc7fcf2 100644
    });
  
    return header + events.join('\n') + '\n';
-@@ -311,8 +321,9 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
+@@ -311,8 +326,9 @@ async function generateClipFromGrok(prompt, durationSeconds, destPath, format) {
  // Google Veo3 via Vertex AI (own billing account/credit, separate from the
  // Kie.ai-based 'veo' mode). Veo3 always renders a fixed ~8-second clip, so we
  // trim/loop it afterwards to match this scene's actual duration.
@@ -76,7 +109,7 @@ index 225054d..bc7fcf2 100644
    const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
    const maxAttempts = 60; // Veo can take several minutes per clip
    let done = false;
-@@ -355,21 +366,31 @@ async function runPipeline(schedule) {
+@@ -355,21 +371,31 @@ async function runPipeline(schedule) {
  
      stage = 'generating_voiceover';
      await ContentScheduleRun.setStatus(run.id, 'generating_voiceover');
@@ -120,7 +153,7 @@ index 225054d..bc7fcf2 100644
  
      stage = 'generating_clips';
      await ContentScheduleRun.setStatus(run.id, 'generating_clips');
-@@ -377,7 +398,7 @@ async function runPipeline(schedule) {
+@@ -377,7 +403,7 @@ async function runPipeline(schedule) {
      const clipPaths = [];
      for (let i = 0; i < script.scenes.length; i++) {
        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
@@ -129,7 +162,7 @@ index 225054d..bc7fcf2 100644
        clipPaths.push(clipPath);
        tempFiles.push(clipPath);
      }
-@@ -393,7 +414,7 @@ async function runPipeline(schedule) {
+@@ -393,7 +419,7 @@ async function runPipeline(schedule) {
        // One caption pass for the whole video (instead of one per clip) - much
        // faster, since each ffmpeg re-encode is the expensive part.
        const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
@@ -151,3 +184,82 @@ index 3318437..e289eb1 100644
          generationConfig: { responseModalities: ['IMAGE'] },
        },
        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+diff --git a/utils.ffmpeg.js b/utils.ffmpeg.js
+index d9c2ee5..c289f2d 100644
+--- a/utils.ffmpeg.js
++++ b/utils.ffmpeg.js
+@@ -43,22 +43,65 @@ async function pcmToMp3(pcmPath, mp3Path) {
+   return mp3Path;
+ }
+ 
+-// Turns a still image into a short video clip with a slow zoom/pan (Ken Burns) effect.
+-// Cheaper alternative to AI text-to-video: one AI image per scene instead of per-second video credits.
+-async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath, width = 1080, height = 1920) {
+-  const fps = 25;
++// Builds the -vf filter chain for a given motion effect. All effects render at
++// the same output size and always end with a short fade-in/fade-out so cuts
++// between scenes feel like transitions instead of hard jumps.
++function buildKenBurnsFilter(effect, width, height, durationSeconds, fps) {
+   const frames = Math.max(1, Math.round(durationSeconds * fps));
+-  const maxZoom = 1.15; // slow, subtle zoom-in over the clip
++  const maxZoom = 1.15;
+   const zoomStep = ((maxZoom - 1) / frames).toFixed(8);
++  const baseScale = `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2}`;
++
++  let zoompanExpr;
++  switch (effect) {
++    case 'zoom_out':
++      // Starts already zoomed in, eases back out to normal over the clip.
++      zoompanExpr = `zoompan=z='if(lte(on,1),${maxZoom},max(1.0,zoom-${zoomStep}))':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps}`;
++      break;
++    case 'pan_left':
++      // Slide effect: fixed moderate zoom, camera drifts from right edge to left edge.
++      zoompanExpr = `zoompan=z='${maxZoom}':d=${frames}:x='(iw-iw/zoom)*(1-on/${frames})':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps}`;
++      break;
++    case 'pan_right':
++      zoompanExpr = `zoompan=z='${maxZoom}':d=${frames}:x='(iw-iw/zoom)*(on/${frames})':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps}`;
++      break;
++    case 'pan_up':
++      zoompanExpr = `zoompan=z='${maxZoom}':d=${frames}:x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*(1-on/${frames})':s=${width}x${height}:fps=${fps}`;
++      break;
++    case 'pan_down':
++      zoompanExpr = `zoompan=z='${maxZoom}':d=${frames}:x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*(on/${frames})':s=${width}x${height}:fps=${fps}`;
++      break;
++    case 'popup': {
++      // Quick pop/bounce into place in the first ~0.4s, then holds still.
++      const popFrames = Math.max(1, Math.min(frames, Math.round(fps * 0.4)));
++      zoompanExpr = `zoompan=z='if(lte(on,${popFrames}),0.88+0.17*(on/${popFrames}),1.0)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps}`;
++      break;
++    }
++    case 'zoom_in':
++    default:
++      zoompanExpr = `zoompan=z='min(zoom+${zoomStep},${maxZoom})':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps}`;
++  }
++
++  // Fade duration scales down for very short clips so it never eats the whole clip.
++  const fadeDur = Math.min(0.35, Math.max(0.12, durationSeconds * 0.12)).toFixed(2);
++  const fadeOutStart = Math.max(0, durationSeconds - fadeDur).toFixed(2);
++
++  return `${baseScale},${zoompanExpr},format=yuv420p,fade=t=in:st=0:d=${fadeDur},fade=t=out:st=${fadeOutStart}:d=${fadeDur}`;
++}
++
++// Turns a still image into a short video clip with a motion effect (zoom, pan/slide,
++// or popup) plus fade-in/fade-out. Cheaper alternative to AI text-to-video: one AI
++// image per scene instead of per-second video credits. `effect` cycles across scenes
++// so the whole video doesn't look like the same repeated zoom.
++async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath, width = 1080, height = 1920, effect = 'zoom_in') {
++  const fps = 25;
++  const vf = buildKenBurnsFilter(effect, width, height, durationSeconds, fps);
+ 
+   await run([
+     '-y',
+     '-loop', '1',
+     '-i', imagePath,
+-    '-vf',
+-    `scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width * 2}:${height * 2},` +
+-      `zoompan=z='min(zoom+${zoomStep},${maxZoom})':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps},` +
+-      `format=yuv420p`,
++    '-vf', vf,
+     '-t', String(durationSeconds),
+     '-r', String(fps),
+     '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-threads', '2',
