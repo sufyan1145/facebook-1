@@ -405,7 +405,10 @@ async function runPipeline(schedule) {
       const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
       const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
       const sceneCount = desiredSceneCount;
-      script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format });
+      const scriptParams = { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format };
+      script = env.contentPipeline.scriptProvider === 'vertex'
+        ? await vertexAiService.writeScript(schedule.keyword, scriptParams)
+        : await geminiService.writeScript(schedule.keyword, scriptParams);
     }
     await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
     logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);

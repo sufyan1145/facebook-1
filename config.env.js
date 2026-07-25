@@ -110,6 +110,7 @@ module.exports = {
     veoModel: (process.env.VERTEX_VEO_MODEL || 'veo-3.0-generate-preview').trim(),
     imageModel: (process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image').trim(),
     ttsModel: (process.env.VERTEX_TTS_MODEL || 'gemini-2.5-flash-preview-tts').trim(),
+    scriptModel: (process.env.VERTEX_SCRIPT_MODEL || 'gemini-2.5-flash').trim(),
   },
 
   grok: {
@@ -140,5 +141,8 @@ module.exports = {
     imageProvider: (process.env.IMAGE_PROVIDER || 'kie').trim(),
     // 'gemini' (AI Studio, simple API key) or 'vertex' (Cloud Text-to-Speech via Vertex AI billing account)
     ttsProvider: (process.env.TTS_PROVIDER || 'gemini').trim(),
+    // 'gemini' (AI Studio API key, subject to its free-tier daily quota) or 'vertex'
+    // (billing account, no free-tier daily cap - avoids "quota exceeded" errors)
+    scriptProvider: (process.env.SCRIPT_PROVIDER || 'gemini').trim(),
   },
 };

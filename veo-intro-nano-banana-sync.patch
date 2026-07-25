@@ -1,8 +1,16 @@
 diff --git a/config.env.js b/config.env.js
-index b83748a..9248aba 100644
+index b83748a..c955d30 100644
 --- a/config.env.js
 +++ b/config.env.js
-@@ -127,6 +127,12 @@ module.exports = {
+@@ -110,6 +110,7 @@ module.exports = {
+     veoModel: (process.env.VERTEX_VEO_MODEL || 'veo-3.0-generate-preview').trim(),
+     imageModel: (process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image').trim(),
+     ttsModel: (process.env.VERTEX_TTS_MODEL || 'gemini-2.5-flash-preview-tts').trim(),
++    scriptModel: (process.env.VERTEX_SCRIPT_MODEL || 'gemini-2.5-flash').trim(),
+   },
+ 
+   grok: {
+@@ -127,6 +128,12 @@ module.exports = {
      // 'image_kenburns' = one AI image per scene + pan/zoom effect (cheap/free depending on imageProvider)
      // 'stock_video'     = free real stock footage clip per scene (Pexels, no AI generation at all)
      // 'hybrid'          = try Pexels stock footage first; if no good match for that scene, fall back to an AI image + Ken Burns effect
@@ -15,8 +23,17 @@ index b83748a..9248aba 100644
      // Burns short-form style animated captions (2-3 words at a time) onto every clip.
      captionsEnabled: (process.env.CONTENT_CAPTIONS_ENABLED || 'true').trim() === 'true',
      clipMode: (process.env.CONTENT_CLIP_MODE || 'video').trim(),
+@@ -134,5 +141,8 @@ module.exports = {
+     imageProvider: (process.env.IMAGE_PROVIDER || 'kie').trim(),
+     // 'gemini' (AI Studio, simple API key) or 'vertex' (Cloud Text-to-Speech via Vertex AI billing account)
+     ttsProvider: (process.env.TTS_PROVIDER || 'gemini').trim(),
++    // 'gemini' (AI Studio API key, subject to its free-tier daily quota) or 'vertex'
++    // (billing account, no free-tier daily cap - avoids "quota exceeded" errors)
++    scriptProvider: (process.env.SCRIPT_PROVIDER || 'gemini').trim(),
+   },
+ };
 diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
-index 225054d..26a7e26 100644
+index 225054d..b2a20ff 100644
 --- a/jobs.contentPipelineWorker.js
 +++ b/jobs.contentPipelineWorker.js
 @@ -82,16 +82,32 @@ function sleep(ms) {
@@ -173,7 +190,7 @@ index 225054d..26a7e26 100644
  }
  
  async function runPipeline(schedule) {
-@@ -342,34 +388,55 @@ async function runPipeline(schedule) {
+@@ -342,34 +388,58 @@ async function runPipeline(schedule) {
    try {
      stage = 'writing_script';
      await ContentScheduleRun.setStatus(run.id, 'writing_script');
@@ -202,7 +219,10 @@ index 225054d..26a7e26 100644
 +      const desiredSceneCount = Math.min(20, Math.max(3, Math.round(schedule.target_duration_seconds / env.contentPipeline.clipSeconds)));
 +      const sceneSeconds = schedule.target_duration_seconds / desiredSceneCount;
 +      const sceneCount = desiredSceneCount;
-+      script = await geminiService.writeScript(schedule.keyword, { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format });
++      const scriptParams = { sceneCount, sceneSeconds, language: schedule.language, masterPrompt: schedule.master_prompt, contentFormat: schedule.content_format };
++      script = env.contentPipeline.scriptProvider === 'vertex'
++        ? await vertexAiService.writeScript(schedule.keyword, scriptParams)
++        : await geminiService.writeScript(schedule.keyword, scriptParams);
 +    }
      await ContentScheduleRun.setStatus(run.id, 'writing_script', { topic: script.topic });
      logger.info(`[content-pipeline] script ready for "${schedule.keyword}": ${script.topic} (${script.scenes.length} scenes)`);
@@ -249,7 +269,7 @@ index 225054d..26a7e26 100644
  
      stage = 'generating_clips';
      await ContentScheduleRun.setStatus(run.id, 'generating_clips');
-@@ -377,7 +444,7 @@ async function runPipeline(schedule) {
+@@ -377,7 +447,7 @@ async function runPipeline(schedule) {
      const clipPaths = [];
      for (let i = 0; i < script.scenes.length; i++) {
        const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
@@ -258,7 +278,7 @@ index 225054d..26a7e26 100644
        clipPaths.push(clipPath);
        tempFiles.push(clipPath);
      }
-@@ -393,7 +460,7 @@ async function runPipeline(schedule) {
+@@ -393,7 +463,7 @@ async function runPipeline(schedule) {
        // One caption pass for the whole video (instead of one per clip) - much
        // faster, since each ffmpeg re-encode is the expensive part.
        const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
@@ -422,7 +442,7 @@ index 575952c..dd80b38 100644
  /**
   * Generates a still image from a text prompt using Gemini's own image model
 diff --git a/services.vertexAiService.js b/services.vertexAiService.js
-index 3318437..e289eb1 100644
+index 3318437..9e71cc4 100644
 --- a/services.vertexAiService.js
 +++ b/services.vertexAiService.js
 @@ -88,7 +88,7 @@ async function generateImage(prompt, destPath) {
@@ -434,6 +454,93 @@ index 3318437..e289eb1 100644
          generationConfig: { responseModalities: ['IMAGE'] },
        },
        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+@@ -127,10 +127,86 @@ async function synthesizeSpeech(text, destPath, voiceName) {
+   return destPath;
+ }
+ 
++// ---- Script writing (same prompt/response contract as services.geminiService.js's
++// writeScript, but via Vertex AI's billing account instead of the AI Studio free-tier
++// key - avoids the Gemini API's free-tier daily request quota entirely) ----
++
++async function writeScript(keyword, { sceneCount, sceneSeconds, language, masterPrompt, contentFormat }) {
++  const isRomanUrdu = language === 'roman_urdu';
++  const narrationInstruction = isRomanUrdu
++    ? 'what the voiceover says. MUST be written ENTIRELY in Roman Urdu (the Urdu language, spelled phonetically using English/Latin letters — NOT Urdu script, NOT English). Example of the required style: "Yeh jungle hazaron saal purana hai aur iski kahani bohot dilchasp hai." Do not write the narration in English.'
++    : 'what the voiceover says (plain spoken English, no stage directions)';
++
++  const languageReminder = isRomanUrdu
++    ? `\n\nIMPORTANT: Every single "narration" field MUST be in Roman Urdu, not English. This is a strict requirement — only "topic" and "visual_prompt" stay in English.`
++    : '';
++
++  const masterPromptBlock = masterPrompt && masterPrompt.trim()
++    ? `\n\nCREATOR'S CUSTOM INSTRUCTIONS (follow these closely for both the narration's tone/style and the visual_prompt's look/style, in addition to everything else above):\n"""\n${masterPrompt.trim()}\n"""`
++    : '';
++
++  const formatFramings = {
++    documentary: 'a short documentary-style video script',
++    tutorial: 'a short step-by-step tutorial/how-to video script (practical, instructional, second-person "you" voice)',
++    tips: 'a fast-paced "tips and tricks" style video script (punchy, listicle-style, one clear tip per scene)',
++    vlog: 'a personal, casual talking-head vlog-style video script (first-person, conversational, like a creator sharing their own experience/opinion)',
++    news: 'a news/commentary-style video script (informative, current-events framing, neutral-to-opinionated tone)',
++  };
++  const framing = formatFramings[contentFormat] || formatFramings.documentary;
++
++  const prompt = `You are writing ${framing} about: "${keyword}".
++
++Pick ONE specific, interesting angle or fact within this topic (not a generic overview) so the video feels fresh.
++Write exactly ${sceneCount} scenes. Each scene is about ${sceneSeconds} seconds of narration (roughly ${Math.round(sceneSeconds * 2.5)} words).
++For each scene, give:
++- "narration": ${narrationInstruction}
++- "visual_prompt": a detailed, specific still-image description IN ENGLISH (used to generate a single AI photo for this scene, regardless of narration language) of exactly what should be shown. Describe: the specific subject/action tied directly to what the narration says (not a generic stand-in image), the setting/background, camera framing (e.g. "close-up", "wide establishing shot", "aerial view"), lighting mood (e.g. "golden hour", "moody overcast", "dramatic side-lighting"), and visual style ("photorealistic, cinematic, highly detailed"). Each scene's visual_prompt must be visually distinct from the others (avoid repeating the same shot/subject/framing twice).
++${languageReminder}${masterPromptBlock}
++Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
++{
++  "topic": "specific title for this video",
++  "scenes": [
++    { "narration": "...", "visual_prompt": "..." }
++  ]
++}`;
++
++  const token = await getAccessToken();
++  let resp;
++  try {
++    resp = await axios.post(
++      `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
++      { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
++      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
++    );
++  } catch (err) {
++    const detail = err.response?.data;
++    logger.error(`[vertex] writeScript FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
++    throw new Error(detail?.error?.message || err.message);
++  }
++
++  const text = resp.data.candidates?.[0]?.content?.parts?.[0]?.text;
++  if (!text) throw new Error('Vertex AI returned no script text');
++
++  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
++  let parsed;
++  try {
++    parsed = JSON.parse(cleaned);
++  } catch (e) {
++    logger.error(`[content-pipeline] failed to parse Vertex script JSON: ${cleaned.slice(0, 300)}`);
++    throw new Error('Vertex AI did not return valid JSON for the script');
++  }
++
++  if (!parsed.topic || !Array.isArray(parsed.scenes) || !parsed.scenes.length) {
++    throw new Error('Vertex script response was missing topic/scenes');
++  }
++  return parsed;
++}
++
+ module.exports = {
+   createVeoVideoTask,
+   getVeoOperationStatus,
+   extractVeoResultBytes,
+   generateImage,
+   synthesizeSpeech,
++  writeScript,
+ };
 diff --git a/utils.ffmpeg.js b/utils.ffmpeg.js
 index d9c2ee5..c289f2d 100644
 --- a/utils.ffmpeg.js
