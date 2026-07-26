@@ -25,4 +25,6 @@ CREATE INDEX IF NOT EXISTS idx_credit_transactions_user ON credit_transactions (
 ALTER TABLE video_gen_jobs
   ADD COLUMN IF NOT EXISTS provider VARCHAR(20) NOT NULL DEFAULT 'kie', -- 'kie' or 'vertex'
   ADD COLUMN IF NOT EXISTS requested_duration_seconds INTEGER,
-  ADD COLUMN IF NOT EXISTS credits_charged INTEGER;
+  ADD COLUMN IF NOT EXISTS credits_charged INTEGER,
+  ADD COLUMN IF NOT EXISTS local_file_path TEXT, -- set when generated WITHOUT saving to Drive
+  ALTER COLUMN drive_folder_id DROP NOT NULL;

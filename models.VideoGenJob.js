@@ -6,7 +6,7 @@ const VideoGenJob = {
       `INSERT INTO video_gen_jobs (user_id, drive_folder_id, drive_folder_name, topic, duration, aspect_ratio, status, provider, requested_duration_seconds)
        VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8)
        RETURNING *`,
-      [userId, driveFolderId, driveFolderName, topic, duration || '5', aspectRatio || '9:16', provider, requestedDurationSeconds]
+      [userId, driveFolderId || null, driveFolderName || null, topic, duration || '5', aspectRatio || '9:16', provider, requestedDurationSeconds]
     );
     return res.rows[0];
   },
@@ -19,10 +19,14 @@ const VideoGenJob = {
     await query(`UPDATE video_gen_jobs SET kie_task_id = $2, status = 'generating', updated_at = now() WHERE id = $1`, [id, kieTaskId]);
   },
 
-  async markCompleted(id, { driveFileId, driveFileName }) {
+  // driveFileId/driveFileName are set when saved to Drive; localFilePath is set
+  // instead when the user skipped Drive - exactly one of the two is present.
+  async markCompleted(id, { driveFileId = null, driveFileName = null, localFilePath = null }) {
     await query(
-      `UPDATE video_gen_jobs SET status = 'completed', drive_file_id = $2, drive_file_name = $3, updated_at = now() WHERE id = $1`,
-      [id, driveFileId, driveFileName]
+      `UPDATE video_gen_jobs
+       SET status = 'completed', drive_file_id = $2, drive_file_name = $3, local_file_path = $4, updated_at = now()
+       WHERE id = $1`,
+      [id, driveFileId, driveFileName, localFilePath]
     );
   },
 

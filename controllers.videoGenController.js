@@ -7,9 +7,12 @@ const { generateWithVertex } = require('./jobs.videoGenWorker');
 
 async function generate(req, res, next) {
   try {
-    const { driveFolderId, driveFolderName, topic, duration, aspectRatio, provider } = req.body;
-    if (!driveFolderId || !topic) {
-      return res.status(400).json({ success: false, message: 'driveFolderId and topic are required' });
+    const { driveFolderId, driveFolderName, topic, duration, aspectRatio, provider, saveToDrive } = req.body;
+    if (!topic) {
+      return res.status(400).json({ success: false, message: 'topic is required' });
+    }
+    if (saveToDrive && !driveFolderId) {
+      return res.status(400).json({ success: false, message: 'Please select a Drive folder, or turn off "Save to Google Drive"' });
     }
     const useVertex = provider === 'vertex';
     const requestedDurationSeconds = Number(duration) || (useVertex ? 8 : 5);
@@ -28,8 +31,8 @@ async function generate(req, res, next) {
     }
 
     const job = await VideoGenJob.create(req.user.id, {
-      driveFolderId,
-      driveFolderName,
+      driveFolderId: saveToDrive ? driveFolderId : null,
+      driveFolderName: saveToDrive ? driveFolderName : null,
       topic,
       duration,
       aspectRatio,
@@ -82,13 +85,28 @@ async function streamFile(req, res, next) {
   try {
     const job = await VideoGenJob.findById(req.user.id, req.params.id);
     if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
-    if (job.status !== 'completed' || !job.drive_file_id) {
+    if (job.status !== 'completed') {
       return res.status(409).json({ success: false, message: 'This video is not ready yet' });
     }
-    await driveService.streamFile(req.user.id, job.drive_file_id, res, {
-      download: req.query.download === '1',
-      fileName: job.drive_file_name || 'video.mp4',
-    });
+
+    const download = req.query.download === '1';
+    const fileName = job.drive_file_name || 'video.mp4';
+
+    if (job.local_file_path) {
+      const fs = require('fs');
+      if (!fs.existsSync(job.local_file_path)) {
+        return res.status(410).json({ success: false, message: 'This video is no longer available locally (it was not saved to Drive and has since expired).' });
+      }
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`);
+      res.setHeader('Accept-Ranges', 'bytes');
+      return fs.createReadStream(job.local_file_path).pipe(res);
+    }
+
+    if (!job.drive_file_id) {
+      return res.status(409).json({ success: false, message: 'This video has no file to preview' });
+    }
+    await driveService.streamFile(req.user.id, job.drive_file_id, res, { download, fileName });
   } catch (err) {
     next(err);
   }

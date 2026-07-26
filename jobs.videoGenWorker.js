@@ -90,12 +90,25 @@ async function generateWithVertex(job) {
       tempFiles.push(finalPath);
     }
 
-    await VideoGenJob.setStatus(job.id, 'downloading');
     const fileName = `${(job.topic || 'video').replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.mp4`;
-    const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, finalPath, fileName);
-    await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
-    await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
-    await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
+
+    if (job.drive_folder_id) {
+      await VideoGenJob.setStatus(job.id, 'downloading');
+      const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, finalPath, fileName);
+      await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
+      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
+      await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
+    } else {
+      // No Drive folder chosen - keep the finished file on local disk so it can
+      // still be previewed/downloaded. Not pushed into tempFiles, so the
+      // finally-block cleanup below won't delete it (the hourly cleanup
+      // worker will remove it after ~1hr like any other temp file).
+      const localPath = path.join(env.upload.tempDir, `${job.id}_${fileName}`);
+      fs.renameSync(finalPath, localPath);
+      await VideoGenJob.markCompleted(job.id, { localFilePath: localPath, driveFileName: fileName });
+      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: fileName, note: 'Not saved to Drive' });
+      await notifyUploadEvent(job.user_id, { type: 'success', videoName: fileName, pageName: 'Video Generation' });
+    }
     logger.info(`[video-gen-vertex] completed job ${job.id}`);
   } catch (err) {
     logger.error(`[video-gen-vertex] failed for job ${job.id}: ${err.message}`);
@@ -125,15 +138,22 @@ async function checkJob(job) {
     await VideoGenJob.setStatus(job.id, 'downloading');
     const fileName = `${job.id}.mp4`;
     const tempPath = path.join(env.upload.tempDir, fileName);
-    let downloadedPath;
-    try {
-      downloadedPath = await kieVideoService.downloadResult(resultUrl, tempPath);
-      const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, downloadedPath, fileName);
-      await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
-      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
-      await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
-    } finally {
-      driveService.deleteTempFile(downloadedPath);
+    const downloadedPath = await kieVideoService.downloadResult(resultUrl, tempPath);
+
+    if (job.drive_folder_id) {
+      try {
+        const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, downloadedPath, fileName);
+        await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
+        await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
+        await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
+      } finally {
+        driveService.deleteTempFile(downloadedPath);
+      }
+    } else {
+      // No Drive folder chosen - keep the downloaded file locally for preview/download instead.
+      await VideoGenJob.markCompleted(job.id, { localFilePath: downloadedPath, driveFileName: fileName });
+      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: fileName, note: 'Not saved to Drive' });
+      await notifyUploadEvent(job.user_id, { type: 'success', videoName: fileName, pageName: 'Video Generation' });
     }
   } else if (state === 'fail') {
     const message = status.failMsg || status.failReason || 'Video generation failed';

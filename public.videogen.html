@@ -22,7 +22,10 @@
           <label for="topicInput">Topic / prompt</label>
           <textarea id="topicInput" rows="3" placeholder="e.g. A calm morning walk on a beach at sunrise, cinematic"></textarea>
         </div>
-        <div class="field">
+        <label class="checkbox-row" style="margin-bottom:10px;">
+          <input id="saveToDrive" type="checkbox" checked /> Save to Google Drive
+        </label>
+        <div class="field" id="folderField">
           <label for="folderSelect">Save into Drive folder</label>
           <select id="folderSelect"></select>
         </div>

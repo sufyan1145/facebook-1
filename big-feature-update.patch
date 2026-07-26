@@ -22,10 +22,10 @@ index 7825181..9f3c1e8 100644
      });
    } catch (err) {
 diff --git a/controllers.videoGenController.js b/controllers.videoGenController.js
-index 975ad6a..3ec3af5 100644
+index 975ad6a..0a03dcb 100644
 --- a/controllers.videoGenController.js
 +++ b/controllers.videoGenController.js
-@@ -1,20 +1,58 @@
+@@ -1,20 +1,61 @@
  const VideoGenJob = require('./models.VideoGenJob');
  const kieVideoService = require('./services.kieVideoService');
 +const driveService = require('./services.googleDriveService');
@@ -36,14 +36,18 @@ index 975ad6a..3ec3af5 100644
  async function generate(req, res, next) {
    try {
 -    const { driveFolderId, driveFolderName, topic, duration, aspectRatio } = req.body;
-+    const { driveFolderId, driveFolderName, topic, duration, aspectRatio, provider } = req.body;
-     if (!driveFolderId || !topic) {
-       return res.status(400).json({ success: false, message: 'driveFolderId and topic are required' });
-     }
+-    if (!driveFolderId || !topic) {
+-      return res.status(400).json({ success: false, message: 'driveFolderId and topic are required' });
++    const { driveFolderId, driveFolderName, topic, duration, aspectRatio, provider, saveToDrive } = req.body;
++    if (!topic) {
++      return res.status(400).json({ success: false, message: 'topic is required' });
++    }
++    if (saveToDrive && !driveFolderId) {
++      return res.status(400).json({ success: false, message: 'Please select a Drive folder, or turn off "Save to Google Drive"' });
++    }
 +    const useVertex = provider === 'vertex';
 +    const requestedDurationSeconds = Number(duration) || (useVertex ? 8 : 5);
- 
--    const job = await VideoGenJob.create(req.user.id, { driveFolderId, driveFolderName, topic, duration, aspectRatio });
++
 +    // Fail fast with a clear message before creating anything if the account
 +    // doesn't have enough credits for this length of video.
 +    if (useVertex) {
@@ -55,11 +59,12 @@ index 975ad6a..3ec3af5 100644
 +          message: `Not enough credits: this needs ${cost}, you have ${balance.creditsRemaining} remaining this month.`,
 +        });
 +      }
-+    }
-+
+     }
+ 
+-    const job = await VideoGenJob.create(req.user.id, { driveFolderId, driveFolderName, topic, duration, aspectRatio });
 +    const job = await VideoGenJob.create(req.user.id, {
-+      driveFolderId,
-+      driveFolderName,
++      driveFolderId: saveToDrive ? driveFolderId : null,
++      driveFolderName: saveToDrive ? driveFolderName : null,
 +      topic,
 +      duration,
 +      aspectRatio,
@@ -87,7 +92,7 @@ index 975ad6a..3ec3af5 100644
      } catch (err) {
        const message = err.response?.data?.msg || err.message;
        await VideoGenJob.markFailed(job.id, message);
-@@ -37,4 +75,23 @@ async function listJobs(req, res, next) {
+@@ -37,4 +78,38 @@ async function listJobs(req, res, next) {
    }
  }
  
@@ -99,13 +104,28 @@ index 975ad6a..3ec3af5 100644
 +  try {
 +    const job = await VideoGenJob.findById(req.user.id, req.params.id);
 +    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
-+    if (job.status !== 'completed' || !job.drive_file_id) {
++    if (job.status !== 'completed') {
 +      return res.status(409).json({ success: false, message: 'This video is not ready yet' });
 +    }
-+    await driveService.streamFile(req.user.id, job.drive_file_id, res, {
-+      download: req.query.download === '1',
-+      fileName: job.drive_file_name || 'video.mp4',
-+    });
++
++    const download = req.query.download === '1';
++    const fileName = job.drive_file_name || 'video.mp4';
++
++    if (job.local_file_path) {
++      const fs = require('fs');
++      if (!fs.existsSync(job.local_file_path)) {
++        return res.status(410).json({ success: false, message: 'This video is no longer available locally (it was not saved to Drive and has since expired).' });
++      }
++      res.setHeader('Content-Type', 'video/mp4');
++      res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`);
++      res.setHeader('Accept-Ranges', 'bytes');
++      return fs.createReadStream(job.local_file_path).pipe(res);
++    }
++
++    if (!job.drive_file_id) {
++      return res.status(409).json({ success: false, message: 'This video has no file to preview' });
++    }
++    await driveService.streamFile(req.user.id, job.drive_file_id, res, { download, fileName });
 +  } catch (err) {
 +    next(err);
 +  }
@@ -166,10 +186,10 @@ index e7ae11d..c5d2252 100644
      await ContentSchedule.updateLastRun(schedule.id); // don't retry every minute - wait for the next scheduled occurrence
      await Log.record(schedule.user_id, 'Content Pipeline Failed', { keyword: schedule.keyword, error: message }, 'error');
 diff --git a/jobs.videoGenWorker.js b/jobs.videoGenWorker.js
-index 641c0ca..b6b42cf 100644
+index 641c0ca..6e988cf 100644
 --- a/jobs.videoGenWorker.js
 +++ b/jobs.videoGenWorker.js
-@@ -6,14 +6,111 @@
+@@ -6,14 +6,124 @@
   */
  const cron = require('node-cron');
  const path = require('path');
@@ -257,12 +277,25 @@ index 641c0ca..b6b42cf 100644
 +      tempFiles.push(finalPath);
 +    }
 +
-+    await VideoGenJob.setStatus(job.id, 'downloading');
 +    const fileName = `${(job.topic || 'video').replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.mp4`;
-+    const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, finalPath, fileName);
-+    await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
-+    await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
-+    await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
++
++    if (job.drive_folder_id) {
++      await VideoGenJob.setStatus(job.id, 'downloading');
++      const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, finalPath, fileName);
++      await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
++      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
++      await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
++    } else {
++      // No Drive folder chosen - keep the finished file on local disk so it can
++      // still be previewed/downloaded. Not pushed into tempFiles, so the
++      // finally-block cleanup below won't delete it (the hourly cleanup
++      // worker will remove it after ~1hr like any other temp file).
++      const localPath = path.join(env.upload.tempDir, `${job.id}_${fileName}`);
++      fs.renameSync(finalPath, localPath);
++      await VideoGenJob.markCompleted(job.id, { localFilePath: localPath, driveFileName: fileName });
++      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: fileName, note: 'Not saved to Drive' });
++      await notifyUploadEvent(job.user_id, { type: 'success', videoName: fileName, pageName: 'Video Generation' });
++    }
 +    logger.info(`[video-gen-vertex] completed job ${job.id}`);
 +  } catch (err) {
 +    logger.error(`[video-gen-vertex] failed for job ${job.id}: ${err.message}`);
@@ -281,17 +314,49 @@ index 641c0ca..b6b42cf 100644
  async function checkJob(job) {
    const status = await kieVideoService.getTaskStatus(job.kie_task_id);
    const state = status.state || status.status;
-@@ -69,4 +166,4 @@ function startVideoGenWorker() {
+@@ -28,15 +138,22 @@ async function checkJob(job) {
+     await VideoGenJob.setStatus(job.id, 'downloading');
+     const fileName = `${job.id}.mp4`;
+     const tempPath = path.join(env.upload.tempDir, fileName);
+-    let downloadedPath;
+-    try {
+-      downloadedPath = await kieVideoService.downloadResult(resultUrl, tempPath);
+-      const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, downloadedPath, fileName);
+-      await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
+-      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
+-      await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
+-    } finally {
+-      driveService.deleteTempFile(downloadedPath);
++    const downloadedPath = await kieVideoService.downloadResult(resultUrl, tempPath);
++
++    if (job.drive_folder_id) {
++      try {
++        const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, downloadedPath, fileName);
++        await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
++        await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
++        await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
++      } finally {
++        driveService.deleteTempFile(downloadedPath);
++      }
++    } else {
++      // No Drive folder chosen - keep the downloaded file locally for preview/download instead.
++      await VideoGenJob.markCompleted(job.id, { localFilePath: downloadedPath, driveFileName: fileName });
++      await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: fileName, note: 'Not saved to Drive' });
++      await notifyUploadEvent(job.user_id, { type: 'success', videoName: fileName, pageName: 'Video Generation' });
+     }
+   } else if (state === 'fail') {
+     const message = status.failMsg || status.failReason || 'Video generation failed';
+@@ -69,4 +186,4 @@ function startVideoGenWorker() {
    logger.info(`Video generation poller started with cron: ${env.kie.pollCron}`);
  }
  
 -module.exports = { startVideoGenWorker };
 +module.exports = { startVideoGenWorker, generateWithVertex };
 diff --git a/models.VideoGenJob.js b/models.VideoGenJob.js
-index b202c06..b7b98fe 100644
+index b202c06..7c5e30b 100644
 --- a/models.VideoGenJob.js
 +++ b/models.VideoGenJob.js
-@@ -1,16 +1,20 @@
+@@ -1,24 +1,32 @@
  const { query } = require('./config.database');
  
  const VideoGenJob = {
@@ -304,7 +369,7 @@ index b202c06..b7b98fe 100644
 +       VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8)
         RETURNING *`,
 -      [userId, driveFolderId, driveFolderName, topic, duration || '5', aspectRatio || '9:16']
-+      [userId, driveFolderId, driveFolderName, topic, duration || '5', aspectRatio || '9:16', provider, requestedDurationSeconds]
++      [userId, driveFolderId || null, driveFolderName || null, topic, duration || '5', aspectRatio || '9:16', provider, requestedDurationSeconds]
      );
      return res.rows[0];
    },
@@ -316,7 +381,22 @@ index b202c06..b7b98fe 100644
    async setTaskId(id, kieTaskId) {
      await query(`UPDATE video_gen_jobs SET kie_task_id = $2, status = 'generating', updated_at = now() WHERE id = $1`, [id, kieTaskId]);
    },
-@@ -31,7 +35,7 @@ const VideoGenJob = {
+ 
+-  async markCompleted(id, { driveFileId, driveFileName }) {
++  // driveFileId/driveFileName are set when saved to Drive; localFilePath is set
++  // instead when the user skipped Drive - exactly one of the two is present.
++  async markCompleted(id, { driveFileId = null, driveFileName = null, localFilePath = null }) {
+     await query(
+-      `UPDATE video_gen_jobs SET status = 'completed', drive_file_id = $2, drive_file_name = $3, updated_at = now() WHERE id = $1`,
+-      [id, driveFileId, driveFileName]
++      `UPDATE video_gen_jobs
++       SET status = 'completed', drive_file_id = $2, drive_file_name = $3, local_file_path = $4, updated_at = now()
++       WHERE id = $1`,
++      [id, driveFileId, driveFileName, localFilePath]
+     );
+   },
+ 
+@@ -31,7 +39,7 @@ const VideoGenJob = {
    },
  
    async listInProgress() {
@@ -325,7 +405,7 @@ index b202c06..b7b98fe 100644
      return res.rows;
    },
  
-@@ -39,6 +43,11 @@ const VideoGenJob = {
+@@ -39,6 +47,11 @@ const VideoGenJob = {
      const res = await query(`SELECT * FROM video_gen_jobs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
      return res.rows;
    },
@@ -413,10 +493,18 @@ index 6928b65..3aef482 100644
 +  #previewPlayer { max-width: 100%; }
  }
 diff --git a/public.videogen.html b/public.videogen.html
-index d7e053c..717ad33 100644
+index d7e053c..f30a646 100644
 --- a/public.videogen.html
 +++ b/public.videogen.html
-@@ -26,13 +26,17 @@
+@@ -22,17 +22,24 @@
+           <label for="topicInput">Topic / prompt</label>
+           <textarea id="topicInput" rows="3" placeholder="e.g. A calm morning walk on a beach at sunrise, cinematic"></textarea>
+         </div>
+-        <div class="field">
++        <label class="checkbox-row" style="margin-bottom:10px;">
++          <input id="saveToDrive" type="checkbox" checked /> Save to Google Drive
++        </label>
++        <div class="field" id="folderField">
            <label for="folderSelect">Save into Drive folder</label>
            <select id="folderSelect"></select>
          </div>
@@ -439,7 +527,7 @@ index d7e053c..717ad33 100644
            </div>
            <div class="field">
              <label for="aspectSelect">Aspect ratio</label>
-@@ -43,10 +47,19 @@
+@@ -43,10 +50,19 @@
              </select>
            </div>
          </div>
@@ -460,7 +548,7 @@ index d7e053c..717ad33 100644
        <div class="card">
          <div class="flex-between mb-16">
            <div class="section-title" style="margin-bottom:0;">Generation history</div>
-@@ -54,8 +67,8 @@
+@@ -54,8 +70,8 @@
          </div>
          <div class="table-wrap">
            <table>
@@ -472,14 +560,15 @@ index d7e053c..717ad33 100644
          </div>
        </div>
 diff --git a/public.videogen.js b/public.videogen.js
-index 47fc624..a21d204 100644
+index 47fc624..d9f8fd6 100644
 --- a/public.videogen.js
 +++ b/public.videogen.js
-@@ -6,23 +6,53 @@ const STATUS_LABEL = {
+@@ -6,23 +6,61 @@ const STATUS_LABEL = {
    failed: 'Failed',
  };
  
 +let jobsPollTimer = null;
++let currentPreviewJobId = null;
 +
  function renderJobs(jobs) {
    const body = document.getElementById('jobsBody');
@@ -500,8 +589,9 @@ index 47fc624..a21d204 100644
 +          : '—';
 +      return `<tr>
          <td>${escapeHtml(j.topic.slice(0, 60))}${j.topic.length > 60 ? '…' : ''}</td>
+-        <td>${escapeHtml(j.drive_folder_name || '—')}</td>
 +        <td>${j.provider === 'vertex' ? 'Veo 3' : 'Kie.ai'}</td>
-         <td>${escapeHtml(j.drive_folder_name || '—')}</td>
++        <td>${escapeHtml(j.drive_folder_name || 'Local only')}</td>
          <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
 -        <td>${j.status === 'failed' ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>` : escapeHtml(j.drive_file_name || '—')}</td>
 +        <td>${resultCell}</td>
@@ -516,6 +606,12 @@ index 47fc624..a21d204 100644
 +    btn.addEventListener('click', () => showPreview(btn.dataset.preview, btn.dataset.name));
 +  });
 +
++  // If a preview is currently open, keep it open across this re-render
++  // (e.g. after clicking Refresh) instead of it disappearing.
++  if (currentPreviewJobId && jobs.some((j) => j.id === currentPreviewJobId)) {
++    document.getElementById('previewCard').style.display = 'block';
++  }
++
 +  // Keep polling while anything is still in progress, so status/preview update live.
 +  const stillActive = jobs.some((j) => j.status === 'pending' || j.status === 'generating' || j.status === 'downloading');
 +  clearTimeout(jobsPollTimer);
@@ -523,6 +619,7 @@ index 47fc624..a21d204 100644
 +}
 +
 +function showPreview(jobId, fileName) {
++  currentPreviewJobId = jobId;
 +  const card = document.getElementById('previewCard');
 +  const player = document.getElementById('previewPlayer');
 +  const downloadBtn = document.getElementById('downloadBtn');
@@ -535,7 +632,7 @@ index 47fc624..a21d204 100644
  }
  
  async function loadJobs() {
-@@ -30,7 +60,7 @@ async function loadJobs() {
+@@ -30,7 +68,7 @@ async function loadJobs() {
      const { data } = await apiFetch('/videogen/jobs');
      renderJobs(data);
    } catch (err) {
@@ -544,7 +641,7 @@ index 47fc624..a21d204 100644
    }
  }
  
-@@ -46,6 +76,19 @@ async function loadFolders() {
+@@ -46,6 +84,24 @@ async function loadFolders() {
    }
  }
  
@@ -561,36 +658,57 @@ index 47fc624..a21d204 100644
 +  hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
 +}
 +
++function updateFolderFieldVisibility() {
++  const saveToDrive = document.getElementById('saveToDrive').checked;
++  document.getElementById('folderField').style.display = saveToDrive ? '' : 'none';
++}
++
  (async function init() {
    const user = await requireAuthOrRedirect();
    if (!user) return;
-@@ -53,15 +96,19 @@ async function loadFolders() {
+@@ -53,15 +109,22 @@ async function loadFolders() {
  
    await loadFolders();
    await loadJobs();
 +  updateCostHint();
++  updateFolderFieldVisibility();
  
    document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
 +  document.getElementById('providerSelect').addEventListener('change', updateCostHint);
 +  document.getElementById('durationInput').addEventListener('input', updateCostHint);
++  document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
  
    document.getElementById('generateBtn').addEventListener('click', async () => {
      const topic = document.getElementById('topicInput').value.trim();
++    const saveToDrive = document.getElementById('saveToDrive').checked;
      const folderSelect = document.getElementById('folderSelect');
-     const driveFolderId = folderSelect.value;
-     const driveFolderName = folderSelect.selectedOptions[0]?.dataset.name;
+-    const driveFolderId = folderSelect.value;
+-    const driveFolderName = folderSelect.selectedOptions[0]?.dataset.name;
 -    const duration = document.getElementById('durationSelect').value;
++    const driveFolderId = saveToDrive ? folderSelect.value : null;
++    const driveFolderName = saveToDrive ? folderSelect.selectedOptions[0]?.dataset.name : null;
 +    const provider = document.getElementById('providerSelect').value;
 +    const duration = document.getElementById('durationInput').value;
      const aspectRatio = document.getElementById('aspectSelect').value;
      const msg = document.getElementById('generateMsg');
  
-@@ -79,11 +126,16 @@ async function loadFolders() {
+@@ -69,8 +132,8 @@ async function loadFolders() {
+       msg.textContent = 'Please enter a topic or prompt.';
+       return;
+     }
+-    if (!driveFolderId) {
+-      msg.textContent = 'Please select a Drive folder to save the video into.';
++    if (saveToDrive && !driveFolderId) {
++      msg.textContent = 'Please select a Drive folder, or turn off "Save to Google Drive".';
+       return;
+     }
+ 
+@@ -79,11 +142,16 @@ async function loadFolders() {
      try {
        await apiFetch('/videogen/generate', {
          method: 'POST',
 -        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio }),
-+        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio, provider }),
++        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio, provider, saveToDrive }),
        });
 -      msg.textContent = 'Started! This usually takes a few minutes — check the history table below for progress.';
 +      msg.textContent =

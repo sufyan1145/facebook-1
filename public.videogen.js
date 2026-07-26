@@ -7,6 +7,7 @@ const STATUS_LABEL = {
 };
 
 let jobsPollTimer = null;
+let currentPreviewJobId = null;
 
 function renderJobs(jobs) {
   const body = document.getElementById('jobsBody');
@@ -25,7 +26,7 @@ function renderJobs(jobs) {
       return `<tr>
         <td>${escapeHtml(j.topic.slice(0, 60))}${j.topic.length > 60 ? '…' : ''}</td>
         <td>${j.provider === 'vertex' ? 'Veo 3' : 'Kie.ai'}</td>
-        <td>${escapeHtml(j.drive_folder_name || '—')}</td>
+        <td>${escapeHtml(j.drive_folder_name || 'Local only')}</td>
         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
         <td>${resultCell}</td>
         <td style="font-size:12px; color:var(--text-muted);">${new Date(j.created_at).toLocaleString()}</td>
@@ -37,6 +38,12 @@ function renderJobs(jobs) {
     btn.addEventListener('click', () => showPreview(btn.dataset.preview, btn.dataset.name));
   });
 
+  // If a preview is currently open, keep it open across this re-render
+  // (e.g. after clicking Refresh) instead of it disappearing.
+  if (currentPreviewJobId && jobs.some((j) => j.id === currentPreviewJobId)) {
+    document.getElementById('previewCard').style.display = 'block';
+  }
+
   // Keep polling while anything is still in progress, so status/preview update live.
   const stillActive = jobs.some((j) => j.status === 'pending' || j.status === 'generating' || j.status === 'downloading');
   clearTimeout(jobsPollTimer);
@@ -44,6 +51,7 @@ function renderJobs(jobs) {
 }
 
 function showPreview(jobId, fileName) {
+  currentPreviewJobId = jobId;
   const card = document.getElementById('previewCard');
   const player = document.getElementById('previewPlayer');
   const downloadBtn = document.getElementById('downloadBtn');
@@ -89,6 +97,11 @@ function updateCostHint() {
   hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
 }
 
+function updateFolderFieldVisibility() {
+  const saveToDrive = document.getElementById('saveToDrive').checked;
+  document.getElementById('folderField').style.display = saveToDrive ? '' : 'none';
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
@@ -97,16 +110,19 @@ function updateCostHint() {
   await loadFolders();
   await loadJobs();
   updateCostHint();
+  updateFolderFieldVisibility();
 
   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
   document.getElementById('providerSelect').addEventListener('change', updateCostHint);
   document.getElementById('durationInput').addEventListener('input', updateCostHint);
+  document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
 
   document.getElementById('generateBtn').addEventListener('click', async () => {
     const topic = document.getElementById('topicInput').value.trim();
+    const saveToDrive = document.getElementById('saveToDrive').checked;
     const folderSelect = document.getElementById('folderSelect');
-    const driveFolderId = folderSelect.value;
-    const driveFolderName = folderSelect.selectedOptions[0]?.dataset.name;
+    const driveFolderId = saveToDrive ? folderSelect.value : null;
+    const driveFolderName = saveToDrive ? folderSelect.selectedOptions[0]?.dataset.name : null;
     const provider = document.getElementById('providerSelect').value;
     const duration = document.getElementById('durationInput').value;
     const aspectRatio = document.getElementById('aspectSelect').value;
@@ -116,8 +132,8 @@ function updateCostHint() {
       msg.textContent = 'Please enter a topic or prompt.';
       return;
     }
-    if (!driveFolderId) {
-      msg.textContent = 'Please select a Drive folder to save the video into.';
+    if (saveToDrive && !driveFolderId) {
+      msg.textContent = 'Please select a Drive folder, or turn off "Save to Google Drive".';
       return;
     }
 
@@ -126,7 +142,7 @@ function updateCostHint() {
     try {
       await apiFetch('/videogen/generate', {
         method: 'POST',
-        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio, provider }),
+        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio, provider, saveToDrive }),
       });
       msg.textContent =
         provider === 'vertex'
