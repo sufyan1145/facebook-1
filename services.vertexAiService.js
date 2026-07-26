@@ -112,15 +112,22 @@ async function generateImage(prompt, destPath) {
 async function synthesizeSpeech(text, destPath, voiceName) {
   const token = await getAccessToken();
   const chirpVoiceName = `en-US-Chirp3-HD-${voiceName || 'Charon'}`;
-  const resp = await axios.post(
-    'https://texttospeech.googleapis.com/v1/text:synthesize',
-    {
-      input: { text },
-      voice: { languageCode: 'en-US', name: chirpVoiceName },
-      audioConfig: { audioEncoding: 'MP3' },
-    },
-    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-  );
+  let resp;
+  try {
+    resp = await axios.post(
+      'https://texttospeech.googleapis.com/v1/text:synthesize',
+      {
+        input: { text },
+        voice: { languageCode: 'en-US', name: chirpVoiceName },
+        audioConfig: { audioEncoding: 'MP3' },
+      },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] TTS FAILED (voice=${chirpVoiceName}, text length=${text.length}): status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
 
   if (!resp.data.audioContent) throw new Error('Cloud Text-to-Speech returned no audio');
   fs.writeFileSync(destPath, Buffer.from(resp.data.audioContent, 'base64'));
