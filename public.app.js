@@ -25,10 +25,33 @@ async function apiFetch(path, options = {}) {
 
 let currentUser = null;
 
+// Maps each page's filename to the section key an admin can hide. Pages not
+// listed here (dashboard, admin) are never hidden this way.
+const PAGE_SECTION_MAP = {
+  'drive.html': 'drive',
+  'videogen.html': 'videogen',
+  'content-schedule.html': 'content-schedule',
+  'pages.html': 'pages',
+  'schedule.html': 'schedule',
+  'queue.html': 'queue',
+  'history.html': 'history',
+  'logs.html': 'logs',
+  'settings.html': 'settings',
+};
+
 async function requireAuthOrRedirect() {
   try {
     const res = await apiFetch('/auth/me');
     currentUser = res.data;
+
+    const page = window.location.pathname.split('/').pop();
+    const section = PAGE_SECTION_MAP[page];
+    const disabled = Array.isArray(currentUser.disabledSections) ? currentUser.disabledSections : [];
+    if (section && disabled.includes(section)) {
+      window.location.href = 'dashboard.html';
+      return null;
+    }
+
     return res.data;
   } catch {
     window.location.href = 'login.html';
@@ -52,9 +75,13 @@ function renderNav(active) {
   if (currentUser && currentUser.isAdmin) {
     items.push({ href: 'admin.html', label: 'Admin', icon: '★', key: 'admin' });
   }
+
+  const disabled = currentUser && Array.isArray(currentUser.disabledSections) ? currentUser.disabledSections : [];
+  const visibleItems = items.filter((i) => !disabled.includes(i.key));
+
   const nav = document.getElementById('nav');
   if (!nav) return;
-  nav.innerHTML = items
+  nav.innerHTML = visibleItems
     .map(
       (i) =>
         `<a href="${i.href}" class="${i.key === active ? 'active' : ''}"><span class="nav-icon">${i.icon}</span>${i.label}</a>`

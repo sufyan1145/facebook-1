@@ -1,0 +1,369 @@
+diff --git a/controllers.adminController.js b/controllers.adminController.js
+index 01c1194..5e6947d 100644
+--- a/controllers.adminController.js
++++ b/controllers.adminController.js
+@@ -115,6 +115,27 @@ async function setActive(req, res, next) {
+   }
+ }
+ 
++const HIDEABLE_SECTIONS = ['drive', 'videogen', 'content-schedule', 'pages', 'schedule', 'queue', 'history', 'logs', 'settings'];
++
++async function updateSections(req, res, next) {
++  try {
++    const { id } = req.params;
++    const { disabledSections } = req.body;
++    if (!Array.isArray(disabledSections)) {
++      return res.status(400).json({ success: false, message: 'disabledSections must be an array' });
++    }
++    const cleaned = disabledSections.filter((s) => HIDEABLE_SECTIONS.includes(s));
++    const user = await User.setDisabledSections(id, cleaned);
++    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
++
++    await Log.record(req.user.id, 'Admin Updated Section Visibility', { targetUserId: id, disabledSections: cleaned });
++
++    res.json({ success: true, data: user });
++  } catch (err) {
++    next(err);
++  }
++}
++
+ async function deleteUser(req, res, next) {
+   try {
+     const { id } = req.params;
+@@ -129,4 +150,4 @@ async function deleteUser(req, res, next) {
+   }
+ }
+ 
+-module.exports = { getStats, listUsers, createUser, updatePlan, setActive, deleteUser, PLAN_DURATIONS_DAYS };
++module.exports = { getStats, listUsers, createUser, updatePlan, setActive, updateSections, deleteUser, PLAN_DURATIONS_DAYS, HIDEABLE_SECTIONS };
+diff --git a/controllers.authController.js b/controllers.authController.js
+index 9f3c1e8..a9580ea 100644
+--- a/controllers.authController.js
++++ b/controllers.authController.js
+@@ -136,6 +136,7 @@ async function me(req, res, next) {
+         creditsRemaining: balance.creditsRemaining,
+         creditsResetAt: balance.creditsResetAt,
+         monthlyCredits: balance.monthlyCredits,
++        disabledSections: user.disabled_sections || [],
+       },
+     });
+   } catch (err) {
+diff --git a/controllers.videoGenController.js b/controllers.videoGenController.js
+index 0a03dcb..4fb7dce 100644
+--- a/controllers.videoGenController.js
++++ b/controllers.videoGenController.js
+@@ -21,7 +21,7 @@ async function generate(req, res, next) {
+     // doesn't have enough credits for this length of video.
+     if (useVertex) {
+       const balance = await credits.getBalance(req.user.id);
+-      const cost = credits.costForSeconds(requestedDurationSeconds);
++      const cost = credits.costForSeconds(requestedDurationSeconds, 'video_generator');
+       if (balance.creditsRemaining < cost) {
+         return res.status(402).json({
+           success: false,
+diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
+index c5d2252..57cd424 100644
+--- a/jobs.contentPipelineWorker.js
++++ b/jobs.contentPipelineWorker.js
+@@ -573,7 +573,7 @@ async function runPipeline(schedule) {
+     const message = `[${stage}] ${err.message}`;
+     if (chargedSeconds > 0) {
+       try {
+-        await credits.refund(schedule.user_id, chargedSeconds, run.id);
++        await credits.refund(schedule.user_id, chargedSeconds, run.id, 'pipeline_video');
+       } catch (refundErr) {
+         logger.error(`[content-pipeline] credit refund failed for schedule ${schedule.id}: ${refundErr.message}`);
+       }
+diff --git a/jobs.videoGenWorker.js b/jobs.videoGenWorker.js
+index 6e988cf..114cde5 100644
+--- a/jobs.videoGenWorker.js
++++ b/jobs.videoGenWorker.js
+@@ -70,7 +70,7 @@ async function generateWithVertex(job) {
+   const tempFiles = [];
+   try {
+     await credits.charge(job.user_id, requestedSeconds, 'video_generator', job.id);
+-    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds));
++    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds, 'video_generator'));
+     await VideoGenJob.setStatus(job.id, 'generating');
+ 
+     const chunkCount = Math.max(1, Math.ceil(requestedSeconds / 8));
+@@ -113,7 +113,7 @@ async function generateWithVertex(job) {
+   } catch (err) {
+     logger.error(`[video-gen-vertex] failed for job ${job.id}: ${err.message}`);
+     try {
+-      await credits.refund(job.user_id, requestedSeconds, job.id);
++      await credits.refund(job.user_id, requestedSeconds, job.id, 'video_generator');
+     } catch (refundErr) {
+       logger.error(`[video-gen-vertex] refund failed for job ${job.id}: ${refundErr.message}`);
+     }
+diff --git a/models.User.js b/models.User.js
+index 27cbda0..53ddcf6 100644
+--- a/models.User.js
++++ b/models.User.js
+@@ -72,7 +72,7 @@ const User = {
+   async listAll() {
+     const res = await query(
+       `SELECT id, name, email, is_admin, is_active, plan_type, plan_started_at, plan_expires_at,
+-              last_login_at, created_at, created_by
++              last_login_at, created_at, created_by, disabled_sections
+        FROM users ORDER BY created_at DESC`
+     );
+     return res.rows;
+@@ -107,6 +107,14 @@ const User = {
+     return res.rows[0];
+   },
+ 
++  async setDisabledSections(id, sections) {
++    const res = await query(
++      'UPDATE users SET disabled_sections = $2, updated_at = now() WHERE id = $1 RETURNING *',
++      [id, JSON.stringify(sections)]
++    );
++    return res.rows[0];
++  },
++
+   async remove(id) {
+     await query('DELETE FROM users WHERE id = $1', [id]);
+   },
+diff --git a/public.admin.js b/public.admin.js
+index 177f865..f07a212 100644
+--- a/public.admin.js
++++ b/public.admin.js
+@@ -46,6 +46,35 @@
+     document.getElementById('statActive24').textContent = data.active_last_24h;
+   }
+ 
++const HIDEABLE_SECTIONS = [
++    { key: 'drive', label: 'Drive Folders' },
++    { key: 'videogen', label: 'Video Generator' },
++    { key: 'content-schedule', label: 'Content Pipeline' },
++    { key: 'pages', label: 'Facebook Pages' },
++    { key: 'schedule', label: 'Schedules' },
++    { key: 'queue', label: 'Queue' },
++    { key: 'history', label: 'Upload History' },
++    { key: 'logs', label: 'Activity Logs' },
++    { key: 'settings', label: 'Settings' },
++  ];
++
++  function sectionsRowHtml(u) {
++    const disabled = Array.isArray(u.disabled_sections) ? u.disabled_sections : [];
++    return `<tr class="sections-row" id="sections-row-${u.id}" style="display:none;">
++      <td colspan="7" style="background:var(--panel-2);">
++        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">Hide sections from this user's sidebar (unchecked = visible):</div>
++        <div style="display:flex; flex-wrap:wrap; gap:10px;">
++          ${HIDEABLE_SECTIONS.map(
++            (s) => `<label style="display:flex; align-items:center; gap:5px; font-size:12px;">
++              <input type="checkbox" class="sectionCheckbox" data-id="${u.id}" data-section="${s.key}" ${disabled.includes(s.key) ? 'checked' : ''} />
++              ${s.label}
++            </label>`
++          ).join('')}
++        </div>
++      </td>
++    </tr>`;
++  }
++
+   async function loadUsers() {
+     const { data } = await apiFetch('/admin/users');
+     const body = document.getElementById('usersBody');
+@@ -77,11 +106,12 @@
+               <option value="year_1">1 Year</option>
+               <option value="never">No expiry</option>
+             </select>
++            <button class="btn sm sectionsToggleBtn" data-id="${u.id}">Sections</button>
+             <button class="btn sm toggleActiveBtn" data-id="${u.id}" data-active="${u.is_active !== false}">${u.is_active === false ? 'Activate' : 'Deactivate'}</button>
+             <button class="btn sm danger deleteBtn" data-id="${u.id}">Delete</button>
+           </div>
+         </td>
+-      </tr>`
++      </tr>${sectionsRowHtml(u)}`
+       )
+       .join('');
+ 
+@@ -102,6 +132,32 @@
+       });
+     });
+ 
++    document.querySelectorAll('.sectionsToggleBtn').forEach((el) => {
++      el.addEventListener('click', (e) => {
++        const id = e.target.dataset.id;
++        const row = document.getElementById(`sections-row-${id}`);
++        row.style.display = row.style.display === 'none' ? '' : 'none';
++      });
++    });
++
++    document.querySelectorAll('.sectionCheckbox').forEach((el) => {
++      el.addEventListener('change', async (e) => {
++        const id = e.target.dataset.id;
++        const checkboxes = document.querySelectorAll(`.sectionCheckbox[data-id="${id}"]`);
++        const disabledSections = Array.from(checkboxes)
++          .filter((c) => c.checked)
++          .map((c) => c.dataset.section);
++        try {
++          await apiFetch(`/admin/users/${id}/sections`, {
++            method: 'PATCH',
++            body: JSON.stringify({ disabledSections }),
++          });
++        } catch (err) {
++          alert(err.message);
++        }
++      });
++    });
++
+     document.querySelectorAll('.toggleActiveBtn').forEach((el) => {
+       el.addEventListener('click', async (e) => {
+         const id = e.target.dataset.id;
+diff --git a/public.app.js b/public.app.js
+index 5f3c153..4d23ced 100644
+--- a/public.app.js
++++ b/public.app.js
+@@ -25,10 +25,33 @@ async function apiFetch(path, options = {}) {
+ 
+ let currentUser = null;
+ 
++// Maps each page's filename to the section key an admin can hide. Pages not
++// listed here (dashboard, admin) are never hidden this way.
++const PAGE_SECTION_MAP = {
++  'drive.html': 'drive',
++  'videogen.html': 'videogen',
++  'content-schedule.html': 'content-schedule',
++  'pages.html': 'pages',
++  'schedule.html': 'schedule',
++  'queue.html': 'queue',
++  'history.html': 'history',
++  'logs.html': 'logs',
++  'settings.html': 'settings',
++};
++
+ async function requireAuthOrRedirect() {
+   try {
+     const res = await apiFetch('/auth/me');
+     currentUser = res.data;
++
++    const page = window.location.pathname.split('/').pop();
++    const section = PAGE_SECTION_MAP[page];
++    const disabled = Array.isArray(currentUser.disabledSections) ? currentUser.disabledSections : [];
++    if (section && disabled.includes(section)) {
++      window.location.href = 'dashboard.html';
++      return null;
++    }
++
+     return res.data;
+   } catch {
+     window.location.href = 'login.html';
+@@ -52,9 +75,13 @@ function renderNav(active) {
+   if (currentUser && currentUser.isAdmin) {
+     items.push({ href: 'admin.html', label: 'Admin', icon: '★', key: 'admin' });
+   }
++
++  const disabled = currentUser && Array.isArray(currentUser.disabledSections) ? currentUser.disabledSections : [];
++  const visibleItems = items.filter((i) => !disabled.includes(i.key));
++
+   const nav = document.getElementById('nav');
+   if (!nav) return;
+-  nav.innerHTML = items
++  nav.innerHTML = visibleItems
+     .map(
+       (i) =>
+         `<a href="${i.href}" class="${i.key === active ? 'active' : ''}"><span class="nav-icon">${i.icon}</span>${i.label}</a>`
+diff --git a/public.videogen.js b/public.videogen.js
+index d9f8fd6..06c8fb3 100644
+--- a/public.videogen.js
++++ b/public.videogen.js
+@@ -92,9 +92,9 @@ function updateCostHint() {
+     hint.textContent = 'Kie.ai generation does not use credits.';
+     return;
+   }
+-  const cost = Math.max(1, Math.round(duration * 1.5));
++  const cost = Math.max(1, Math.round(duration * 18.75));
+   const remaining = currentUser && currentUser.creditsRemaining != null ? currentUser.creditsRemaining : null;
+-  hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
++  hint.textContent = `This will cost ${cost} credits (~18.75/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
+ }
+ 
+ function updateFolderFieldVisibility() {
+diff --git a/routes.admin.js b/routes.admin.js
+index b1508f7..ae0a147 100644
+--- a/routes.admin.js
++++ b/routes.admin.js
+@@ -10,6 +10,7 @@ router.get('/users', adminController.listUsers);
+ router.post('/users', adminController.createUser);
+ router.patch('/users/:id/plan', adminController.updatePlan);
+ router.patch('/users/:id/active', adminController.setActive);
++router.patch('/users/:id/sections', adminController.updateSections);
+ router.delete('/users/:id', adminController.deleteUser);
+ 
+ module.exports = router;
+diff --git a/utils.credits.js b/utils.credits.js
+index d1d843e..44109bd 100644
+--- a/utils.credits.js
++++ b/utils.credits.js
+@@ -1,12 +1,24 @@
+ const { query } = require('./config.database');
+ const logger = require('./utils.logger');
+ 
+-// 10s of video = 15 credits -> 1.5 credits per second, rounded to the nearest whole credit.
+-const CREDITS_PER_SECOND = 1.5;
+-const MONTHLY_CREDITS = 45000;
++// Two different rates depending on what's generating the video:
++// - Content Pipeline (Nano Banana images + TTS): cheap, so a generous rate.
++//   10s = 20 credits (2 credits/sec).
++// - Video Generator (Vertex Veo3, real per-second Google billing): priced to
++//   track the actual Vertex cost. 8s = 150 credits (18.75 credits/sec).
++const MONTHLY_CREDITS = 20000;
++const RATE_BY_REASON = {
++  pipeline_video: 2,
++  video_generator: 18.75,
++};
++const DEFAULT_RATE = 2;
++
++function rateFor(reason) {
++  return RATE_BY_REASON[reason] || DEFAULT_RATE;
++}
+ 
+-function costForSeconds(seconds) {
+-  return Math.max(1, Math.round(seconds * CREDITS_PER_SECOND));
++function costForSeconds(seconds, reason = 'pipeline_video') {
++  return Math.max(1, Math.round(seconds * rateFor(reason)));
+ }
+ 
+ class InsufficientCreditsError extends Error {
+@@ -52,7 +64,7 @@ async function getBalance(userId) {
+ // video ends up a different length than originally estimated.
+ async function charge(userId, seconds, reason, referenceId = null) {
+   const user = await ensureMonthlyReset(userId);
+-  const amount = costForSeconds(seconds);
++  const amount = costForSeconds(seconds, reason);
+   if (user.credits_remaining < amount) {
+     throw new InsufficientCreditsError(amount, user.credits_remaining);
+   }
+@@ -75,8 +87,8 @@ async function charge(userId, seconds, reason, referenceId = null) {
+ // after the fact; ensureMonthlyReset will bring it back to a fresh allowance
+ // next cycle regardless.
+ async function reconcile(userId, previouslyChargedSeconds, actualSeconds, reason, referenceId = null) {
+-  const originalAmount = costForSeconds(previouslyChargedSeconds);
+-  const actualAmount = costForSeconds(actualSeconds);
++  const originalAmount = costForSeconds(previouslyChargedSeconds, reason);
++  const actualAmount = costForSeconds(actualSeconds, reason);
+   const delta = actualAmount - originalAmount;
+   if (delta === 0) return { amount: 0, balanceAfter: null };
+ 
+@@ -93,8 +105,8 @@ async function reconcile(userId, previouslyChargedSeconds, actualSeconds, reason
+ }
+ 
+ // Full refund of a previous charge (e.g. the generation failed entirely).
+-async function refund(userId, seconds, referenceId = null) {
+-  const amount = costForSeconds(seconds);
++async function refund(userId, seconds, referenceId = null, reason = 'pipeline_video') {
++  const amount = costForSeconds(seconds, reason);
+   const res = await query(
+     `UPDATE users SET credits_remaining = credits_remaining + $2, updated_at = now() WHERE id = $1 RETURNING credits_remaining`,
+     [userId, amount]
+@@ -108,8 +120,8 @@ async function refund(userId, seconds, referenceId = null) {
+ }
+ 
+ module.exports = {
+-  CREDITS_PER_SECOND,
+   MONTHLY_CREDITS,
++  RATE_BY_REASON,
+   costForSeconds,
+   InsufficientCreditsError,
+   ensureMonthlyReset,

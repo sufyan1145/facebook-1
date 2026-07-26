@@ -115,6 +115,27 @@ async function setActive(req, res, next) {
   }
 }
 
+const HIDEABLE_SECTIONS = ['drive', 'videogen', 'content-schedule', 'pages', 'schedule', 'queue', 'history', 'logs', 'settings'];
+
+async function updateSections(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { disabledSections } = req.body;
+    if (!Array.isArray(disabledSections)) {
+      return res.status(400).json({ success: false, message: 'disabledSections must be an array' });
+    }
+    const cleaned = disabledSections.filter((s) => HIDEABLE_SECTIONS.includes(s));
+    const user = await User.setDisabledSections(id, cleaned);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    await Log.record(req.user.id, 'Admin Updated Section Visibility', { targetUserId: id, disabledSections: cleaned });
+
+    res.json({ success: true, data: user });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function deleteUser(req, res, next) {
   try {
     const { id } = req.params;
@@ -129,4 +150,4 @@ async function deleteUser(req, res, next) {
   }
 }
 
-module.exports = { getStats, listUsers, createUser, updatePlan, setActive, deleteUser, PLAN_DURATIONS_DAYS };
+module.exports = { getStats, listUsers, createUser, updatePlan, setActive, updateSections, deleteUser, PLAN_DURATIONS_DAYS, HIDEABLE_SECTIONS };

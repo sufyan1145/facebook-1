@@ -10,6 +10,7 @@ router.get('/users', adminController.listUsers);
 router.post('/users', adminController.createUser);
 router.patch('/users/:id/plan', adminController.updatePlan);
 router.patch('/users/:id/active', adminController.setActive);
+router.patch('/users/:id/sections', adminController.updateSections);
 router.delete('/users/:id', adminController.deleteUser);
 
 module.exports = router;

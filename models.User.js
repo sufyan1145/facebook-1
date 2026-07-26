@@ -72,7 +72,7 @@ const User = {
   async listAll() {
     const res = await query(
       `SELECT id, name, email, is_admin, is_active, plan_type, plan_started_at, plan_expires_at,
-              last_login_at, created_at, created_by
+              last_login_at, created_at, created_by, disabled_sections
        FROM users ORDER BY created_at DESC`
     );
     return res.rows;
@@ -104,6 +104,14 @@ const User = {
 
   async setActive(id, isActive) {
     const res = await query('UPDATE users SET is_active = $2, updated_at = now() WHERE id = $1 RETURNING *', [id, isActive]);
+    return res.rows[0];
+  },
+
+  async setDisabledSections(id, sections) {
+    const res = await query(
+      'UPDATE users SET disabled_sections = $2, updated_at = now() WHERE id = $1 RETURNING *',
+      [id, JSON.stringify(sections)]
+    );
     return res.rows[0];
   },
 

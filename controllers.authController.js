@@ -136,6 +136,7 @@ async function me(req, res, next) {
         creditsRemaining: balance.creditsRemaining,
         creditsResetAt: balance.creditsResetAt,
         monthlyCredits: balance.monthlyCredits,
+        disabledSections: user.disabled_sections || [],
       },
     });
   } catch (err) {

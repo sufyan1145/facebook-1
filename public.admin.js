@@ -46,6 +46,35 @@
     document.getElementById('statActive24').textContent = data.active_last_24h;
   }
 
+const HIDEABLE_SECTIONS = [
+    { key: 'drive', label: 'Drive Folders' },
+    { key: 'videogen', label: 'Video Generator' },
+    { key: 'content-schedule', label: 'Content Pipeline' },
+    { key: 'pages', label: 'Facebook Pages' },
+    { key: 'schedule', label: 'Schedules' },
+    { key: 'queue', label: 'Queue' },
+    { key: 'history', label: 'Upload History' },
+    { key: 'logs', label: 'Activity Logs' },
+    { key: 'settings', label: 'Settings' },
+  ];
+
+  function sectionsRowHtml(u) {
+    const disabled = Array.isArray(u.disabled_sections) ? u.disabled_sections : [];
+    return `<tr class="sections-row" id="sections-row-${u.id}" style="display:none;">
+      <td colspan="7" style="background:var(--panel-2);">
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">Hide sections from this user's sidebar (unchecked = visible):</div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px;">
+          ${HIDEABLE_SECTIONS.map(
+            (s) => `<label style="display:flex; align-items:center; gap:5px; font-size:12px;">
+              <input type="checkbox" class="sectionCheckbox" data-id="${u.id}" data-section="${s.key}" ${disabled.includes(s.key) ? 'checked' : ''} />
+              ${s.label}
+            </label>`
+          ).join('')}
+        </div>
+      </td>
+    </tr>`;
+  }
+
   async function loadUsers() {
     const { data } = await apiFetch('/admin/users');
     const body = document.getElementById('usersBody');
@@ -77,11 +106,12 @@
               <option value="year_1">1 Year</option>
               <option value="never">No expiry</option>
             </select>
+            <button class="btn sm sectionsToggleBtn" data-id="${u.id}">Sections</button>
             <button class="btn sm toggleActiveBtn" data-id="${u.id}" data-active="${u.is_active !== false}">${u.is_active === false ? 'Activate' : 'Deactivate'}</button>
             <button class="btn sm danger deleteBtn" data-id="${u.id}">Delete</button>
           </div>
         </td>
-      </tr>`
+      </tr>${sectionsRowHtml(u)}`
       )
       .join('');
 
@@ -96,6 +126,32 @@
             body: JSON.stringify({ planKey: planKey === 'never' ? undefined : planKey, customDays: planKey === 'never' ? null : undefined }),
           });
           await Promise.all([loadUsers(), loadStats()]);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+
+    document.querySelectorAll('.sectionsToggleBtn').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const id = e.target.dataset.id;
+        const row = document.getElementById(`sections-row-${id}`);
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+      });
+    });
+
+    document.querySelectorAll('.sectionCheckbox').forEach((el) => {
+      el.addEventListener('change', async (e) => {
+        const id = e.target.dataset.id;
+        const checkboxes = document.querySelectorAll(`.sectionCheckbox[data-id="${id}"]`);
+        const disabledSections = Array.from(checkboxes)
+          .filter((c) => c.checked)
+          .map((c) => c.dataset.section);
+        try {
+          await apiFetch(`/admin/users/${id}/sections`, {
+            method: 'PATCH',
+            body: JSON.stringify({ disabledSections }),
+          });
         } catch (err) {
           alert(err.message);
         }
