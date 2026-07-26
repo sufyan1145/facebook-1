@@ -462,6 +462,9 @@ async function runPipeline(schedule) {
       await generateClip(script.scenes[i].visual_prompt, sceneDurations[i], clipPath, format, i);
       clipPaths.push(clipPath);
       tempFiles.push(clipPath);
+      // Small pause between scenes so back-to-back Vertex API calls (image/TTS)
+      // don't burst past its per-minute quota and trigger 429s on longer videos.
+      if (i < script.scenes.length - 1) await sleep(2000);
     }
 
     stage = 'stitching';

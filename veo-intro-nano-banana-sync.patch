@@ -1,8 +1,55 @@
+diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
+index 08c2be6..5572799 100644
+--- a/jobs.contentPipelineWorker.js
++++ b/jobs.contentPipelineWorker.js
+@@ -462,6 +462,9 @@ async function runPipeline(schedule) {
+       await generateClip(script.scenes[i].visual_prompt, sceneDurations[i], clipPath, format, i);
+       clipPaths.push(clipPath);
+       tempFiles.push(clipPath);
++      // Small pause between scenes so back-to-back Vertex API calls (image/TTS)
++      // don't burst past its per-minute quota and trigger 429s on longer videos.
++      if (i < script.scenes.length - 1) await sleep(2000);
+     }
+ 
+     stage = 'stitching';
 diff --git a/services.vertexAiService.js b/services.vertexAiService.js
-index 9e71cc4..890c942 100644
+index 9e71cc4..170b2f9 100644
 --- a/services.vertexAiService.js
 +++ b/services.vertexAiService.js
-@@ -112,15 +112,22 @@ async function generateImage(prompt, destPath) {
+@@ -3,6 +3,7 @@ const fs = require('fs');
+ const { GoogleAuth } = require('google-auth-library');
+ const env = require('./config.env');
+ const logger = require('./utils.logger');
++const { retryOn429 } = require('./utils.retry');
+ 
+ let authClient = null;
+ 
+@@ -85,13 +86,17 @@ async function generateImage(prompt, destPath) {
+   const token = await getAccessToken();
+   let resp;
+   try {
+-    resp = await axios.post(
+-      `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
+-      {
+-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+-        generationConfig: { responseModalities: ['IMAGE'] },
+-      },
+-      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
++    resp = await retryOn429(
++      () =>
++        axios.post(
++          `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
++          {
++            contents: [{ role: 'user', parts: [{ text: prompt }] }],
++            generationConfig: { responseModalities: ['IMAGE'] },
++          },
++          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
++        ),
++      { label: 'Vertex image generation (Nano Banana)' }
+     );
+   } catch (err) {
+     const detail = err.response?.data;
+@@ -112,15 +117,26 @@ async function generateImage(prompt, destPath) {
  async function synthesizeSpeech(text, destPath, voiceName) {
    const token = await getAccessToken();
    const chirpVoiceName = `en-US-Chirp3-HD-${voiceName || 'Charon'}`;
@@ -17,14 +64,18 @@ index 9e71cc4..890c942 100644
 -  );
 +  let resp;
 +  try {
-+    resp = await axios.post(
-+      'https://texttospeech.googleapis.com/v1/text:synthesize',
-+      {
-+        input: { text },
-+        voice: { languageCode: 'en-US', name: chirpVoiceName },
-+        audioConfig: { audioEncoding: 'MP3' },
-+      },
-+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
++    resp = await retryOn429(
++      () =>
++        axios.post(
++          'https://texttospeech.googleapis.com/v1/text:synthesize',
++          {
++            input: { text },
++            voice: { languageCode: 'en-US', name: chirpVoiceName },
++            audioConfig: { audioEncoding: 'MP3' },
++          },
++          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
++        ),
++      { label: 'Vertex Cloud TTS' }
 +    );
 +  } catch (err) {
 +    const detail = err.response?.data;

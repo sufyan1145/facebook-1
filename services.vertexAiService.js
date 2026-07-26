@@ -3,6 +3,7 @@ const fs = require('fs');
 const { GoogleAuth } = require('google-auth-library');
 const env = require('./config.env');
 const logger = require('./utils.logger');
+const { retryOn429 } = require('./utils.retry');
 
 let authClient = null;
 
@@ -85,13 +86,17 @@ async function generateImage(prompt, destPath) {
   const token = await getAccessToken();
   let resp;
   try {
-    resp = await axios.post(
-      `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
-      {
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['IMAGE'] },
-      },
-      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    resp = await retryOn429(
+      () =>
+        axios.post(
+          `${baseUrl()}/${env.vertexAi.imageModel}:generateContent`,
+          {
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { responseModalities: ['IMAGE'] },
+          },
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        ),
+      { label: 'Vertex image generation (Nano Banana)' }
     );
   } catch (err) {
     const detail = err.response?.data;
@@ -114,14 +119,18 @@ async function synthesizeSpeech(text, destPath, voiceName) {
   const chirpVoiceName = `en-US-Chirp3-HD-${voiceName || 'Charon'}`;
   let resp;
   try {
-    resp = await axios.post(
-      'https://texttospeech.googleapis.com/v1/text:synthesize',
-      {
-        input: { text },
-        voice: { languageCode: 'en-US', name: chirpVoiceName },
-        audioConfig: { audioEncoding: 'MP3' },
-      },
-      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    resp = await retryOn429(
+      () =>
+        axios.post(
+          'https://texttospeech.googleapis.com/v1/text:synthesize',
+          {
+            input: { text },
+            voice: { languageCode: 'en-US', name: chirpVoiceName },
+            audioConfig: { audioEncoding: 'MP3' },
+          },
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        ),
+      { label: 'Vertex Cloud TTS' }
     );
   } catch (err) {
     const detail = err.response?.data;
