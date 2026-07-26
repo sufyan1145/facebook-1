@@ -70,7 +70,7 @@ async function generateWithVertex(job) {
   const tempFiles = [];
   try {
     await credits.charge(job.user_id, requestedSeconds, 'video_generator', job.id);
-    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds));
+    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds, 'video_generator'));
     await VideoGenJob.setStatus(job.id, 'generating');
 
     const chunkCount = Math.max(1, Math.ceil(requestedSeconds / 8));
@@ -113,7 +113,7 @@ async function generateWithVertex(job) {
   } catch (err) {
     logger.error(`[video-gen-vertex] failed for job ${job.id}: ${err.message}`);
     try {
-      await credits.refund(job.user_id, requestedSeconds, job.id);
+      await credits.refund(job.user_id, requestedSeconds, job.id, 'video_generator');
     } catch (refundErr) {
       logger.error(`[video-gen-vertex] refund failed for job ${job.id}: ${refundErr.message}`);
     }

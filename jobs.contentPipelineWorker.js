@@ -573,7 +573,7 @@ async function runPipeline(schedule) {
     const message = `[${stage}] ${err.message}`;
     if (chargedSeconds > 0) {
       try {
-        await credits.refund(schedule.user_id, chargedSeconds, run.id);
+        await credits.refund(schedule.user_id, chargedSeconds, run.id, 'pipeline_video');
       } catch (refundErr) {
         logger.error(`[content-pipeline] credit refund failed for schedule ${schedule.id}: ${refundErr.message}`);
       }

@@ -21,7 +21,7 @@ async function generate(req, res, next) {
     // doesn't have enough credits for this length of video.
     if (useVertex) {
       const balance = await credits.getBalance(req.user.id);
-      const cost = credits.costForSeconds(requestedDurationSeconds);
+      const cost = credits.costForSeconds(requestedDurationSeconds, 'video_generator');
       if (balance.creditsRemaining < cost) {
         return res.status(402).json({
           success: false,

@@ -1,12 +1,24 @@
 const { query } = require('./config.database');
 const logger = require('./utils.logger');
 
-// 10s of video = 15 credits -> 1.5 credits per second, rounded to the nearest whole credit.
-const CREDITS_PER_SECOND = 1.5;
-const MONTHLY_CREDITS = 45000;
+// Two different rates depending on what's generating the video:
+// - Content Pipeline (Nano Banana images + TTS): cheap, so a generous rate.
+//   10s = 20 credits (2 credits/sec).
+// - Video Generator (Vertex Veo3, real per-second Google billing): priced to
+//   track the actual Vertex cost. 8s = 150 credits (18.75 credits/sec).
+const MONTHLY_CREDITS = 20000;
+const RATE_BY_REASON = {
+  pipeline_video: 2,
+  video_generator: 18.75,
+};
+const DEFAULT_RATE = 2;
 
-function costForSeconds(seconds) {
-  return Math.max(1, Math.round(seconds * CREDITS_PER_SECOND));
+function rateFor(reason) {
+  return RATE_BY_REASON[reason] || DEFAULT_RATE;
+}
+
+function costForSeconds(seconds, reason = 'pipeline_video') {
+  return Math.max(1, Math.round(seconds * rateFor(reason)));
 }
 
 class InsufficientCreditsError extends Error {
@@ -52,7 +64,7 @@ async function getBalance(userId) {
 // video ends up a different length than originally estimated.
 async function charge(userId, seconds, reason, referenceId = null) {
   const user = await ensureMonthlyReset(userId);
-  const amount = costForSeconds(seconds);
+  const amount = costForSeconds(seconds, reason);
   if (user.credits_remaining < amount) {
     throw new InsufficientCreditsError(amount, user.credits_remaining);
   }
@@ -75,8 +87,8 @@ async function charge(userId, seconds, reason, referenceId = null) {
 // after the fact; ensureMonthlyReset will bring it back to a fresh allowance
 // next cycle regardless.
 async function reconcile(userId, previouslyChargedSeconds, actualSeconds, reason, referenceId = null) {
-  const originalAmount = costForSeconds(previouslyChargedSeconds);
-  const actualAmount = costForSeconds(actualSeconds);
+  const originalAmount = costForSeconds(previouslyChargedSeconds, reason);
+  const actualAmount = costForSeconds(actualSeconds, reason);
   const delta = actualAmount - originalAmount;
   if (delta === 0) return { amount: 0, balanceAfter: null };
 
@@ -93,8 +105,8 @@ async function reconcile(userId, previouslyChargedSeconds, actualSeconds, reason
 }
 
 // Full refund of a previous charge (e.g. the generation failed entirely).
-async function refund(userId, seconds, referenceId = null) {
-  const amount = costForSeconds(seconds);
+async function refund(userId, seconds, referenceId = null, reason = 'pipeline_video') {
+  const amount = costForSeconds(seconds, reason);
   const res = await query(
     `UPDATE users SET credits_remaining = credits_remaining + $2, updated_at = now() WHERE id = $1 RETURNING credits_remaining`,
     [userId, amount]
@@ -108,8 +120,8 @@ async function refund(userId, seconds, referenceId = null) {
 }
 
 module.exports = {
-  CREDITS_PER_SECOND,
   MONTHLY_CREDITS,
+  RATE_BY_REASON,
   costForSeconds,
   InsufficientCreditsError,
   ensureMonthlyReset,

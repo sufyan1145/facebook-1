@@ -1,0 +1,139 @@
+diff --git a/controllers.videoGenController.js b/controllers.videoGenController.js
+index 0a03dcb..4fb7dce 100644
+--- a/controllers.videoGenController.js
++++ b/controllers.videoGenController.js
+@@ -21,7 +21,7 @@ async function generate(req, res, next) {
+     // doesn't have enough credits for this length of video.
+     if (useVertex) {
+       const balance = await credits.getBalance(req.user.id);
+-      const cost = credits.costForSeconds(requestedDurationSeconds);
++      const cost = credits.costForSeconds(requestedDurationSeconds, 'video_generator');
+       if (balance.creditsRemaining < cost) {
+         return res.status(402).json({
+           success: false,
+diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
+index c5d2252..57cd424 100644
+--- a/jobs.contentPipelineWorker.js
++++ b/jobs.contentPipelineWorker.js
+@@ -573,7 +573,7 @@ async function runPipeline(schedule) {
+     const message = `[${stage}] ${err.message}`;
+     if (chargedSeconds > 0) {
+       try {
+-        await credits.refund(schedule.user_id, chargedSeconds, run.id);
++        await credits.refund(schedule.user_id, chargedSeconds, run.id, 'pipeline_video');
+       } catch (refundErr) {
+         logger.error(`[content-pipeline] credit refund failed for schedule ${schedule.id}: ${refundErr.message}`);
+       }
+diff --git a/jobs.videoGenWorker.js b/jobs.videoGenWorker.js
+index 6e988cf..114cde5 100644
+--- a/jobs.videoGenWorker.js
++++ b/jobs.videoGenWorker.js
+@@ -70,7 +70,7 @@ async function generateWithVertex(job) {
+   const tempFiles = [];
+   try {
+     await credits.charge(job.user_id, requestedSeconds, 'video_generator', job.id);
+-    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds));
++    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds, 'video_generator'));
+     await VideoGenJob.setStatus(job.id, 'generating');
+ 
+     const chunkCount = Math.max(1, Math.ceil(requestedSeconds / 8));
+@@ -113,7 +113,7 @@ async function generateWithVertex(job) {
+   } catch (err) {
+     logger.error(`[video-gen-vertex] failed for job ${job.id}: ${err.message}`);
+     try {
+-      await credits.refund(job.user_id, requestedSeconds, job.id);
++      await credits.refund(job.user_id, requestedSeconds, job.id, 'video_generator');
+     } catch (refundErr) {
+       logger.error(`[video-gen-vertex] refund failed for job ${job.id}: ${refundErr.message}`);
+     }
+diff --git a/public.videogen.js b/public.videogen.js
+index d9f8fd6..06c8fb3 100644
+--- a/public.videogen.js
++++ b/public.videogen.js
+@@ -92,9 +92,9 @@ function updateCostHint() {
+     hint.textContent = 'Kie.ai generation does not use credits.';
+     return;
+   }
+-  const cost = Math.max(1, Math.round(duration * 1.5));
++  const cost = Math.max(1, Math.round(duration * 18.75));
+   const remaining = currentUser && currentUser.creditsRemaining != null ? currentUser.creditsRemaining : null;
+-  hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
++  hint.textContent = `This will cost ${cost} credits (~18.75/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
+ }
+ 
+ function updateFolderFieldVisibility() {
+diff --git a/utils.credits.js b/utils.credits.js
+index d1d843e..44109bd 100644
+--- a/utils.credits.js
++++ b/utils.credits.js
+@@ -1,12 +1,24 @@
+ const { query } = require('./config.database');
+ const logger = require('./utils.logger');
+ 
+-// 10s of video = 15 credits -> 1.5 credits per second, rounded to the nearest whole credit.
+-const CREDITS_PER_SECOND = 1.5;
+-const MONTHLY_CREDITS = 45000;
++// Two different rates depending on what's generating the video:
++// - Content Pipeline (Nano Banana images + TTS): cheap, so a generous rate.
++//   10s = 20 credits (2 credits/sec).
++// - Video Generator (Vertex Veo3, real per-second Google billing): priced to
++//   track the actual Vertex cost. 8s = 150 credits (18.75 credits/sec).
++const MONTHLY_CREDITS = 20000;
++const RATE_BY_REASON = {
++  pipeline_video: 2,
++  video_generator: 18.75,
++};
++const DEFAULT_RATE = 2;
++
++function rateFor(reason) {
++  return RATE_BY_REASON[reason] || DEFAULT_RATE;
++}
+ 
+-function costForSeconds(seconds) {
+-  return Math.max(1, Math.round(seconds * CREDITS_PER_SECOND));
++function costForSeconds(seconds, reason = 'pipeline_video') {
++  return Math.max(1, Math.round(seconds * rateFor(reason)));
+ }
+ 
+ class InsufficientCreditsError extends Error {
+@@ -52,7 +64,7 @@ async function getBalance(userId) {
+ // video ends up a different length than originally estimated.
+ async function charge(userId, seconds, reason, referenceId = null) {
+   const user = await ensureMonthlyReset(userId);
+-  const amount = costForSeconds(seconds);
++  const amount = costForSeconds(seconds, reason);
+   if (user.credits_remaining < amount) {
+     throw new InsufficientCreditsError(amount, user.credits_remaining);
+   }
+@@ -75,8 +87,8 @@ async function charge(userId, seconds, reason, referenceId = null) {
+ // after the fact; ensureMonthlyReset will bring it back to a fresh allowance
+ // next cycle regardless.
+ async function reconcile(userId, previouslyChargedSeconds, actualSeconds, reason, referenceId = null) {
+-  const originalAmount = costForSeconds(previouslyChargedSeconds);
+-  const actualAmount = costForSeconds(actualSeconds);
++  const originalAmount = costForSeconds(previouslyChargedSeconds, reason);
++  const actualAmount = costForSeconds(actualSeconds, reason);
+   const delta = actualAmount - originalAmount;
+   if (delta === 0) return { amount: 0, balanceAfter: null };
+ 
+@@ -93,8 +105,8 @@ async function reconcile(userId, previouslyChargedSeconds, actualSeconds, reason
+ }
+ 
+ // Full refund of a previous charge (e.g. the generation failed entirely).
+-async function refund(userId, seconds, referenceId = null) {
+-  const amount = costForSeconds(seconds);
++async function refund(userId, seconds, referenceId = null, reason = 'pipeline_video') {
++  const amount = costForSeconds(seconds, reason);
+   const res = await query(
+     `UPDATE users SET credits_remaining = credits_remaining + $2, updated_at = now() WHERE id = $1 RETURNING credits_remaining`,
+     [userId, amount]
+@@ -108,8 +120,8 @@ async function refund(userId, seconds, referenceId = null) {
+ }
+ 
+ module.exports = {
+-  CREDITS_PER_SECOND,
+   MONTHLY_CREDITS,
++  RATE_BY_REASON,
+   costForSeconds,
+   InsufficientCreditsError,
+   ensureMonthlyReset,

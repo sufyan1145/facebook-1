@@ -92,9 +92,9 @@ function updateCostHint() {
     hint.textContent = 'Kie.ai generation does not use credits.';
     return;
   }
-  const cost = Math.max(1, Math.round(duration * 1.5));
+  const cost = Math.max(1, Math.round(duration * 18.75));
   const remaining = currentUser && currentUser.creditsRemaining != null ? currentUser.creditsRemaining : null;
-  hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
+  hint.textContent = `This will cost ${cost} credits (~18.75/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
 }
 
 function updateFolderFieldVisibility() {
