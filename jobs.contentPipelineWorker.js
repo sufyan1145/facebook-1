@@ -595,11 +595,15 @@ function startContentPipelineWorker() {
     try {
       while (queue.length) {
         const schedule = queue.shift();
-        queuedIds.delete(schedule.id);
         try {
           await runPipeline(schedule); // sequential on purpose: keeps Kie.ai/API usage predictable
         } catch (err) {
           logger.error(`Content pipeline worker error for schedule ${schedule.id} (keyword: "${schedule.keyword}"): ${err.message}`);
+        } finally {
+          // Only stop tracking this schedule as "queued" once its run has
+          // actually finished - removing it earlier let a still-running
+          // schedule get re-detected as due and queued a second time.
+          queuedIds.delete(schedule.id);
         }
       }
     } finally {
