@@ -1,0 +1,677 @@
+diff --git a/controllers.authController.js b/controllers.authController.js
+index 7825181..9f3c1e8 100644
+--- a/controllers.authController.js
++++ b/controllers.authController.js
+@@ -120,6 +120,8 @@ async function resetPassword(req, res, next) {
+ async function me(req, res, next) {
+   try {
+     const user = await User.findById(req.user.id);
++    const credits = require('./utils.credits');
++    const balance = await credits.getBalance(req.user.id);
+     res.json({
+       success: true,
+       data: {
+@@ -131,6 +133,9 @@ async function me(req, res, next) {
+         isAdmin: !!user.is_admin,
+         planType: user.plan_type,
+         planExpiresAt: user.plan_expires_at,
++        creditsRemaining: balance.creditsRemaining,
++        creditsResetAt: balance.creditsResetAt,
++        monthlyCredits: balance.monthlyCredits,
+       },
+     });
+   } catch (err) {
+diff --git a/controllers.videoGenController.js b/controllers.videoGenController.js
+index 975ad6a..3ec3af5 100644
+--- a/controllers.videoGenController.js
++++ b/controllers.videoGenController.js
+@@ -1,20 +1,58 @@
+ const VideoGenJob = require('./models.VideoGenJob');
+ const kieVideoService = require('./services.kieVideoService');
++const driveService = require('./services.googleDriveService');
+ const Log = require('./models.Log');
++const credits = require('./utils.credits');
++const { generateWithVertex } = require('./jobs.videoGenWorker');
+ 
+ async function generate(req, res, next) {
+   try {
+-    const { driveFolderId, driveFolderName, topic, duration, aspectRatio } = req.body;
++    const { driveFolderId, driveFolderName, topic, duration, aspectRatio, provider } = req.body;
+     if (!driveFolderId || !topic) {
+       return res.status(400).json({ success: false, message: 'driveFolderId and topic are required' });
+     }
++    const useVertex = provider === 'vertex';
++    const requestedDurationSeconds = Number(duration) || (useVertex ? 8 : 5);
+ 
+-    const job = await VideoGenJob.create(req.user.id, { driveFolderId, driveFolderName, topic, duration, aspectRatio });
++    // Fail fast with a clear message before creating anything if the account
++    // doesn't have enough credits for this length of video.
++    if (useVertex) {
++      const balance = await credits.getBalance(req.user.id);
++      const cost = credits.costForSeconds(requestedDurationSeconds);
++      if (balance.creditsRemaining < cost) {
++        return res.status(402).json({
++          success: false,
++          message: `Not enough credits: this needs ${cost}, you have ${balance.creditsRemaining} remaining this month.`,
++        });
++      }
++    }
++
++    const job = await VideoGenJob.create(req.user.id, {
++      driveFolderId,
++      driveFolderName,
++      topic,
++      duration,
++      aspectRatio,
++      provider: useVertex ? 'vertex' : 'kie',
++      requestedDurationSeconds: useVertex ? requestedDurationSeconds : null,
++    });
++
++    if (useVertex) {
++      // Long-running (multi-minute) generation - run in the background and
++      // respond immediately; the frontend polls /videogen/jobs for progress.
++      generateWithVertex(job).catch((err) => {
++        // generateWithVertex already handles its own failure bookkeeping;
++        // this catch only guards against a truly unexpected crash.
++        require('./utils.logger').error(`[video-gen-vertex] unhandled error for job ${job.id}: ${err.message}`);
++      });
++      await Log.record(req.user.id, 'Video Generation Started', { topic, jobId: job.id, provider: 'vertex' });
++      return res.json({ success: true, data: job });
++    }
+ 
+     try {
+       const taskId = await kieVideoService.createVideoTask({ prompt: topic, duration, aspectRatio });
+       await VideoGenJob.setTaskId(job.id, taskId);
+-      await Log.record(req.user.id, 'Video Generation Started', { topic, jobId: job.id });
++      await Log.record(req.user.id, 'Video Generation Started', { topic, jobId: job.id, provider: 'kie' });
+     } catch (err) {
+       const message = err.response?.data?.msg || err.message;
+       await VideoGenJob.markFailed(job.id, message);
+@@ -37,4 +75,23 @@ async function listJobs(req, res, next) {
+   }
+ }
+ 
+-module.exports = { generate, listJobs };
++// Streams the finished video for live preview (inline) or download
++// (?download=1), proxied through our server so the Drive file doesn't need
++// to be made public.
++async function streamFile(req, res, next) {
++  try {
++    const job = await VideoGenJob.findById(req.user.id, req.params.id);
++    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
++    if (job.status !== 'completed' || !job.drive_file_id) {
++      return res.status(409).json({ success: false, message: 'This video is not ready yet' });
++    }
++    await driveService.streamFile(req.user.id, job.drive_file_id, res, {
++      download: req.query.download === '1',
++      fileName: job.drive_file_name || 'video.mp4',
++    });
++  } catch (err) {
++    next(err);
++  }
++}
++
++module.exports = { generate, listJobs, streamFile };
+diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
+index e7ae11d..c5d2252 100644
+--- a/jobs.contentPipelineWorker.js
++++ b/jobs.contentPipelineWorker.js
+@@ -24,6 +24,7 @@ const driveService = require('./services.googleDriveService');
+ const facebookService = require('./services.facebookService');
+ const ffmpeg = require('./utils.ffmpeg');
+ const { notifyUploadEvent } = require('./services.notificationService');
++const credits = require('./utils.credits');
+ 
+ const WEEKDAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+ 
+@@ -396,8 +397,14 @@ async function runPipeline(schedule) {
+   const run = await ContentScheduleRun.create(schedule.user_id, schedule.id);
+   const tempFiles = [];
+   let stage = 'init';
++  let chargedSeconds = 0;
+ 
+   try {
++    stage = 'checking_credits';
++    await ContentScheduleRun.setStatus(run.id, 'checking_credits');
++    await credits.charge(schedule.user_id, schedule.target_duration_seconds, 'pipeline_video', run.id);
++    chargedSeconds = schedule.target_duration_seconds;
++
+     stage = 'writing_script';
+     await ContentScheduleRun.setStatus(run.id, 'writing_script');
+     let script;
+@@ -453,6 +460,11 @@ async function runPipeline(schedule) {
+     const actualVoiceoverSeconds = sceneDurations.reduce((sum, d) => sum + d, 0);
+     logger.info(`[content-pipeline] voiceover duration: ${actualVoiceoverSeconds.toFixed(1)}s (estimated ${schedule.target_duration_seconds}s) across ${script.scenes.length} scenes: [${sceneDurations.map((d) => d.toFixed(1)).join(', ')}]s`);
+ 
++    // The estimate charged upfront rarely matches the real spoken length exactly -
++    // true up the charge (extra charge or partial refund) now that we know it.
++    await credits.reconcile(schedule.user_id, chargedSeconds, actualVoiceoverSeconds, 'pipeline_video', run.id);
++    chargedSeconds = actualVoiceoverSeconds;
++
+     stage = 'generating_clips';
+     await ContentScheduleRun.setStatus(run.id, 'generating_clips');
+     const format = getVideoFormat(schedule.youtube_video_type);
+@@ -559,6 +571,13 @@ async function runPipeline(schedule) {
+     }
+   } catch (err) {
+     const message = `[${stage}] ${err.message}`;
++    if (chargedSeconds > 0) {
++      try {
++        await credits.refund(schedule.user_id, chargedSeconds, run.id);
++      } catch (refundErr) {
++        logger.error(`[content-pipeline] credit refund failed for schedule ${schedule.id}: ${refundErr.message}`);
++      }
++    }
+     await ContentScheduleRun.markFailed(run.id, message);
+     await ContentSchedule.updateLastRun(schedule.id); // don't retry every minute - wait for the next scheduled occurrence
+     await Log.record(schedule.user_id, 'Content Pipeline Failed', { keyword: schedule.keyword, error: message }, 'error');
+diff --git a/jobs.videoGenWorker.js b/jobs.videoGenWorker.js
+index 641c0ca..b6b42cf 100644
+--- a/jobs.videoGenWorker.js
++++ b/jobs.videoGenWorker.js
+@@ -6,14 +6,111 @@
+  */
+ const cron = require('node-cron');
+ const path = require('path');
++const fs = require('fs');
+ const env = require('./config.env');
+ const logger = require('./utils.logger');
+ const VideoGenJob = require('./models.VideoGenJob');
+ const kieVideoService = require('./services.kieVideoService');
++const vertexAiService = require('./services.vertexAiService');
+ const driveService = require('./services.googleDriveService');
++const ffmpeg = require('./utils.ffmpeg');
++const credits = require('./utils.credits');
+ const Log = require('./models.Log');
+ const { notifyUploadEvent } = require('./services.notificationService');
+ 
++function sleep(ms) {
++  return new Promise((resolve) => setTimeout(resolve, ms));
++}
++
++// Generates one Veo3 clip WITH native audio/voice (like Google Flow) - up to
++// 8s per Veo call, retried a couple of times if Vertex returns a transient
++// internal error.
++async function generateVeoClipWithAudio(prompt, durationSeconds, destPath, aspectRatio) {
++  const maxRetries = 2;
++  const maxAttempts = 60; // Veo can take several minutes per clip
++
++  for (let retry = 0; retry <= maxRetries; retry++) {
++    const operationName = await vertexAiService.createVeoVideoTask({ prompt, duration: durationSeconds, aspectRatio, generateAudio: true });
++    let done = false;
++    let bytes = null;
++    let operationError = null;
++
++    for (let i = 0; i < maxAttempts; i++) {
++      await sleep(10000);
++      const status = await vertexAiService.getVeoOperationStatus(operationName);
++      if (status.done) {
++        if (status.error) operationError = status.error;
++        else bytes = vertexAiService.extractVeoResultBytes(status);
++        done = true;
++        break;
++      }
++    }
++    if (!done) throw new Error('Veo3 clip generation timed out');
++
++    if (operationError) {
++      logger.error(`[video-gen-vertex] Veo operation error (attempt ${retry + 1}/${maxRetries + 1}): ${JSON.stringify(operationError)}`);
++      if (retry < maxRetries) {
++        await sleep(5000);
++        continue;
++      }
++      throw new Error(operationError.message || 'Veo3 generation failed');
++    }
++
++    if (!bytes) throw new Error('Veo3 clip generated but no video bytes were returned');
++    fs.writeFileSync(destPath, Buffer.from(bytes, 'base64'));
++    return destPath;
++  }
++}
++
++// Runs a full Video Generator job through Vertex Veo3 with native audio -
++// chunks requests longer than 8s into multiple Veo calls and stitches them
++// together, charging credits (1.5/sec) up front and refunding in full on failure.
++async function generateWithVertex(job) {
++  const requestedSeconds = job.requested_duration_seconds || Number(job.duration) || 8;
++  const tempFiles = [];
++  try {
++    await credits.charge(job.user_id, requestedSeconds, 'video_generator', job.id);
++    await VideoGenJob.setCreditsCharged(job.id, credits.costForSeconds(requestedSeconds));
++    await VideoGenJob.setStatus(job.id, 'generating');
++
++    const chunkCount = Math.max(1, Math.ceil(requestedSeconds / 8));
++    const chunkSeconds = requestedSeconds / chunkCount;
++    const clipPaths = [];
++    for (let i = 0; i < chunkCount; i++) {
++      const clipPath = path.join(env.upload.tempDir, `${job.id}_clip${i}.mp4`);
++      await generateVeoClipWithAudio(job.topic, chunkSeconds, clipPath, job.aspect_ratio);
++      clipPaths.push(clipPath);
++      tempFiles.push(clipPath);
++    }
++
++    let finalPath = clipPaths[0];
++    if (clipPaths.length > 1) {
++      finalPath = path.join(env.upload.tempDir, `${job.id}_final.mp4`);
++      await ffmpeg.concatClips(clipPaths, finalPath);
++      tempFiles.push(finalPath);
++    }
++
++    await VideoGenJob.setStatus(job.id, 'downloading');
++    const fileName = `${(job.topic || 'video').replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.mp4`;
++    const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, finalPath, fileName);
++    await VideoGenJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
++    await Log.record(job.user_id, 'Video Generated', { topic: job.topic, driveFileName: uploaded.name });
++    await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'Video Generation' });
++    logger.info(`[video-gen-vertex] completed job ${job.id}`);
++  } catch (err) {
++    logger.error(`[video-gen-vertex] failed for job ${job.id}: ${err.message}`);
++    try {
++      await credits.refund(job.user_id, requestedSeconds, job.id);
++    } catch (refundErr) {
++      logger.error(`[video-gen-vertex] refund failed for job ${job.id}: ${refundErr.message}`);
++    }
++    await VideoGenJob.markFailed(job.id, err.message);
++    await Log.record(job.user_id, 'Video Generation Failed', { topic: job.topic, error: err.message }, 'error');
++  } finally {
++    tempFiles.forEach(driveService.deleteTempFile);
++  }
++}
++
+ async function checkJob(job) {
+   const status = await kieVideoService.getTaskStatus(job.kie_task_id);
+   const state = status.state || status.status;
+@@ -69,4 +166,4 @@ function startVideoGenWorker() {
+   logger.info(`Video generation poller started with cron: ${env.kie.pollCron}`);
+ }
+ 
+-module.exports = { startVideoGenWorker };
++module.exports = { startVideoGenWorker, generateWithVertex };
+diff --git a/models.VideoGenJob.js b/models.VideoGenJob.js
+index b202c06..b7b98fe 100644
+--- a/models.VideoGenJob.js
++++ b/models.VideoGenJob.js
+@@ -1,16 +1,20 @@
+ const { query } = require('./config.database');
+ 
+ const VideoGenJob = {
+-  async create(userId, { driveFolderId, driveFolderName, topic, duration, aspectRatio }) {
++  async create(userId, { driveFolderId, driveFolderName, topic, duration, aspectRatio, provider = 'kie', requestedDurationSeconds = null }) {
+     const res = await query(
+-      `INSERT INTO video_gen_jobs (user_id, drive_folder_id, drive_folder_name, topic, duration, aspect_ratio, status)
+-       VALUES ($1,$2,$3,$4,$5,$6,'pending')
++      `INSERT INTO video_gen_jobs (user_id, drive_folder_id, drive_folder_name, topic, duration, aspect_ratio, status, provider, requested_duration_seconds)
++       VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8)
+        RETURNING *`,
+-      [userId, driveFolderId, driveFolderName, topic, duration || '5', aspectRatio || '9:16']
++      [userId, driveFolderId, driveFolderName, topic, duration || '5', aspectRatio || '9:16', provider, requestedDurationSeconds]
+     );
+     return res.rows[0];
+   },
+ 
++  async setCreditsCharged(id, creditsCharged) {
++    await query(`UPDATE video_gen_jobs SET credits_charged = $2, updated_at = now() WHERE id = $1`, [id, creditsCharged]);
++  },
++
+   async setTaskId(id, kieTaskId) {
+     await query(`UPDATE video_gen_jobs SET kie_task_id = $2, status = 'generating', updated_at = now() WHERE id = $1`, [id, kieTaskId]);
+   },
+@@ -31,7 +35,7 @@ const VideoGenJob = {
+   },
+ 
+   async listInProgress() {
+-    const res = await query(`SELECT * FROM video_gen_jobs WHERE status IN ('generating', 'downloading')`);
++    const res = await query(`SELECT * FROM video_gen_jobs WHERE status IN ('generating', 'downloading') AND provider = 'kie'`);
+     return res.rows;
+   },
+ 
+@@ -39,6 +43,11 @@ const VideoGenJob = {
+     const res = await query(`SELECT * FROM video_gen_jobs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+     return res.rows;
+   },
++
++  async findById(userId, id) {
++    const res = await query(`SELECT * FROM video_gen_jobs WHERE id = $1 AND user_id = $2`, [id, userId]);
++    return res.rows[0];
++  },
+ };
+ 
+ module.exports = VideoGenJob;
+diff --git a/public.app.js b/public.app.js
+index a704273..5f3c153 100644
+--- a/public.app.js
++++ b/public.app.js
+@@ -60,6 +60,26 @@ function renderNav(active) {
+         `<a href="${i.href}" class="${i.key === active ? 'active' : ''}"><span class="nav-icon">${i.icon}</span>${i.label}</a>`
+     )
+     .join('');
++
++  renderCreditsBadge();
++}
++
++function renderCreditsBadge() {
++  const topbar = document.querySelector('.topbar');
++  if (!topbar || !currentUser || currentUser.creditsRemaining == null) return;
++  let badge = document.getElementById('creditsBadge');
++  if (!badge) {
++    badge = document.createElement('div');
++    badge.id = 'creditsBadge';
++    badge.className = 'pill';
++    topbar.appendChild(badge);
++  }
++  const remaining = currentUser.creditsRemaining;
++  const total = currentUser.monthlyCredits || 45000;
++  const low = remaining < total * 0.1;
++  badge.className = `pill ${low ? 'warn' : 'ok'}`;
++  badge.title = currentUser.creditsResetAt ? `Resets ${new Date(currentUser.creditsResetAt).toLocaleDateString()}` : '';
++  badge.innerHTML = `<span class="dot"></span>${remaining.toLocaleString()} credits`;
+ }
+ 
+ async function logout() {
+diff --git a/public.content-schedule.js b/public.content-schedule.js
+index 1c369ce..c6a54e7 100644
+--- a/public.content-schedule.js
++++ b/public.content-schedule.js
+@@ -2,6 +2,7 @@ let selectedDays = new Set();
+ 
+ const RUN_STATUS_LABEL = {
+   pending: 'Pending',
++  checking_credits: 'Checking credits…',
+   writing_script: 'Writing script…',
+   generating_voiceover: 'Recording voiceover…',
+   generating_clips: 'Generating video…',
+diff --git a/public.style.css b/public.style.css
+index 6928b65..3aef482 100644
+--- a/public.style.css
++++ b/public.style.css
+@@ -84,12 +84,12 @@ button, input, select, textarea { font-family: inherit; max-width: 100%; }
+ .nav-icon { width: 16px; text-align: center; }
+ 
+ .topbar {
+-  display: flex; align-items: center; justify-content: space-between;
++  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+   padding: 16px 28px; border-bottom: 1px solid var(--border);
+   background: rgba(11,15,20,0.85); backdrop-filter: blur(6px);
+   position: sticky; top: 0; z-index: 5;
+ }
+-.topbar h1 { font-size: 18px; }
++.topbar h1 { font-size: 18px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .status-pills { display: flex; gap: 8px; }
+ .pill {
+   display: inline-flex; align-items: center; gap: 6px;
+@@ -259,4 +259,12 @@ tr:last-child td { border-bottom: none; }
+   .auth-card { padding: 24px 20px; }
+   table { font-size: 12px; }
+   th, td { padding: 8px; }
++
++  /* Content Pipeline: keep the title from crowding out the credits pill, and
++     let rows that hold a time input + a button wrap instead of overflowing. */
++  #creditsBadge { font-size: 10px; padding: 4px 7px; white-space: nowrap; }
++  .topbar h1 { font-size: 15px; }
++  #multipleTimesList > div { flex-wrap: wrap; }
++  .days-picker .day-chip { padding: 5px 8px; font-size: 11px; }
++  #previewPlayer { max-width: 100%; }
+ }
+diff --git a/public.videogen.html b/public.videogen.html
+index d7e053c..717ad33 100644
+--- a/public.videogen.html
++++ b/public.videogen.html
+@@ -26,13 +26,17 @@
+           <label for="folderSelect">Save into Drive folder</label>
+           <select id="folderSelect"></select>
+         </div>
++        <div class="field">
++          <label for="providerSelect">Generation engine</label>
++          <select id="providerSelect">
++            <option value="vertex">Veo 3 (native voice/sound, your own credits)</option>
++            <option value="kie">Kie.ai (silent, no credits used)</option>
++          </select>
++        </div>
+         <div class="field-row">
+           <div class="field">
+-            <label for="durationSelect">Duration</label>
+-            <select id="durationSelect">
+-              <option value="5">5 seconds</option>
+-              <option value="10">10 seconds</option>
+-            </select>
++            <label for="durationInput">Duration (seconds)</label>
++            <input id="durationInput" type="number" min="4" max="60" step="1" value="10" />
+           </div>
+           <div class="field">
+             <label for="aspectSelect">Aspect ratio</label>
+@@ -43,10 +47,19 @@
+             </select>
+           </div>
+         </div>
+-        <button class="btn" id="generateBtn" style="margin-top:12px;">Generate Video</button>
++        <div id="costHint" style="font-size:12px; color:var(--text-muted); margin:-6px 0 12px;"></div>
++        <button class="btn" id="generateBtn" style="margin-top:4px;">Generate Video</button>
+         <div id="generateMsg" style="margin-top:8px; font-size:13px; color:var(--text-muted);"></div>
+       </div>
+ 
++      <div class="card mb-16" id="previewCard" style="display:none;">
++        <div class="section-title">Preview</div>
++        <video id="previewPlayer" controls playsinline style="width:100%; max-width:420px; border-radius:var(--radius-sm); background:#000; display:block;"></video>
++        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
++          <a class="btn sm" id="downloadBtn" download>Download</a>
++        </div>
++      </div>
++
+       <div class="card">
+         <div class="flex-between mb-16">
+           <div class="section-title" style="margin-bottom:0;">Generation history</div>
+@@ -54,8 +67,8 @@
+         </div>
+         <div class="table-wrap">
+           <table>
+-            <thead><tr><th>Topic</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
+-            <tbody id="jobsBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
++            <thead><tr><th>Topic</th><th>Engine</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
++            <tbody id="jobsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+           </table>
+         </div>
+       </div>
+diff --git a/public.videogen.js b/public.videogen.js
+index 47fc624..a21d204 100644
+--- a/public.videogen.js
++++ b/public.videogen.js
+@@ -6,23 +6,53 @@ const STATUS_LABEL = {
+   failed: 'Failed',
+ };
+ 
++let jobsPollTimer = null;
++
+ function renderJobs(jobs) {
+   const body = document.getElementById('jobsBody');
+   if (!jobs.length) {
+-    body.innerHTML = '<tr><td colspan="5" class="empty">No videos generated yet.</td></tr>';
++    body.innerHTML = '<tr><td colspan="6" class="empty">No videos generated yet.</td></tr>';
+     return;
+   }
+   body.innerHTML = jobs
+-    .map(
+-      (j) => `<tr>
++    .map((j) => {
++      const resultCell =
++        j.status === 'failed'
++          ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>`
++          : j.status === 'completed'
++          ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button>`
++          : '—';
++      return `<tr>
+         <td>${escapeHtml(j.topic.slice(0, 60))}${j.topic.length > 60 ? '…' : ''}</td>
++        <td>${j.provider === 'vertex' ? 'Veo 3' : 'Kie.ai'}</td>
+         <td>${escapeHtml(j.drive_folder_name || '—')}</td>
+         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
+-        <td>${j.status === 'failed' ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>` : escapeHtml(j.drive_file_name || '—')}</td>
++        <td>${resultCell}</td>
+         <td style="font-size:12px; color:var(--text-muted);">${new Date(j.created_at).toLocaleString()}</td>
+-      </tr>`
+-    )
++      </tr>`;
++    })
+     .join('');
++
++  body.querySelectorAll('button[data-preview]').forEach((btn) => {
++    btn.addEventListener('click', () => showPreview(btn.dataset.preview, btn.dataset.name));
++  });
++
++  // Keep polling while anything is still in progress, so status/preview update live.
++  const stillActive = jobs.some((j) => j.status === 'pending' || j.status === 'generating' || j.status === 'downloading');
++  clearTimeout(jobsPollTimer);
++  if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
++}
++
++function showPreview(jobId, fileName) {
++  const card = document.getElementById('previewCard');
++  const player = document.getElementById('previewPlayer');
++  const downloadBtn = document.getElementById('downloadBtn');
++  player.src = `/api/videogen/jobs/${jobId}/file`;
++  downloadBtn.href = `/api/videogen/jobs/${jobId}/file?download=1`;
++  downloadBtn.download = fileName;
++  card.style.display = 'block';
++  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
++  player.play().catch(() => {});
+ }
+ 
+ async function loadJobs() {
+@@ -30,7 +60,7 @@ async function loadJobs() {
+     const { data } = await apiFetch('/videogen/jobs');
+     renderJobs(data);
+   } catch (err) {
+-    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(err.message)}</td></tr>`;
++    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
+   }
+ }
+ 
+@@ -46,6 +76,19 @@ async function loadFolders() {
+   }
+ }
+ 
++function updateCostHint() {
++  const provider = document.getElementById('providerSelect').value;
++  const hint = document.getElementById('costHint');
++  const duration = Number(document.getElementById('durationInput').value) || 0;
++  if (provider !== 'vertex') {
++    hint.textContent = 'Kie.ai generation does not use credits.';
++    return;
++  }
++  const cost = Math.max(1, Math.round(duration * 1.5));
++  const remaining = currentUser && currentUser.creditsRemaining != null ? currentUser.creditsRemaining : null;
++  hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
++}
++
+ (async function init() {
+   const user = await requireAuthOrRedirect();
+   if (!user) return;
+@@ -53,15 +96,19 @@ async function loadFolders() {
+ 
+   await loadFolders();
+   await loadJobs();
++  updateCostHint();
+ 
+   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
++  document.getElementById('providerSelect').addEventListener('change', updateCostHint);
++  document.getElementById('durationInput').addEventListener('input', updateCostHint);
+ 
+   document.getElementById('generateBtn').addEventListener('click', async () => {
+     const topic = document.getElementById('topicInput').value.trim();
+     const folderSelect = document.getElementById('folderSelect');
+     const driveFolderId = folderSelect.value;
+     const driveFolderName = folderSelect.selectedOptions[0]?.dataset.name;
+-    const duration = document.getElementById('durationSelect').value;
++    const provider = document.getElementById('providerSelect').value;
++    const duration = document.getElementById('durationInput').value;
+     const aspectRatio = document.getElementById('aspectSelect').value;
+     const msg = document.getElementById('generateMsg');
+ 
+@@ -79,11 +126,16 @@ async function loadFolders() {
+     try {
+       await apiFetch('/videogen/generate', {
+         method: 'POST',
+-        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio }),
++        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio, provider }),
+       });
+-      msg.textContent = 'Started! This usually takes a few minutes — check the history table below for progress.';
++      msg.textContent =
++        provider === 'vertex'
++          ? 'Started! Veo 3 generation can take several minutes — check the history table below for progress.'
++          : 'Started! This usually takes a few minutes — check the history table below for progress.';
+       document.getElementById('topicInput').value = '';
+       loadJobs();
++      // Refresh the credits badge shortly after a vertex generation starts (charge happens async).
++      if (provider === 'vertex') setTimeout(async () => { currentUser = (await apiFetch('/auth/me')).data; renderCreditsBadge(); }, 3000);
+     } catch (err) {
+       msg.textContent = `Error: ${err.message}`;
+     } finally {
+diff --git a/routes.videogen.js b/routes.videogen.js
+index 4cc170a..2e831d8 100644
+--- a/routes.videogen.js
++++ b/routes.videogen.js
+@@ -5,5 +5,6 @@ const { requireAuth } = require('./middleware.auth');
+ 
+ router.post('/generate', requireAuth, videoGenController.generate);
+ router.get('/jobs', requireAuth, videoGenController.listJobs);
++router.get('/jobs/:id/file', requireAuth, videoGenController.streamFile);
+ 
+ module.exports = router;
+diff --git a/services.googleDriveService.js b/services.googleDriveService.js
+index 6037972..d0f941b 100644
+--- a/services.googleDriveService.js
++++ b/services.googleDriveService.js
+@@ -117,6 +117,28 @@ async function uploadFile(userId, folderId, localFilePath, fileName, mimeType =
+   return res.data;
+ }
+ 
++// Streams a Drive file's bytes directly into an HTTP response (used for the
++// Video Generator's live preview/download - no temp file needed).
++async function streamFile(userId, fileId, res, { download = false, fileName = 'video.mp4' } = {}) {
++  const auth = await getValidGoogleClient(userId);
++  const drive = google.drive({ version: 'v3', auth });
++  const fileRes = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
++
++  res.setHeader('Content-Type', 'video/mp4');
++  res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`);
++  res.setHeader('Accept-Ranges', 'bytes');
++
++  return new Promise((resolve, reject) => {
++    fileRes.data
++      .on('end', resolve)
++      .on('error', (err) => {
++        logger.error(`Stream failed for file ${fileId}: ${err.message}`);
++        reject(err);
++      })
++      .pipe(res);
++  });
++}
++
+ function deleteTempFile(filePath) {
+   if (filePath && fs.existsSync(filePath)) {
+     fs.unlinkSync(filePath);
+@@ -124,4 +146,4 @@ function deleteTempFile(filePath) {
+   }
+ }
+ 
+-module.exports = { listFolders, listUnpublishedVideos, downloadFile, uploadFile, deleteTempFile, VIDEO_MIME_TYPES };
++module.exports = { listFolders, listUnpublishedVideos, downloadFile, uploadFile, streamFile, deleteTempFile, VIDEO_MIME_TYPES };
+diff --git a/services.vertexAiService.js b/services.vertexAiService.js
+index 170b2f9..ed1a60c 100644
+--- a/services.vertexAiService.js
++++ b/services.vertexAiService.js
+@@ -33,14 +33,14 @@ function baseUrl() {
+ 
+ // ---- Veo3 video generation ----
+ 
+-async function createVeoVideoTask({ prompt, duration, aspectRatio }) {
++async function createVeoVideoTask({ prompt, duration, aspectRatio, generateAudio = false }) {
+   const token = await getAccessToken();
+   const requestBody = {
+     instances: [{ prompt }],
+     parameters: {
+       aspectRatio: aspectRatio || '9:16',
+       durationSeconds: String(Math.min(Math.round(duration), 8)),
+-      generateAudio: false,
++      generateAudio,
+       resolution: '720p',
+     },
+   };

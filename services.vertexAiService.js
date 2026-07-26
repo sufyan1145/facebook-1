@@ -33,14 +33,14 @@ function baseUrl() {
 
 // ---- Veo3 video generation ----
 
-async function createVeoVideoTask({ prompt, duration, aspectRatio }) {
+async function createVeoVideoTask({ prompt, duration, aspectRatio, generateAudio = false }) {
   const token = await getAccessToken();
   const requestBody = {
     instances: [{ prompt }],
     parameters: {
       aspectRatio: aspectRatio || '9:16',
       durationSeconds: String(Math.min(Math.round(duration), 8)),
-      generateAudio: false,
+      generateAudio,
       resolution: '720p',
     },
   };

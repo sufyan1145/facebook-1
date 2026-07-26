@@ -26,13 +26,17 @@
           <label for="folderSelect">Save into Drive folder</label>
           <select id="folderSelect"></select>
         </div>
+        <div class="field">
+          <label for="providerSelect">Generation engine</label>
+          <select id="providerSelect">
+            <option value="vertex">Veo 3 (native voice/sound, your own credits)</option>
+            <option value="kie">Kie.ai (silent, no credits used)</option>
+          </select>
+        </div>
         <div class="field-row">
           <div class="field">
-            <label for="durationSelect">Duration</label>
-            <select id="durationSelect">
-              <option value="5">5 seconds</option>
-              <option value="10">10 seconds</option>
-            </select>
+            <label for="durationInput">Duration (seconds)</label>
+            <input id="durationInput" type="number" min="4" max="60" step="1" value="10" />
           </div>
           <div class="field">
             <label for="aspectSelect">Aspect ratio</label>
@@ -43,8 +47,17 @@
             </select>
           </div>
         </div>
-        <button class="btn" id="generateBtn" style="margin-top:12px;">Generate Video</button>
+        <div id="costHint" style="font-size:12px; color:var(--text-muted); margin:-6px 0 12px;"></div>
+        <button class="btn" id="generateBtn" style="margin-top:4px;">Generate Video</button>
         <div id="generateMsg" style="margin-top:8px; font-size:13px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="card mb-16" id="previewCard" style="display:none;">
+        <div class="section-title">Preview</div>
+        <video id="previewPlayer" controls playsinline style="width:100%; max-width:420px; border-radius:var(--radius-sm); background:#000; display:block;"></video>
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+          <a class="btn sm" id="downloadBtn" download>Download</a>
+        </div>
       </div>
 
       <div class="card">
@@ -54,8 +67,8 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Topic</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
-            <tbody id="jobsBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+            <thead><tr><th>Topic</th><th>Engine</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
+            <tbody id="jobsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>

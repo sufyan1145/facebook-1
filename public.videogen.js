@@ -6,23 +6,53 @@ const STATUS_LABEL = {
   failed: 'Failed',
 };
 
+let jobsPollTimer = null;
+
 function renderJobs(jobs) {
   const body = document.getElementById('jobsBody');
   if (!jobs.length) {
-    body.innerHTML = '<tr><td colspan="5" class="empty">No videos generated yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="empty">No videos generated yet.</td></tr>';
     return;
   }
   body.innerHTML = jobs
-    .map(
-      (j) => `<tr>
+    .map((j) => {
+      const resultCell =
+        j.status === 'failed'
+          ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>`
+          : j.status === 'completed'
+          ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button>`
+          : '—';
+      return `<tr>
         <td>${escapeHtml(j.topic.slice(0, 60))}${j.topic.length > 60 ? '…' : ''}</td>
+        <td>${j.provider === 'vertex' ? 'Veo 3' : 'Kie.ai'}</td>
         <td>${escapeHtml(j.drive_folder_name || '—')}</td>
         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
-        <td>${j.status === 'failed' ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>` : escapeHtml(j.drive_file_name || '—')}</td>
+        <td>${resultCell}</td>
         <td style="font-size:12px; color:var(--text-muted);">${new Date(j.created_at).toLocaleString()}</td>
-      </tr>`
-    )
+      </tr>`;
+    })
     .join('');
+
+  body.querySelectorAll('button[data-preview]').forEach((btn) => {
+    btn.addEventListener('click', () => showPreview(btn.dataset.preview, btn.dataset.name));
+  });
+
+  // Keep polling while anything is still in progress, so status/preview update live.
+  const stillActive = jobs.some((j) => j.status === 'pending' || j.status === 'generating' || j.status === 'downloading');
+  clearTimeout(jobsPollTimer);
+  if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
+}
+
+function showPreview(jobId, fileName) {
+  const card = document.getElementById('previewCard');
+  const player = document.getElementById('previewPlayer');
+  const downloadBtn = document.getElementById('downloadBtn');
+  player.src = `/api/videogen/jobs/${jobId}/file`;
+  downloadBtn.href = `/api/videogen/jobs/${jobId}/file?download=1`;
+  downloadBtn.download = fileName;
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  player.play().catch(() => {});
 }
 
 async function loadJobs() {
@@ -30,7 +60,7 @@ async function loadJobs() {
     const { data } = await apiFetch('/videogen/jobs');
     renderJobs(data);
   } catch (err) {
-    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -46,6 +76,19 @@ async function loadFolders() {
   }
 }
 
+function updateCostHint() {
+  const provider = document.getElementById('providerSelect').value;
+  const hint = document.getElementById('costHint');
+  const duration = Number(document.getElementById('durationInput').value) || 0;
+  if (provider !== 'vertex') {
+    hint.textContent = 'Kie.ai generation does not use credits.';
+    return;
+  }
+  const cost = Math.max(1, Math.round(duration * 1.5));
+  const remaining = currentUser && currentUser.creditsRemaining != null ? currentUser.creditsRemaining : null;
+  hint.textContent = `This will cost ${cost} credits (1.5/sec)${remaining != null ? ` — you have ${remaining.toLocaleString()} remaining` : ''}.`;
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
@@ -53,15 +96,19 @@ async function loadFolders() {
 
   await loadFolders();
   await loadJobs();
+  updateCostHint();
 
   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
+  document.getElementById('providerSelect').addEventListener('change', updateCostHint);
+  document.getElementById('durationInput').addEventListener('input', updateCostHint);
 
   document.getElementById('generateBtn').addEventListener('click', async () => {
     const topic = document.getElementById('topicInput').value.trim();
     const folderSelect = document.getElementById('folderSelect');
     const driveFolderId = folderSelect.value;
     const driveFolderName = folderSelect.selectedOptions[0]?.dataset.name;
-    const duration = document.getElementById('durationSelect').value;
+    const provider = document.getElementById('providerSelect').value;
+    const duration = document.getElementById('durationInput').value;
     const aspectRatio = document.getElementById('aspectSelect').value;
     const msg = document.getElementById('generateMsg');
 
@@ -79,11 +126,16 @@ async function loadFolders() {
     try {
       await apiFetch('/videogen/generate', {
         method: 'POST',
-        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio }),
+        body: JSON.stringify({ topic, driveFolderId, driveFolderName, duration, aspectRatio, provider }),
       });
-      msg.textContent = 'Started! This usually takes a few minutes — check the history table below for progress.';
+      msg.textContent =
+        provider === 'vertex'
+          ? 'Started! Veo 3 generation can take several minutes — check the history table below for progress.'
+          : 'Started! This usually takes a few minutes — check the history table below for progress.';
       document.getElementById('topicInput').value = '';
       loadJobs();
+      // Refresh the credits badge shortly after a vertex generation starts (charge happens async).
+      if (provider === 'vertex') setTimeout(async () => { currentUser = (await apiFetch('/auth/me')).data; renderCreditsBadge(); }, 3000);
     } catch (err) {
       msg.textContent = `Error: ${err.message}`;
     } finally {

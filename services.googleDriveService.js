@@ -117,6 +117,28 @@ async function uploadFile(userId, folderId, localFilePath, fileName, mimeType = 
   return res.data;
 }
 
+// Streams a Drive file's bytes directly into an HTTP response (used for the
+// Video Generator's live preview/download - no temp file needed).
+async function streamFile(userId, fileId, res, { download = false, fileName = 'video.mp4' } = {}) {
+  const auth = await getValidGoogleClient(userId);
+  const drive = google.drive({ version: 'v3', auth });
+  const fileRes = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`);
+  res.setHeader('Accept-Ranges', 'bytes');
+
+  return new Promise((resolve, reject) => {
+    fileRes.data
+      .on('end', resolve)
+      .on('error', (err) => {
+        logger.error(`Stream failed for file ${fileId}: ${err.message}`);
+        reject(err);
+      })
+      .pipe(res);
+  });
+}
+
 function deleteTempFile(filePath) {
   if (filePath && fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
@@ -124,4 +146,4 @@ function deleteTempFile(filePath) {
   }
 }
 
-module.exports = { listFolders, listUnpublishedVideos, downloadFile, uploadFile, deleteTempFile, VIDEO_MIME_TYPES };
+module.exports = { listFolders, listUnpublishedVideos, downloadFile, uploadFile, streamFile, deleteTempFile, VIDEO_MIME_TYPES };

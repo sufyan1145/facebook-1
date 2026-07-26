@@ -2,6 +2,7 @@ let selectedDays = new Set();
 
 const RUN_STATUS_LABEL = {
   pending: 'Pending',
+  checking_credits: 'Checking credits…',
   writing_script: 'Writing script…',
   generating_voiceover: 'Recording voiceover…',
   generating_clips: 'Generating video…',

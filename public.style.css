@@ -84,12 +84,12 @@ button, input, select, textarea { font-family: inherit; max-width: 100%; }
 .nav-icon { width: 16px; text-align: center; }
 
 .topbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 16px 28px; border-bottom: 1px solid var(--border);
   background: rgba(11,15,20,0.85); backdrop-filter: blur(6px);
   position: sticky; top: 0; z-index: 5;
 }
-.topbar h1 { font-size: 18px; }
+.topbar h1 { font-size: 18px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pills { display: flex; gap: 8px; }
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
@@ -259,4 +259,12 @@ tr:last-child td { border-bottom: none; }
   .auth-card { padding: 24px 20px; }
   table { font-size: 12px; }
   th, td { padding: 8px; }
+
+  /* Content Pipeline: keep the title from crowding out the credits pill, and
+     let rows that hold a time input + a button wrap instead of overflowing. */
+  #creditsBadge { font-size: 10px; padding: 4px 7px; white-space: nowrap; }
+  .topbar h1 { font-size: 15px; }
+  #multipleTimesList > div { flex-wrap: wrap; }
+  .days-picker .day-chip { padding: 5px 8px; font-size: 11px; }
+  #previewPlayer { max-width: 100%; }
 }

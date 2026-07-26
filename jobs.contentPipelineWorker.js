@@ -24,6 +24,7 @@ const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const ffmpeg = require('./utils.ffmpeg');
 const { notifyUploadEvent } = require('./services.notificationService');
+const credits = require('./utils.credits');
 
 const WEEKDAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
@@ -396,8 +397,14 @@ async function runPipeline(schedule) {
   const run = await ContentScheduleRun.create(schedule.user_id, schedule.id);
   const tempFiles = [];
   let stage = 'init';
+  let chargedSeconds = 0;
 
   try {
+    stage = 'checking_credits';
+    await ContentScheduleRun.setStatus(run.id, 'checking_credits');
+    await credits.charge(schedule.user_id, schedule.target_duration_seconds, 'pipeline_video', run.id);
+    chargedSeconds = schedule.target_duration_seconds;
+
     stage = 'writing_script';
     await ContentScheduleRun.setStatus(run.id, 'writing_script');
     let script;
@@ -452,6 +459,11 @@ async function runPipeline(schedule) {
 
     const actualVoiceoverSeconds = sceneDurations.reduce((sum, d) => sum + d, 0);
     logger.info(`[content-pipeline] voiceover duration: ${actualVoiceoverSeconds.toFixed(1)}s (estimated ${schedule.target_duration_seconds}s) across ${script.scenes.length} scenes: [${sceneDurations.map((d) => d.toFixed(1)).join(', ')}]s`);
+
+    // The estimate charged upfront rarely matches the real spoken length exactly -
+    // true up the charge (extra charge or partial refund) now that we know it.
+    await credits.reconcile(schedule.user_id, chargedSeconds, actualVoiceoverSeconds, 'pipeline_video', run.id);
+    chargedSeconds = actualVoiceoverSeconds;
 
     stage = 'generating_clips';
     await ContentScheduleRun.setStatus(run.id, 'generating_clips');
@@ -559,6 +571,13 @@ async function runPipeline(schedule) {
     }
   } catch (err) {
     const message = `[${stage}] ${err.message}`;
+    if (chargedSeconds > 0) {
+      try {
+        await credits.refund(schedule.user_id, chargedSeconds, run.id);
+      } catch (refundErr) {
+        logger.error(`[content-pipeline] credit refund failed for schedule ${schedule.id}: ${refundErr.message}`);
+      }
+    }
     await ContentScheduleRun.markFailed(run.id, message);
     await ContentSchedule.updateLastRun(schedule.id); // don't retry every minute - wait for the next scheduled occurrence
     await Log.record(schedule.user_id, 'Content Pipeline Failed', { keyword: schedule.keyword, error: message }, 'error');

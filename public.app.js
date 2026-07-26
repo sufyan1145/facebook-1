@@ -60,6 +60,26 @@ function renderNav(active) {
         `<a href="${i.href}" class="${i.key === active ? 'active' : ''}"><span class="nav-icon">${i.icon}</span>${i.label}</a>`
     )
     .join('');
+
+  renderCreditsBadge();
+}
+
+function renderCreditsBadge() {
+  const topbar = document.querySelector('.topbar');
+  if (!topbar || !currentUser || currentUser.creditsRemaining == null) return;
+  let badge = document.getElementById('creditsBadge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'creditsBadge';
+    badge.className = 'pill';
+    topbar.appendChild(badge);
+  }
+  const remaining = currentUser.creditsRemaining;
+  const total = currentUser.monthlyCredits || 45000;
+  const low = remaining < total * 0.1;
+  badge.className = `pill ${low ? 'warn' : 'ok'}`;
+  badge.title = currentUser.creditsResetAt ? `Resets ${new Date(currentUser.creditsResetAt).toLocaleDateString()}` : '';
+  badge.innerHTML = `<span class="dot"></span>${remaining.toLocaleString()} credits`;
 }
 
 async function logout() {

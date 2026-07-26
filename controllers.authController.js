@@ -120,6 +120,8 @@ async function resetPassword(req, res, next) {
 async function me(req, res, next) {
   try {
     const user = await User.findById(req.user.id);
+    const credits = require('./utils.credits');
+    const balance = await credits.getBalance(req.user.id);
     res.json({
       success: true,
       data: {
@@ -131,6 +133,9 @@ async function me(req, res, next) {
         isAdmin: !!user.is_admin,
         planType: user.plan_type,
         planExpiresAt: user.plan_expires_at,
+        creditsRemaining: balance.creditsRemaining,
+        creditsResetAt: balance.creditsResetAt,
+        monthlyCredits: balance.monthlyCredits,
       },
     });
   } catch (err) {
