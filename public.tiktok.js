@@ -13,7 +13,7 @@ let currentPreviewJobId = null;
 function renderJobs(jobs) {
   const body = document.getElementById('jobsBody');
   if (!jobs.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">No downloads yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="empty">No downloads yet.</td></tr>';
     return;
   }
   body.innerHTML = jobs
@@ -31,6 +31,7 @@ function renderJobs(jobs) {
         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
         <td>${resultCell}</td>
         <td style="font-size:12px; color:var(--text-muted);">${new Date(j.created_at).toLocaleString()}</td>
+        <td><button class="btn xs danger" data-delete="${j.id}">Delete</button></td>
       </tr>`;
     })
     .join('');
@@ -39,6 +40,18 @@ function renderJobs(jobs) {
     btn.addEventListener('click', () =>
       showPreview(btn.dataset.preview, btn.dataset.name, btn.dataset.title, btn.dataset.hashtags)
     );
+  });
+
+  body.querySelectorAll('button[data-delete]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this entry from the download history? (The Drive file itself, if saved, is not deleted.)')) return;
+      try {
+        await apiFetch(`/tiktok/jobs/${btn.dataset.delete}`, { method: 'DELETE' });
+        loadJobs();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   });
 
   if (currentPreviewJobId && jobs.some((j) => j.id === currentPreviewJobId)) {
@@ -73,7 +86,7 @@ async function loadJobs() {
     const { data } = await apiFetch('/tiktok/jobs');
     renderJobs(data);
   } catch (err) {
-    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="7" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -111,6 +124,17 @@ function updateUrlModeVisibility() {
   updateUrlModeVisibility();
 
   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
+  document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
+    if (!confirm('Clear all download history? (Drive files that were saved are not deleted, only the history list.)')) return;
+    try {
+      await apiFetch('/tiktok/jobs', { method: 'DELETE' });
+      currentPreviewJobId = null;
+      document.getElementById('previewCard').style.display = 'none';
+      loadJobs();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('multiMode').addEventListener('change', updateUrlModeVisibility);
 

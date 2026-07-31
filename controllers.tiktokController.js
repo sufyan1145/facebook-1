@@ -73,4 +73,32 @@ async function streamFile(req, res, next) {
   }
 }
 
-module.exports = { download, listJobs, streamFile };
+async function deleteJob(req, res, next) {
+  try {
+    const job = await TikTokJob.findById(req.user.id, req.params.id);
+    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+
+    if (job.local_file_path) {
+      require('fs').unlink(job.local_file_path, () => {});
+    }
+    await TikTokJob.deleteById(req.user.id, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function clearHistory(req, res, next) {
+  try {
+    const jobs = await TikTokJob.listByUser(req.user.id, 1000);
+    jobs.forEach((j) => {
+      if (j.local_file_path) require('fs').unlink(j.local_file_path, () => {});
+    });
+    await TikTokJob.deleteAllForUser(req.user.id);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { download, listJobs, streamFile, deleteJob, clearHistory };

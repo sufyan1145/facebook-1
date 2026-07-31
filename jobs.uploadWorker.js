@@ -9,14 +9,32 @@ const Log = require('./models.Log');
 const QueueJob = require('./models.QueueJob');
 const { notifyUploadEvent } = require('./services.notificationService');
 const Page = require('./models.Page');
+const TikTokJob = require('./models.TikTokJob');
 
 const worker = new Worker(
   'video-upload',
   async (job) => {
     const {
-      userId, scheduleId, pageDbId, folderGoogleId, file, caption, hashtags, privacy,
+      userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
       publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
     } = job.data;
+
+    // If this exact file was downloaded via the TikTok Downloader, use its
+    // AI-regenerated title/hashtags as the caption instead of the schedule's
+    // generic one - applies to both the Facebook post and the YouTube title.
+    let caption = scheduleCaption;
+    let hashtags = scheduleHashtags;
+    let tiktokJob = null;
+    try {
+      tiktokJob = await TikTokJob.findByDriveFileId(file.id);
+      if (tiktokJob && tiktokJob.generated_title) {
+        caption = tiktokJob.generated_title;
+        hashtags = tiktokJob.generated_hashtags || scheduleHashtags;
+        logger.info(`Using TikTok-regenerated caption for ${file.name}`);
+      }
+    } catch (lookupErr) {
+      logger.error(`TikTok caption lookup failed for ${file.name}: ${lookupErr.message}`);
+    }
 
     await QueueJob.upsertFromBullJob(job, 'active', userId, scheduleId);
 
@@ -61,7 +79,7 @@ const worker = new Worker(
         try {
           const tags = (hashtags || '').split(/\s+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean);
           const youtubeVideoId = await youtubeService.uploadVideo(userId, youtubeTokenId, tempPath, {
-            title: file.name.replace(/\.[^.]+$/, ''),
+            title: (tiktokJob && tiktokJob.generated_title) || file.name.replace(/\.[^.]+$/, ''),
             description: caption || file.name,
             tags,
             videoType: youtubeVideoType,

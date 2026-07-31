@@ -51,6 +51,26 @@ const TikTokJob = {
     const res = await query('SELECT * FROM tiktok_download_jobs WHERE id = $1 AND user_id = $2', [id, userId]);
     return res.rows[0];
   },
+
+  // Used by the Facebook/YouTube upload worker to apply this video's
+  // AI-regenerated title/hashtags as its caption instead of the schedule's
+  // generic one, when the file being posted is one we downloaded here.
+  async findByDriveFileId(driveFileId) {
+    const res = await query(
+      `SELECT * FROM tiktok_download_jobs WHERE drive_file_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1`,
+      [driveFileId]
+    );
+    return res.rows[0];
+  },
+
+  async deleteById(userId, id) {
+    const res = await query('DELETE FROM tiktok_download_jobs WHERE id = $1 AND user_id = $2 RETURNING *', [id, userId]);
+    return res.rows[0];
+  },
+
+  async deleteAllForUser(userId) {
+    await query('DELETE FROM tiktok_download_jobs WHERE user_id = $1', [userId]);
+  },
 };
 
 module.exports = TikTokJob;

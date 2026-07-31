@@ -1,0 +1,217 @@
+diff --git a/controllers.tiktokController.js b/controllers.tiktokController.js
+index f79edaa..3eebc2e 100644
+--- a/controllers.tiktokController.js
++++ b/controllers.tiktokController.js
+@@ -73,4 +73,32 @@ async function streamFile(req, res, next) {
+   }
+ }
+ 
+-module.exports = { download, listJobs, streamFile };
++async function deleteJob(req, res, next) {
++  try {
++    const job = await TikTokJob.findById(req.user.id, req.params.id);
++    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
++
++    if (job.local_file_path) {
++      require('fs').unlink(job.local_file_path, () => {});
++    }
++    await TikTokJob.deleteById(req.user.id, req.params.id);
++    res.json({ success: true });
++  } catch (err) {
++    next(err);
++  }
++}
++
++async function clearHistory(req, res, next) {
++  try {
++    const jobs = await TikTokJob.listByUser(req.user.id, 1000);
++    jobs.forEach((j) => {
++      if (j.local_file_path) require('fs').unlink(j.local_file_path, () => {});
++    });
++    await TikTokJob.deleteAllForUser(req.user.id);
++    res.json({ success: true });
++  } catch (err) {
++    next(err);
++  }
++}
++
++module.exports = { download, listJobs, streamFile, deleteJob, clearHistory };
+diff --git a/jobs.uploadWorker.js b/jobs.uploadWorker.js
+index 0155212..4ed2065 100644
+--- a/jobs.uploadWorker.js
++++ b/jobs.uploadWorker.js
+@@ -9,15 +9,33 @@ const Log = require('./models.Log');
+ const QueueJob = require('./models.QueueJob');
+ const { notifyUploadEvent } = require('./services.notificationService');
+ const Page = require('./models.Page');
++const TikTokJob = require('./models.TikTokJob');
+ 
+ const worker = new Worker(
+   'video-upload',
+   async (job) => {
+     const {
+-      userId, scheduleId, pageDbId, folderGoogleId, file, caption, hashtags, privacy,
++      userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
+       publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
+     } = job.data;
+ 
++    // If this exact file was downloaded via the TikTok Downloader, use its
++    // AI-regenerated title/hashtags as the caption instead of the schedule's
++    // generic one - applies to both the Facebook post and the YouTube title.
++    let caption = scheduleCaption;
++    let hashtags = scheduleHashtags;
++    let tiktokJob = null;
++    try {
++      tiktokJob = await TikTokJob.findByDriveFileId(file.id);
++      if (tiktokJob && tiktokJob.generated_title) {
++        caption = tiktokJob.generated_title;
++        hashtags = tiktokJob.generated_hashtags || scheduleHashtags;
++        logger.info(`Using TikTok-regenerated caption for ${file.name}`);
++      }
++    } catch (lookupErr) {
++      logger.error(`TikTok caption lookup failed for ${file.name}: ${lookupErr.message}`);
++    }
++
+     await QueueJob.upsertFromBullJob(job, 'active', userId, scheduleId);
+ 
+     const historyRow = await UploadHistory.create(userId, {
+@@ -61,7 +79,7 @@ const worker = new Worker(
+         try {
+           const tags = (hashtags || '').split(/\s+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean);
+           const youtubeVideoId = await youtubeService.uploadVideo(userId, youtubeTokenId, tempPath, {
+-            title: file.name.replace(/\.[^.]+$/, ''),
++            title: (tiktokJob && tiktokJob.generated_title) || file.name.replace(/\.[^.]+$/, ''),
+             description: caption || file.name,
+             tags,
+             videoType: youtubeVideoType,
+diff --git a/models.TikTokJob.js b/models.TikTokJob.js
+index b5c83b8..3381017 100644
+--- a/models.TikTokJob.js
++++ b/models.TikTokJob.js
+@@ -51,6 +51,26 @@ const TikTokJob = {
+     const res = await query('SELECT * FROM tiktok_download_jobs WHERE id = $1 AND user_id = $2', [id, userId]);
+     return res.rows[0];
+   },
++
++  // Used by the Facebook/YouTube upload worker to apply this video's
++  // AI-regenerated title/hashtags as its caption instead of the schedule's
++  // generic one, when the file being posted is one we downloaded here.
++  async findByDriveFileId(driveFileId) {
++    const res = await query(
++      `SELECT * FROM tiktok_download_jobs WHERE drive_file_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1`,
++      [driveFileId]
++    );
++    return res.rows[0];
++  },
++
++  async deleteById(userId, id) {
++    const res = await query('DELETE FROM tiktok_download_jobs WHERE id = $1 AND user_id = $2 RETURNING *', [id, userId]);
++    return res.rows[0];
++  },
++
++  async deleteAllForUser(userId) {
++    await query('DELETE FROM tiktok_download_jobs WHERE user_id = $1', [userId]);
++  },
+ };
+ 
+ module.exports = TikTokJob;
+diff --git a/public.tiktok.html b/public.tiktok.html
+index 7e99e65..e009725 100644
+--- a/public.tiktok.html
++++ b/public.tiktok.html
+@@ -61,11 +61,14 @@ https://www.tiktok.com/@user/video/333"></textarea>
+       <div class="card">
+         <div class="flex-between mb-16">
+           <div class="section-title" style="margin-bottom:0;">Download history</div>
+-          <button class="btn sm" id="refreshJobsBtn">Refresh</button>
++          <div style="display:flex; gap:8px;">
++            <button class="btn sm" id="refreshJobsBtn">Refresh</button>
++            <button class="btn sm danger" id="clearHistoryBtn">Clear History</button>
++          </div>
+         </div>
+         <div class="table-wrap">
+           <table>
+-            <thead><tr><th>Regenerated Title</th><th>Hashtags</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
++            <thead><tr><th>Regenerated Title</th><th>Hashtags</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th><th>Actions</th></tr></thead>
+             <tbody id="jobsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+           </table>
+         </div>
+diff --git a/public.tiktok.js b/public.tiktok.js
+index b5c3b34..7ab9e9b 100644
+--- a/public.tiktok.js
++++ b/public.tiktok.js
+@@ -13,7 +13,7 @@ let currentPreviewJobId = null;
+ function renderJobs(jobs) {
+   const body = document.getElementById('jobsBody');
+   if (!jobs.length) {
+-    body.innerHTML = '<tr><td colspan="6" class="empty">No downloads yet.</td></tr>';
++    body.innerHTML = '<tr><td colspan="7" class="empty">No downloads yet.</td></tr>';
+     return;
+   }
+   body.innerHTML = jobs
+@@ -31,6 +31,7 @@ function renderJobs(jobs) {
+         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
+         <td>${resultCell}</td>
+         <td style="font-size:12px; color:var(--text-muted);">${new Date(j.created_at).toLocaleString()}</td>
++        <td><button class="btn xs danger" data-delete="${j.id}">Delete</button></td>
+       </tr>`;
+     })
+     .join('');
+@@ -41,6 +42,18 @@ function renderJobs(jobs) {
+     );
+   });
+ 
++  body.querySelectorAll('button[data-delete]').forEach((btn) => {
++    btn.addEventListener('click', async () => {
++      if (!confirm('Delete this entry from the download history? (The Drive file itself, if saved, is not deleted.)')) return;
++      try {
++        await apiFetch(`/tiktok/jobs/${btn.dataset.delete}`, { method: 'DELETE' });
++        loadJobs();
++      } catch (err) {
++        alert(err.message);
++      }
++    });
++  });
++
+   if (currentPreviewJobId && jobs.some((j) => j.id === currentPreviewJobId)) {
+     document.getElementById('previewCard').style.display = 'block';
+   }
+@@ -73,7 +86,7 @@ async function loadJobs() {
+     const { data } = await apiFetch('/tiktok/jobs');
+     renderJobs(data);
+   } catch (err) {
+-    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
++    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="7" class="empty">${escapeHtml(err.message)}</td></tr>`;
+   }
+ }
+ 
+@@ -111,6 +124,17 @@ function updateUrlModeVisibility() {
+   updateUrlModeVisibility();
+ 
+   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
++  document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
++    if (!confirm('Clear all download history? (Drive files that were saved are not deleted, only the history list.)')) return;
++    try {
++      await apiFetch('/tiktok/jobs', { method: 'DELETE' });
++      currentPreviewJobId = null;
++      document.getElementById('previewCard').style.display = 'none';
++      loadJobs();
++    } catch (err) {
++      alert(err.message);
++    }
++  });
+   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
+   document.getElementById('multiMode').addEventListener('change', updateUrlModeVisibility);
+ 
+diff --git a/routes.tiktok.js b/routes.tiktok.js
+index 9fe363a..a06ac0c 100644
+--- a/routes.tiktok.js
++++ b/routes.tiktok.js
+@@ -6,5 +6,7 @@ const { requireAuth } = require('./middleware.auth');
+ router.post('/download', requireAuth, tiktokController.download);
+ router.get('/jobs', requireAuth, tiktokController.listJobs);
+ router.get('/jobs/:id/file', requireAuth, tiktokController.streamFile);
++router.delete('/jobs/:id', requireAuth, tiktokController.deleteJob);
++router.delete('/jobs', requireAuth, tiktokController.clearHistory);
+ 
+ module.exports = router;
