@@ -15,7 +15,7 @@ const driveService = require('./services.googleDriveService');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
-async function processTikTokJob(job) {
+async function processTikTokJob(job, { regenerateMetadata = true } = {}) {
   const tempFiles = [];
   try {
     await TikTokJob.setStatus(job.id, 'fetching_info');
@@ -27,18 +27,32 @@ async function processTikTokJob(job) {
     await tiktokService.downloadVideo(job.source_url, rawPath);
     tempFiles.push(rawPath);
 
-    await TikTokJob.setStatus(job.id, 'regenerating_metadata');
-    const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
+    // Fall back to the ORIGINAL title/caption whenever AI regeneration is
+    // turned off, or if it's on but Gemini fails (e.g. quota/credits ran
+    // out) - the download still completes either way instead of failing.
+    let finalTitle = meta.title || 'TikTok video';
+    let finalHashtags = '';
+    if (regenerateMetadata) {
+      await TikTokJob.setStatus(job.id, 'regenerating_metadata');
+      try {
+        const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
+        finalTitle = regenerated.title;
+        finalHashtags = regenerated.hashtags;
+      } catch (aiErr) {
+        logger.error(`[tiktok] AI title/hashtag regeneration failed for job ${job.id}, falling back to original caption: ${aiErr.message}`);
+        await Log.record(job.user_id, 'TikTok AI Regeneration Failed - Used Original Caption', { sourceUrl: job.source_url, error: aiErr.message }, 'error');
+      }
+    }
 
-    const safeFileName = `${regenerated.title.replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'tiktok_video'}.mp4`;
+    const safeFileName = `${finalTitle.replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'tiktok_video'}.mp4`;
 
     if (job.drive_folder_id) {
       const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, rawPath, safeFileName);
       await TikTokJob.markCompleted(job.id, {
         driveFileId: uploaded.id,
         driveFileName: uploaded.name,
-        generatedTitle: regenerated.title,
-        generatedHashtags: regenerated.hashtags,
+        generatedTitle: finalTitle,
+        generatedHashtags: finalHashtags,
       });
       await Log.record(job.user_id, 'TikTok Video Downloaded', { sourceUrl: job.source_url, driveFileName: uploaded.name });
       await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'TikTok Downloader' });
@@ -48,8 +62,8 @@ async function processTikTokJob(job) {
       await TikTokJob.markCompleted(job.id, {
         localFilePath: localPath,
         driveFileName: safeFileName,
-        generatedTitle: regenerated.title,
-        generatedHashtags: regenerated.hashtags,
+        generatedTitle: finalTitle,
+        generatedHashtags: finalHashtags,
       });
       await Log.record(job.user_id, 'TikTok Video Downloaded', { sourceUrl: job.source_url, driveFileName: safeFileName, note: 'Not saved to Drive' });
       await notifyUploadEvent(job.user_id, { type: 'success', videoName: safeFileName, pageName: 'TikTok Downloader' });

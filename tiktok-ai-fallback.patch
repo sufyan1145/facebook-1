@@ -1,0 +1,120 @@
+diff --git a/controllers.tiktokController.js b/controllers.tiktokController.js
+index 8b2af70..6fc7441 100644
+--- a/controllers.tiktokController.js
++++ b/controllers.tiktokController.js
+@@ -6,7 +6,7 @@ const { processTikTokJob } = require('./jobs.tiktokDownloadWorker');
+ 
+ async function download(req, res, next) {
+   try {
+-    const { url, driveFolderId, driveFolderName, saveToDrive } = req.body;
++    const { url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata } = req.body;
+     if (!url) return res.status(400).json({ success: false, message: 'A TikTok video URL is required' });
+     if (!tiktokService.isTikTokUrl(url)) {
+       return res.status(400).json({ success: false, message: 'This does not look like a TikTok video URL' });
+@@ -23,7 +23,7 @@ async function download(req, res, next) {
+ 
+     // Long-running (download + AI rewrite) - run in the background and
+     // respond immediately; the frontend polls /tiktok/jobs for progress.
+-    processTikTokJob(job).catch((err) => {
++    processTikTokJob(job, { regenerateMetadata: regenerateMetadata !== false }).catch((err) => {
+       require('./utils.logger').error(`[tiktok] unhandled error for job ${job.id}: ${err.message}`);
+     });
+ 
+diff --git a/jobs.tiktokDownloadWorker.js b/jobs.tiktokDownloadWorker.js
+index 5340bb7..7cf1afa 100644
+--- a/jobs.tiktokDownloadWorker.js
++++ b/jobs.tiktokDownloadWorker.js
+@@ -15,7 +15,7 @@ const driveService = require('./services.googleDriveService');
+ const Log = require('./models.Log');
+ const { notifyUploadEvent } = require('./services.notificationService');
+ 
+-async function processTikTokJob(job) {
++async function processTikTokJob(job, { regenerateMetadata = true } = {}) {
+   const tempFiles = [];
+   try {
+     await TikTokJob.setStatus(job.id, 'fetching_info');
+@@ -27,18 +27,32 @@ async function processTikTokJob(job) {
+     await tiktokService.downloadVideo(job.source_url, rawPath);
+     tempFiles.push(rawPath);
+ 
+-    await TikTokJob.setStatus(job.id, 'regenerating_metadata');
+-    const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
++    // Fall back to the ORIGINAL title/caption whenever AI regeneration is
++    // turned off, or if it's on but Gemini fails (e.g. quota/credits ran
++    // out) - the download still completes either way instead of failing.
++    let finalTitle = meta.title || 'TikTok video';
++    let finalHashtags = '';
++    if (regenerateMetadata) {
++      await TikTokJob.setStatus(job.id, 'regenerating_metadata');
++      try {
++        const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
++        finalTitle = regenerated.title;
++        finalHashtags = regenerated.hashtags;
++      } catch (aiErr) {
++        logger.error(`[tiktok] AI title/hashtag regeneration failed for job ${job.id}, falling back to original caption: ${aiErr.message}`);
++        await Log.record(job.user_id, 'TikTok AI Regeneration Failed - Used Original Caption', { sourceUrl: job.source_url, error: aiErr.message }, 'error');
++      }
++    }
+ 
+-    const safeFileName = `${regenerated.title.replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'tiktok_video'}.mp4`;
++    const safeFileName = `${finalTitle.replace(/[^a-z0-9]+/gi, '_').slice(0, 60) || 'tiktok_video'}.mp4`;
+ 
+     if (job.drive_folder_id) {
+       const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, rawPath, safeFileName);
+       await TikTokJob.markCompleted(job.id, {
+         driveFileId: uploaded.id,
+         driveFileName: uploaded.name,
+-        generatedTitle: regenerated.title,
+-        generatedHashtags: regenerated.hashtags,
++        generatedTitle: finalTitle,
++        generatedHashtags: finalHashtags,
+       });
+       await Log.record(job.user_id, 'TikTok Video Downloaded', { sourceUrl: job.source_url, driveFileName: uploaded.name });
+       await notifyUploadEvent(job.user_id, { type: 'success', videoName: uploaded.name, pageName: 'TikTok Downloader' });
+@@ -48,8 +62,8 @@ async function processTikTokJob(job) {
+       await TikTokJob.markCompleted(job.id, {
+         localFilePath: localPath,
+         driveFileName: safeFileName,
+-        generatedTitle: regenerated.title,
+-        generatedHashtags: regenerated.hashtags,
++        generatedTitle: finalTitle,
++        generatedHashtags: finalHashtags,
+       });
+       await Log.record(job.user_id, 'TikTok Video Downloaded', { sourceUrl: job.source_url, driveFileName: safeFileName, note: 'Not saved to Drive' });
+       await notifyUploadEvent(job.user_id, { type: 'success', videoName: safeFileName, pageName: 'TikTok Downloader' });
+diff --git a/public.tiktok.html b/public.tiktok.html
+index 1daa3e9..f4d6194 100644
+--- a/public.tiktok.html
++++ b/public.tiktok.html
+@@ -23,6 +23,10 @@
+           <label for="urlInput">TikTok video URL</label>
+           <input id="urlInput" type="url" placeholder="https://www.tiktok.com/@user/video/1234567890" />
+         </div>
++        <label class="checkbox-row" style="margin-bottom:10px;">
++          <input id="regenerateMetadata" type="checkbox" checked /> Regenerate title & hashtags with AI
++        </label>
++        <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">If unchecked (or if AI is unavailable), the original TikTok caption is used instead — the download still completes either way.</div>
+         <label class="checkbox-row" style="margin-bottom:10px;">
+           <input id="saveToDrive" type="checkbox" checked /> Save to Google Drive
+         </label>
+diff --git a/public.tiktok.js b/public.tiktok.js
+index f6b6574..dbdafc8 100644
+--- a/public.tiktok.js
++++ b/public.tiktok.js
+@@ -108,6 +108,7 @@ function updateFolderFieldVisibility() {
+ 
+   document.getElementById('downloadBtn').addEventListener('click', async () => {
+     const url = document.getElementById('urlInput').value.trim();
++    const regenerateMetadata = document.getElementById('regenerateMetadata').checked;
+     const saveToDrive = document.getElementById('saveToDrive').checked;
+     const folderSelect = document.getElementById('folderSelect');
+     const driveFolderId = saveToDrive ? folderSelect.value : null;
+@@ -128,7 +129,7 @@ function updateFolderFieldVisibility() {
+     try {
+       await apiFetch('/tiktok/download', {
+         method: 'POST',
+-        body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive }),
++        body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata }),
+       });
+       msg.textContent = 'Started! Check the history table below for progress.';
+       document.getElementById('urlInput').value = '';

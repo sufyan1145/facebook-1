@@ -6,7 +6,7 @@ const { processTikTokJob } = require('./jobs.tiktokDownloadWorker');
 
 async function download(req, res, next) {
   try {
-    const { url, driveFolderId, driveFolderName, saveToDrive } = req.body;
+    const { url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata } = req.body;
     if (!url) return res.status(400).json({ success: false, message: 'A TikTok video URL is required' });
     if (!tiktokService.isTikTokUrl(url)) {
       return res.status(400).json({ success: false, message: 'This does not look like a TikTok video URL' });
@@ -23,7 +23,7 @@ async function download(req, res, next) {
 
     // Long-running (download + AI rewrite) - run in the background and
     // respond immediately; the frontend polls /tiktok/jobs for progress.
-    processTikTokJob(job).catch((err) => {
+    processTikTokJob(job, { regenerateMetadata: regenerateMetadata !== false }).catch((err) => {
       require('./utils.logger').error(`[tiktok] unhandled error for job ${job.id}: ${err.message}`);
     });
 

@@ -108,6 +108,7 @@ function updateFolderFieldVisibility() {
 
   document.getElementById('downloadBtn').addEventListener('click', async () => {
     const url = document.getElementById('urlInput').value.trim();
+    const regenerateMetadata = document.getElementById('regenerateMetadata').checked;
     const saveToDrive = document.getElementById('saveToDrive').checked;
     const folderSelect = document.getElementById('folderSelect');
     const driveFolderId = saveToDrive ? folderSelect.value : null;
@@ -128,7 +129,7 @@ function updateFolderFieldVisibility() {
     try {
       await apiFetch('/tiktok/download', {
         method: 'POST',
-        body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive }),
+        body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata }),
       });
       msg.textContent = 'Started! Check the history table below for progress.';
       document.getElementById('urlInput').value = '';
