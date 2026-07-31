@@ -47,20 +47,19 @@ async function getMetadata(url) {
 // upload) instead of depending on whatever codec TikTok happened to serve.
 async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
-  try {
-    await execFileAsync(
-      YTDLP_BIN,
-      ['-f', 'bestvideo+bestaudio/best', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url],
-      { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
-    );
-  } catch (err) {
-    logger.error(`[tiktok] download failed for ${url}: ${err.stderr || err.message}`);
-    throw new Error('Failed to download this TikTok video.');
-  }
+  await ytdlpDownload(url, rawPath, ['-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
 
-  const hasAudio = await hasAudioStream(rawPath);
+  let hasAudio = await hasAudioStream(rawPath);
   if (!hasAudio) {
-    logger.error(`[tiktok] downloaded file has no audio stream: ${rawPath} (source: ${url})`);
+    logger.error(`[tiktok] first attempt has no audio, retrying with an explicit audio+video format: ${url}`);
+    const explicitFormatId = await findAudioVideoFormatId(url);
+    if (explicitFormatId) {
+      await ytdlpDownload(url, rawPath, ['-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
+      hasAudio = await hasAudioStream(rawPath);
+    }
+    if (!hasAudio) {
+      logger.error(`[tiktok] still no audio after retry - this TikTok video may genuinely have no sound, or is silent by design: ${url}`);
+    }
   }
 
   try {
@@ -79,6 +78,39 @@ async function downloadVideo(url, destPath) {
   }
 
   return destPath;
+}
+
+async function ytdlpDownload(url, rawPath, args) {
+  try {
+    await execFileAsync(YTDLP_BIN, args, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
+  } catch (err) {
+    logger.error(`[tiktok] download failed for ${url}: ${err.stderr || err.message}`);
+    throw new Error('Failed to download this TikTok video.');
+  }
+}
+
+// Inspects the raw format list (bypassing selector shorthand entirely) to find
+// one format ID that genuinely has BOTH a video and an audio codec - used as
+// a fallback when the default selector's output has no audio.
+async function findAudioVideoFormatId(url) {
+  try {
+    const { stdout } = await execFileAsync(
+      YTDLP_BIN,
+      ['--dump-json', '--no-warnings', '--skip-download', url],
+      { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
+    );
+    const data = JSON.parse(stdout.trim().split('\n')[0]);
+    const formats = Array.isArray(data.formats) ? data.formats : [];
+    const combined = formats.filter(
+      (f) => f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none'
+    );
+    if (!combined.length) return null;
+    combined.sort((a, b) => (b.tbr || 0) - (a.tbr || 0));
+    return combined[0].format_id || null;
+  } catch (err) {
+    logger.error(`[tiktok] could not inspect format list for ${url}: ${err.stderr || err.message}`);
+    return null;
+  }
 }
 
 // Quick ffprobe check so a silent download is at least logged, not silently
