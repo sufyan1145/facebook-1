@@ -1,0 +1,62 @@
+diff --git a/services.tiktokService.js b/services.tiktokService.js
+index ad0ab0e..bf5c18b 100644
+--- a/services.tiktokService.js
++++ b/services.tiktokService.js
+@@ -82,15 +82,24 @@ async function downloadVideo(url, destPath) {
+     logger.error(`[tiktok] still no audio after all fallbacks - this TikTok video may genuinely have no sound: ${url}`);
+   }
+ 
++  // Most TikTok videos are already h264(+aac) - a full libx264 re-encode is
++  // unnecessary CPU/memory-heavy work for those, and was likely why longer/
++  // heavier videos got silently killed (no ffmpeg error text at all, just
++  // "Command failed" - a classic sign of an out-of-memory kill). Only
++  // re-encode whichever stream(s) actually need it; copy the rest.
++  const codecs = await getCodecs(rawPath);
++  const videoNeedsEncode = codecs.video !== 'h264';
++  const audioNeedsEncode = hasAudio && codecs.audio !== 'aac';
++
+   try {
+     await execFileAsync('ffmpeg', [
+       '-y', '-hide_banner', '-loglevel', 'error', '-nostats',
+       '-i', rawPath,
+-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+-      ...(hasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : ['-an']),
++      ...(videoNeedsEncode ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20'] : ['-c:v', 'copy']),
++      ...(!hasAudio ? ['-an'] : audioNeedsEncode ? ['-c:a', 'aac', '-b:a', '128k'] : ['-c:a', 'copy']),
+       '-movflags', '+faststart',
+       destPath,
+-    ], { timeout: TRANSCODE_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 50 });
++    ], { timeout: videoNeedsEncode ? TRANSCODE_TIMEOUT_MS : TIMEOUT_MS, maxBuffer: 1024 * 1024 * 50 });
+   } catch (err) {
+     logger.error(`[tiktok] transcode failed for ${url}: ${err.stderr || err.message}`);
+     throw new Error('Downloaded the video but failed to convert it to a playable format.');
+@@ -101,6 +110,29 @@ async function downloadVideo(url, destPath) {
+   return destPath;
+ }
+ 
++// Reads each stream's codec so downloadVideo can skip re-encoding whatever's
++// already in a broadly-compatible format.
++async function getCodecs(filePath) {
++  try {
++    const { stdout } = await execFileAsync('ffprobe', [
++      '-v', 'error',
++      '-show_entries', 'stream=codec_type,codec_name',
++      '-of', 'csv=p=0',
++      filePath,
++    ]);
++    const codecs = { video: null, audio: null };
++    stdout.trim().split('\n').filter(Boolean).forEach((line) => {
++      const [codecType, codecName] = line.split(',');
++      if (codecType === 'video' && !codecs.video) codecs.video = codecName;
++      if (codecType === 'audio' && !codecs.audio) codecs.audio = codecName;
++    });
++    return codecs;
++  } catch (err) {
++    logger.error(`[tiktok] ffprobe codec check failed for ${filePath}: ${err.message}`);
++    return { video: null, audio: null }; // treat as "needs encoding" if we can't tell
++  }
++}
++
+ async function ytdlpDownload(url, rawPath, args) {
+   try {
+     await execFileAsync(YTDLP_BIN, args, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
