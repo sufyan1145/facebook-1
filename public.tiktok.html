@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TikTok Downloader — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>TikTok Downloader</h1></div>
+    <div class="content">
+      <div class="card mb-16">
+        <div class="section-title">Download a TikTok video</div>
+        <div style="font-size:12px; color:var(--text-muted); margin:-6px 0 14px;">Paste a TikTok video link — it downloads the video and has AI rewrite a fresh title and hashtags for reposting.</div>
+        <div class="field">
+          <label for="urlInput">TikTok video URL</label>
+          <input id="urlInput" type="url" placeholder="https://www.tiktok.com/@user/video/1234567890" />
+        </div>
+        <label class="checkbox-row" style="margin-bottom:10px;">
+          <input id="saveToDrive" type="checkbox" checked /> Save to Google Drive
+        </label>
+        <div class="field" id="folderField">
+          <label for="folderSelect">Save into Drive folder</label>
+          <select id="folderSelect"></select>
+        </div>
+        <button class="btn" id="downloadBtn" style="margin-top:4px;">Download & Regenerate</button>
+        <div id="downloadMsg" style="margin-top:8px; font-size:13px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="card mb-16" id="previewCard" style="display:none;">
+        <div class="section-title">Preview</div>
+        <video id="previewPlayer" controls playsinline style="width:100%; max-width:420px; border-radius:var(--radius-sm); background:#000; display:block;"></video>
+        <div id="previewMeta" style="margin-top:10px; font-size:13px;"></div>
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+          <a class="btn sm" id="downloadFileBtn" download>Download</a>
+          <button class="btn sm" id="copyHashtagsBtn">Copy Title + Hashtags</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex-between mb-16">
+          <div class="section-title" style="margin-bottom:0;">Download history</div>
+          <button class="btn sm" id="refreshJobsBtn">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Regenerated Title</th><th>Hashtags</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
+            <tbody id="jobsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="tiktok.js"></script>
+</body>
+</html>

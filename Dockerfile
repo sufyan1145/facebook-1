@@ -1,6 +1,6 @@
 FROM node:18-alpine
 
-RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu
+RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu yt-dlp
 
 WORKDIR /usr/src/app
 

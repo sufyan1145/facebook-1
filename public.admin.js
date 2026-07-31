@@ -50,6 +50,7 @@ const HIDEABLE_SECTIONS = [
     { key: 'drive', label: 'Drive Folders' },
     { key: 'videogen', label: 'Video Generator' },
     { key: 'content-schedule', label: 'Content Pipeline' },
+    { key: 'tiktok', label: 'TikTok Downloader' },
     { key: 'pages', label: 'Facebook Pages' },
     { key: 'schedule', label: 'Schedules' },
     { key: 'queue', label: 'Queue' },
