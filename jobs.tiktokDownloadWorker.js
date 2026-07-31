@@ -78,4 +78,32 @@ async function processTikTokJob(job, { regenerateMetadata = true } = {}) {
   }
 }
 
-module.exports = { processTikTokJob };
+module.exports = { processTikTokJob, enqueueTikTokJob };
+
+// Sequential in-memory queue: when several URLs are submitted at once (the
+// "multiple videos" mode), they run one at a time instead of all launching
+// yt-dlp/ffmpeg simultaneously and overloading the container.
+const queue = [];
+let draining = false;
+
+function enqueueTikTokJob(job, options) {
+  queue.push({ job, options });
+  drainQueue();
+}
+
+async function drainQueue() {
+  if (draining) return;
+  draining = true;
+  try {
+    while (queue.length) {
+      const { job, options } = queue.shift();
+      try {
+        await processTikTokJob(job, options);
+      } catch (err) {
+        logger.error(`[tiktok] queued job ${job.id} threw unexpectedly: ${err.message}`);
+      }
+    }
+  } finally {
+    draining = false;
+  }
+}

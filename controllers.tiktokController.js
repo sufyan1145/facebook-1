@@ -2,7 +2,7 @@ const TikTokJob = require('./models.TikTokJob');
 const tiktokService = require('./services.tiktokService');
 const driveService = require('./services.googleDriveService');
 const Log = require('./models.Log');
-const { processTikTokJob } = require('./jobs.tiktokDownloadWorker');
+const { enqueueTikTokJob } = require('./jobs.tiktokDownloadWorker');
 
 async function download(req, res, next) {
   try {
@@ -21,11 +21,10 @@ async function download(req, res, next) {
       driveFolderName: saveToDrive ? driveFolderName : null,
     });
 
-    // Long-running (download + AI rewrite) - run in the background and
-    // respond immediately; the frontend polls /tiktok/jobs for progress.
-    processTikTokJob(job, { regenerateMetadata: regenerateMetadata !== false }).catch((err) => {
-      require('./utils.logger').error(`[tiktok] unhandled error for job ${job.id}: ${err.message}`);
-    });
+    // Long-running (download + AI rewrite) - queued so multiple submissions
+    // (the "multiple videos" mode) run one at a time instead of all at once;
+    // responds immediately, the frontend polls /tiktok/jobs for progress.
+    enqueueTikTokJob(job, { regenerateMetadata: regenerateMetadata !== false });
 
     await Log.record(req.user.id, 'TikTok Download Started', { sourceUrl: url, jobId: job.id });
     res.json({ success: true, data: job });

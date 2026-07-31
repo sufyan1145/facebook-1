@@ -1,0 +1,200 @@
+diff --git a/controllers.tiktokController.js b/controllers.tiktokController.js
+index 6fc7441..f79edaa 100644
+--- a/controllers.tiktokController.js
++++ b/controllers.tiktokController.js
+@@ -2,7 +2,7 @@ const TikTokJob = require('./models.TikTokJob');
+ const tiktokService = require('./services.tiktokService');
+ const driveService = require('./services.googleDriveService');
+ const Log = require('./models.Log');
+-const { processTikTokJob } = require('./jobs.tiktokDownloadWorker');
++const { enqueueTikTokJob } = require('./jobs.tiktokDownloadWorker');
+ 
+ async function download(req, res, next) {
+   try {
+@@ -21,11 +21,10 @@ async function download(req, res, next) {
+       driveFolderName: saveToDrive ? driveFolderName : null,
+     });
+ 
+-    // Long-running (download + AI rewrite) - run in the background and
+-    // respond immediately; the frontend polls /tiktok/jobs for progress.
+-    processTikTokJob(job, { regenerateMetadata: regenerateMetadata !== false }).catch((err) => {
+-      require('./utils.logger').error(`[tiktok] unhandled error for job ${job.id}: ${err.message}`);
+-    });
++    // Long-running (download + AI rewrite) - queued so multiple submissions
++    // (the "multiple videos" mode) run one at a time instead of all at once;
++    // responds immediately, the frontend polls /tiktok/jobs for progress.
++    enqueueTikTokJob(job, { regenerateMetadata: regenerateMetadata !== false });
+ 
+     await Log.record(req.user.id, 'TikTok Download Started', { sourceUrl: url, jobId: job.id });
+     res.json({ success: true, data: job });
+diff --git a/jobs.tiktokDownloadWorker.js b/jobs.tiktokDownloadWorker.js
+index 7cf1afa..e83407b 100644
+--- a/jobs.tiktokDownloadWorker.js
++++ b/jobs.tiktokDownloadWorker.js
+@@ -78,4 +78,32 @@ async function processTikTokJob(job, { regenerateMetadata = true } = {}) {
+   }
+ }
+ 
+-module.exports = { processTikTokJob };
++module.exports = { processTikTokJob, enqueueTikTokJob };
++
++// Sequential in-memory queue: when several URLs are submitted at once (the
++// "multiple videos" mode), they run one at a time instead of all launching
++// yt-dlp/ffmpeg simultaneously and overloading the container.
++const queue = [];
++let draining = false;
++
++function enqueueTikTokJob(job, options) {
++  queue.push({ job, options });
++  drainQueue();
++}
++
++async function drainQueue() {
++  if (draining) return;
++  draining = true;
++  try {
++    while (queue.length) {
++      const { job, options } = queue.shift();
++      try {
++        await processTikTokJob(job, options);
++      } catch (err) {
++        logger.error(`[tiktok] queued job ${job.id} threw unexpectedly: ${err.message}`);
++      }
++    }
++  } finally {
++    draining = false;
++  }
++}
+diff --git a/public.tiktok.html b/public.tiktok.html
+index f4d6194..7e99e65 100644
+--- a/public.tiktok.html
++++ b/public.tiktok.html
+@@ -19,10 +19,20 @@
+       <div class="card mb-16">
+         <div class="section-title">Download a TikTok video</div>
+         <div style="font-size:12px; color:var(--text-muted); margin:-6px 0 14px;">Paste a TikTok video link — it downloads the video and has AI rewrite a fresh title and hashtags for reposting.</div>
+-        <div class="field">
++        <label class="checkbox-row" style="margin-bottom:10px;">
++          <input id="multiMode" type="checkbox" /> Download multiple videos at once
++        </label>
++        <div class="field" id="singleUrlField">
+           <label for="urlInput">TikTok video URL</label>
+           <input id="urlInput" type="url" placeholder="https://www.tiktok.com/@user/video/1234567890" />
+         </div>
++        <div class="field" id="multiUrlField" style="display:none;">
++          <label for="urlsTextarea">TikTok video URLs (one per line, up to 20)</label>
++          <textarea id="urlsTextarea" rows="6" placeholder="https://www.tiktok.com/@user/video/111
++https://www.tiktok.com/@user/video/222
++https://www.tiktok.com/@user/video/333"></textarea>
++          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Each video is downloaded one at a time — they'll appear in the history table below as they finish.</div>
++        </div>
+         <label class="checkbox-row" style="margin-bottom:10px;">
+           <input id="regenerateMetadata" type="checkbox" checked /> Regenerate title & hashtags with AI
+         </label>
+diff --git a/public.tiktok.js b/public.tiktok.js
+index dbdafc8..b5c3b34 100644
+--- a/public.tiktok.js
++++ b/public.tiktok.js
+@@ -94,6 +94,12 @@ function updateFolderFieldVisibility() {
+   document.getElementById('folderField').style.display = saveToDrive ? '' : 'none';
+ }
+ 
++function updateUrlModeVisibility() {
++  const multi = document.getElementById('multiMode').checked;
++  document.getElementById('singleUrlField').style.display = multi ? 'none' : '';
++  document.getElementById('multiUrlField').style.display = multi ? '' : 'none';
++}
++
+ (async function init() {
+   const user = await requireAuthOrRedirect();
+   if (!user) return;
+@@ -102,12 +108,14 @@ function updateFolderFieldVisibility() {
+   await loadFolders();
+   await loadJobs();
+   updateFolderFieldVisibility();
++  updateUrlModeVisibility();
+ 
+   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
+   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
++  document.getElementById('multiMode').addEventListener('change', updateUrlModeVisibility);
+ 
+   document.getElementById('downloadBtn').addEventListener('click', async () => {
+-    const url = document.getElementById('urlInput').value.trim();
++    const multi = document.getElementById('multiMode').checked;
+     const regenerateMetadata = document.getElementById('regenerateMetadata').checked;
+     const saveToDrive = document.getElementById('saveToDrive').checked;
+     const folderSelect = document.getElementById('folderSelect');
+@@ -115,29 +123,57 @@ function updateFolderFieldVisibility() {
+     const driveFolderName = saveToDrive ? folderSelect.selectedOptions[0]?.dataset.name : null;
+     const msg = document.getElementById('downloadMsg');
+ 
+-    if (!url) {
+-      msg.textContent = 'Please paste a TikTok video URL.';
+-      return;
+-    }
+     if (saveToDrive && !driveFolderId) {
+       msg.textContent = 'Please select a Drive folder, or turn off "Save to Google Drive".';
+       return;
+     }
+ 
+-    msg.textContent = 'Starting download…';
++    let urls;
++    if (multi) {
++      urls = document.getElementById('urlsTextarea').value
++        .split('\n')
++        .map((u) => u.trim())
++        .filter(Boolean)
++        .slice(0, 20);
++      if (!urls.length) {
++        msg.textContent = 'Please paste at least one TikTok video URL.';
++        return;
++      }
++    } else {
++      const url = document.getElementById('urlInput').value.trim();
++      if (!url) {
++        msg.textContent = 'Please paste a TikTok video URL.';
++        return;
++      }
++      urls = [url];
++    }
++
++    msg.textContent = urls.length > 1 ? `Queuing ${urls.length} videos…` : 'Starting download…';
+     document.getElementById('downloadBtn').disabled = true;
+-    try {
+-      await apiFetch('/tiktok/download', {
+-        method: 'POST',
+-        body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata }),
+-      });
+-      msg.textContent = 'Started! Check the history table below for progress.';
++    let queued = 0;
++    let failed = 0;
++    for (const url of urls) {
++      try {
++        await apiFetch('/tiktok/download', {
++          method: 'POST',
++          body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata }),
++        });
++        queued += 1;
++      } catch (err) {
++        failed += 1;
++      }
++    }
++    msg.textContent =
++      urls.length > 1
++        ? `Queued ${queued} of ${urls.length} video(s)${failed ? `, ${failed} failed to queue` : ''}. They'll process one at a time — check the history table below.`
++        : queued
++        ? 'Started! Check the history table below for progress.'
++        : 'Failed to start this download.';
++    if (queued) {
+       document.getElementById('urlInput').value = '';
+-      loadJobs();
+-    } catch (err) {
+-      msg.textContent = `Error: ${err.message}`;
+-    } finally {
+-      document.getElementById('downloadBtn').disabled = false;
++      document.getElementById('urlsTextarea').value = '';
+     }
++    loadJobs();
++    document.getElementById('downloadBtn').disabled = false;
+   });
+ })();

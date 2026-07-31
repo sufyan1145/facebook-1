@@ -94,6 +94,12 @@ function updateFolderFieldVisibility() {
   document.getElementById('folderField').style.display = saveToDrive ? '' : 'none';
 }
 
+function updateUrlModeVisibility() {
+  const multi = document.getElementById('multiMode').checked;
+  document.getElementById('singleUrlField').style.display = multi ? 'none' : '';
+  document.getElementById('multiUrlField').style.display = multi ? '' : 'none';
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
@@ -102,12 +108,14 @@ function updateFolderFieldVisibility() {
   await loadFolders();
   await loadJobs();
   updateFolderFieldVisibility();
+  updateUrlModeVisibility();
 
   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
+  document.getElementById('multiMode').addEventListener('change', updateUrlModeVisibility);
 
   document.getElementById('downloadBtn').addEventListener('click', async () => {
-    const url = document.getElementById('urlInput').value.trim();
+    const multi = document.getElementById('multiMode').checked;
     const regenerateMetadata = document.getElementById('regenerateMetadata').checked;
     const saveToDrive = document.getElementById('saveToDrive').checked;
     const folderSelect = document.getElementById('folderSelect');
@@ -115,29 +123,57 @@ function updateFolderFieldVisibility() {
     const driveFolderName = saveToDrive ? folderSelect.selectedOptions[0]?.dataset.name : null;
     const msg = document.getElementById('downloadMsg');
 
-    if (!url) {
-      msg.textContent = 'Please paste a TikTok video URL.';
-      return;
-    }
     if (saveToDrive && !driveFolderId) {
       msg.textContent = 'Please select a Drive folder, or turn off "Save to Google Drive".';
       return;
     }
 
-    msg.textContent = 'Starting download…';
-    document.getElementById('downloadBtn').disabled = true;
-    try {
-      await apiFetch('/tiktok/download', {
-        method: 'POST',
-        body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata }),
-      });
-      msg.textContent = 'Started! Check the history table below for progress.';
-      document.getElementById('urlInput').value = '';
-      loadJobs();
-    } catch (err) {
-      msg.textContent = `Error: ${err.message}`;
-    } finally {
-      document.getElementById('downloadBtn').disabled = false;
+    let urls;
+    if (multi) {
+      urls = document.getElementById('urlsTextarea').value
+        .split('\n')
+        .map((u) => u.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+      if (!urls.length) {
+        msg.textContent = 'Please paste at least one TikTok video URL.';
+        return;
+      }
+    } else {
+      const url = document.getElementById('urlInput').value.trim();
+      if (!url) {
+        msg.textContent = 'Please paste a TikTok video URL.';
+        return;
+      }
+      urls = [url];
     }
+
+    msg.textContent = urls.length > 1 ? `Queuing ${urls.length} videos…` : 'Starting download…';
+    document.getElementById('downloadBtn').disabled = true;
+    let queued = 0;
+    let failed = 0;
+    for (const url of urls) {
+      try {
+        await apiFetch('/tiktok/download', {
+          method: 'POST',
+          body: JSON.stringify({ url, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata }),
+        });
+        queued += 1;
+      } catch (err) {
+        failed += 1;
+      }
+    }
+    msg.textContent =
+      urls.length > 1
+        ? `Queued ${queued} of ${urls.length} video(s)${failed ? `, ${failed} failed to queue` : ''}. They'll process one at a time — check the history table below.`
+        : queued
+        ? 'Started! Check the history table below for progress.'
+        : 'Failed to start this download.';
+    if (queued) {
+      document.getElementById('urlInput').value = '';
+      document.getElementById('urlsTextarea').value = '';
+    }
+    loadJobs();
+    document.getElementById('downloadBtn').disabled = false;
   });
 })();
