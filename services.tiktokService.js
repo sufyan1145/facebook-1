@@ -57,9 +57,28 @@ async function downloadVideo(url, destPath) {
       await ytdlpDownload(url, rawPath, ['-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
       hasAudio = await hasAudioStream(rawPath);
     }
-    if (!hasAudio) {
-      logger.error(`[tiktok] still no audio after retry - this TikTok video may genuinely have no sound, or is silent by design: ${url}`);
+  }
+
+  if (!hasAudio) {
+    // No single format has both audio and video for this video - some TikTok
+    // posts only expose separate video-only and audio-only streams with no
+    // combined option at all. Explicitly merge them (yt-dlp does this via
+    // ffmpeg, which is already installed) as a last resort before giving up.
+    logger.error(`[tiktok] no combined format available, trying an explicit bestvideo+bestaudio merge: ${url}`);
+    try {
+      await ytdlpDownload(url, rawPath, [
+        '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio',
+        '--merge-output-format', 'mp4',
+        '--no-warnings', '-o', rawPath, url,
+      ]);
+      hasAudio = await hasAudioStream(rawPath);
+    } catch (mergeErr) {
+      logger.error(`[tiktok] explicit merge attempt failed: ${mergeErr.message}`);
     }
+  }
+
+  if (!hasAudio) {
+    logger.error(`[tiktok] still no audio after all fallbacks - this TikTok video may genuinely have no sound: ${url}`);
   }
 
   try {
