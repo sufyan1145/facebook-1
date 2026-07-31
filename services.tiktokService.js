@@ -95,7 +95,9 @@ async function downloadVideo(url, destPath) {
     await execFileAsync('ffmpeg', [
       '-y', '-hide_banner', '-loglevel', 'error', '-nostats',
       '-i', rawPath,
-      ...(videoNeedsEncode ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20'] : ['-c:v', 'copy']),
+      ...(videoNeedsEncode
+        ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-x264-params', 'rc-lookahead=20:ref=2']
+        : ['-c:v', 'copy']),
       ...(!hasAudio ? ['-an'] : audioNeedsEncode ? ['-c:a', 'aac', '-b:a', '128k'] : ['-c:a', 'copy']),
       '-movflags', '+faststart',
       destPath,
