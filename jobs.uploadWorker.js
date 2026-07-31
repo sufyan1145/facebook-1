@@ -33,8 +33,8 @@ const worker = new Worker(
     try {
       tempPath = await driveService.downloadFile(userId, file.id, file.name);
 
-      let fbVideoId = null;
-      if (postToFacebook !== false && pageDbId) {
+      let fbVideoId = historyRow.facebook_video_id || null;
+      if (postToFacebook !== false && pageDbId && !fbVideoId) {
         const page = await Page.findById(userId, pageDbId);
         if (!page) throw new Error('Facebook page not found or disconnected');
 
@@ -49,11 +49,15 @@ const worker = new Worker(
         });
         await Log.record(userId, 'Video Uploaded', { file: file.name, page: pageName });
         await notifyUploadEvent(userId, { type: 'success', videoName: file.name, pageName });
+      } else if (fbVideoId) {
+        logger.info(`Skipping Facebook upload for ${file.name} - already uploaded in a previous attempt (${fbVideoId})`);
       }
 
       // YouTube is optional and best-effort: a failure here should not undo an
       // already-successful (or intentionally skipped) Facebook post.
-      if (youtubeTokenId) {
+      // Also skipped entirely if a previous (retried) attempt already uploaded
+      // it - otherwise a retry caused by a later failure would upload twice.
+      if (youtubeTokenId && !historyRow.youtube_video_id) {
         try {
           const tags = (hashtags || '').split(/\s+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean);
           const youtubeVideoId = await youtubeService.uploadVideo(userId, youtubeTokenId, tempPath, {
@@ -62,11 +66,14 @@ const worker = new Worker(
             tags,
             videoType: youtubeVideoType,
           });
+          await UploadHistory.markYoutubeUploaded(historyRow.id, youtubeVideoId);
           await Log.record(userId, 'YouTube Upload Completed', { file: file.name, youtubeVideoId });
         } catch (ytErr) {
           await Log.record(userId, 'YouTube Upload Failed', { file: file.name, error: ytErr.message }, 'error');
           logger.error(`YouTube upload failed for schedule ${scheduleId}: ${ytErr.message}`);
         }
+      } else if (youtubeTokenId) {
+        logger.info(`Skipping YouTube upload for ${file.name} - already uploaded in a previous attempt (${historyRow.youtube_video_id})`);
       }
 
       if (historyRow) await UploadHistory.markSuccess(historyRow.id, fbVideoId);
