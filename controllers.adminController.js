@@ -115,7 +115,7 @@ async function setActive(req, res, next) {
   }
 }
 
-const HIDEABLE_SECTIONS = ['drive', 'videogen', 'content-schedule', 'tiktok', 'pages', 'schedule', 'queue', 'history', 'logs', 'settings'];
+const HIDEABLE_SECTIONS = ['drive', 'videogen', 'content-schedule', 'tiktok', 'videoedit', 'pages', 'schedule', 'queue', 'history', 'logs', 'settings'];
 
 async function updateSections(req, res, next) {
   try {

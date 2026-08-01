@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Video Editor — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Video Editor</h1></div>
+    <div class="content">
+      <div class="card mb-16">
+        <div class="section-title">Paste a video link from any platform</div>
+        <div style="font-size:12px; color:var(--text-muted); margin:-6px 0 14px;">YouTube, TikTok, Snapchat, Instagram, Twitter/X, Facebook, and hundreds more. Downloads the video and applies whichever effects you pick below.</div>
+        <div class="field">
+          <label for="urlInput">Video URL</label>
+          <input id="urlInput" type="url" placeholder="https://..." />
+        </div>
+
+        <div class="field">
+          <label for="colorGrade">Color grading</label>
+          <select id="colorGrade">
+            <option value="">None</option>
+            <option value="cinematic">Cinematic look</option>
+            <option value="hdr">HDR effect</option>
+            <option value="vibrant">Vibrant colors</option>
+            <option value="skin_tone">Skin tone enhancement</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Transition / punch effects (applied at the timestamp below)</label>
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="flash" /> Flash</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="blur_transition" /> Blur</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="spin" /> Spin</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="glitch" /> Glitch</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="shake" /> Shake</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="whip_pan" /> Whip Pan</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="light_leak" /> Light Leak</label>
+            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="zoom_punch" /> Zoom Punch (meme-style)</label>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="effectAt">Effect timestamp (seconds)</label>
+            <input id="effectAt" type="number" min="0" step="0.5" value="2" />
+          </div>
+          <div class="field">
+            <label for="vineBoomAt">Vine Boom at (seconds, optional)</label>
+            <input id="vineBoomAt" type="number" min="0" step="0.5" placeholder="e.g. 3" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="speedFactor">Speed</label>
+            <select id="speedFactor">
+              <option value="1">Normal</option>
+              <option value="0.25">Slow motion (0.25x)</option>
+              <option value="0.5">Slow motion (0.5x)</option>
+              <option value="1.5">Speed up (1.5x)</option>
+              <option value="2">Fast motion (2x)</option>
+              <option value="3">Fast motion (3x)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="beatSyncBpm">Beat-sync pulse (BPM, optional)</label>
+            <input id="beatSyncBpm" type="number" min="40" max="220" placeholder="e.g. 120" />
+          </div>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin:-8px 0 12px;">Beat-sync pulses at your chosen BPM on a timer — it does not analyze the actual audio for real beats.</div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="freezeFrameAt">Freeze frame at (seconds, optional)</label>
+            <input id="freezeFrameAt" type="number" min="0" step="0.5" placeholder="e.g. 4" />
+          </div>
+          <div class="field">
+            <label for="freezeFrameDuration">Freeze duration (seconds)</label>
+            <input id="freezeFrameDuration" type="number" min="0.2" step="0.2" value="1" />
+          </div>
+        </div>
+
+        <label class="checkbox-row" style="margin-bottom:6px;">
+          <input id="blackAndWhite" type="checkbox" /> Black &amp; White
+        </label>
+        <label class="checkbox-row" style="margin-bottom:10px;">
+          <input id="verticalConvert" type="checkbox" /> Convert to vertical 9:16 (centered, blurred background fill)
+        </label>
+
+        <div class="field">
+          <label for="splitScreenMode">Split screen (optional — needs a second video URL)</label>
+          <select id="splitScreenMode">
+            <option value="">None</option>
+            <option value="side_by_side">Side by side (e.g. gameplay + facecam)</option>
+            <option value="top_bottom">Top / bottom</option>
+            <option value="pip">Picture-in-picture corner</option>
+          </select>
+        </div>
+        <div class="field" id="secondaryUrlField" style="display:none;">
+          <label for="secondaryUrlInput">Second video URL</label>
+          <input id="secondaryUrlInput" type="url" placeholder="https://..." />
+        </div>
+
+        <label class="checkbox-row" style="margin-bottom:10px;">
+          <input id="saveToDrive" type="checkbox" checked /> Save to Google Drive
+        </label>
+        <div class="field" id="folderField">
+          <label for="folderSelect">Save into Drive folder</label>
+          <select id="folderSelect"></select>
+        </div>
+
+        <button class="btn" id="createBtn" style="margin-top:4px;">Edit Video</button>
+        <div id="createMsg" style="margin-top:8px; font-size:13px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="card mb-16" id="previewCard" style="display:none;">
+        <div class="section-title">Preview</div>
+        <video id="previewPlayer" controls playsinline style="width:100%; max-width:420px; border-radius:var(--radius-sm); background:#000; display:block;"></video>
+        <div style="margin-top:12px;">
+          <a class="btn sm" id="downloadFileBtn" download>Download</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex-between mb-16">
+          <div class="section-title" style="margin-bottom:0;">Edit history</div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn sm" id="refreshJobsBtn">Refresh</button>
+            <button class="btn sm danger" id="clearHistoryBtn">Clear History</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Source</th><th>Folder</th><th>Status</th><th>Result</th><th>When</th><th>Actions</th></tr></thead>
+            <tbody id="jobsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="videoedit.js"></script>
+</body>
+</html>
