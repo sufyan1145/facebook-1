@@ -143,9 +143,13 @@ function updateSecondaryUrlVisibility() {
     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
 
     const pointEffects = Array.from(document.querySelectorAll('.pointEffect:checked')).map((el) => el.value);
+    const styleEffects = Array.from(document.querySelectorAll('.styleEffect:checked')).map((el) => el.value);
+    const complexEffects = Array.from(document.querySelectorAll('.complexEffect:checked')).map((el) => el.value);
     const effects = {
       colorGrade: document.getElementById('colorGrade').value || null,
       pointEffects,
+      styleEffects,
+      complexEffects,
       effectAt: Number(document.getElementById('effectAt').value) || 2,
       speedFactor: Number(document.getElementById('speedFactor').value) || 1,
       beatSyncBpm: document.getElementById('beatSyncBpm').value ? Number(document.getElementById('beatSyncBpm').value) : null,

@@ -27,7 +27,53 @@ const COLOR_GRADE_FILTERS = {
   hdr: 'eq=contrast=1.2:brightness=0.02:saturation=1.15,unsharp=5:5:0.8:5:5:0.0',
   vibrant: 'vibrance=intensity=0.4,eq=saturation=1.3',
   skin_tone: 'selectivecolor=reds=0.05 0 0 0:yellows=0.05 0.02 0 0',
+  warm: 'colorbalance=rm=0.15:gm=0.05:bm=-0.15,eq=saturation=1.1',
+  cool: 'colorbalance=rm=-0.15:gm=0.0:bm=0.15,eq=saturation=1.05',
+  sepia: 'colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131',
+  vintage: "curves=r='0/0.05 0.5/0.5 1/0.9':b='0/0.1 0.5/0.45 1/0.8',eq=saturation=0.75:contrast=0.95",
+  moody: 'eq=contrast=1.25:brightness=-0.06:saturation=0.85,colorbalance=bs=0.08:bm=0.03',
+  bleach_bypass: 'eq=saturation=0.4:contrast=1.3:brightness=0.03',
+  pastel: 'eq=saturation=0.7:brightness=0.06:contrast=0.9',
+  punchy: 'eq=saturation=1.5:contrast=1.2',
+  cross_process: 'colorbalance=gs=0.1:gm=0.1:rh=0.05:bh=-0.1,eq=saturation=1.2',
+  matte: "curves=r='0/0.08 1/0.92':g='0/0.08 1/0.92':b='0/0.1 1/0.88',eq=contrast=0.9",
 };
+
+// ---- Whole-clip style effects (single-input, comma-joinable into the main
+// filter chain alongside color grade - all individually tested against real
+// ffmpeg). NOTE: Kaleidoscope, Ripple/Wave distortion, Oil Paint, and
+// Halftone are NOT included - ffmpeg has no clean built-in filter for these,
+// and the closest workaround (per-pixel `geq` expressions) is dramatically
+// slower (~3x) and risks the same hangs/timeouts fixed elsewhere in this
+// pipeline, especially on a memory/CPU-constrained server.
+const STYLE_EFFECT_FILTERS = {
+  mirror: 'hflip',
+  chromatic_aberration: 'rgbashift=rh=4:bh=-4',
+  mosaic: 'scale=64:36:flags=neighbor,scale=iw*10:ih*10:flags=neighbor',
+  emboss: "convolution='0 1 0 1 0 -1 0 -1 0:0 1 0 1 0 -1 0 -1 0:0 1 0 1 0 -1 0 -1 0:0 1 0 1 0 -1 0 -1 0'",
+  edge_detection: 'edgedetect=mode=colormix:high=0.3',
+  outline: 'edgedetect=mode=colormix:high=0.15',
+  posterize: 'lutyuv=y=val/32*32:u=val:v=val',
+  grain: 'noise=alls=15:allf=t',
+  fisheye: 'lenscorrection=k1=-0.3:k2=-0.1',
+  bulge: 'lenscorrection=k1=-0.2:k2=-0.05',
+  pinch: 'lenscorrection=k1=0.3:k2=0.1',
+};
+
+// ---- Whole-clip effects that need a split+blend filter_complex graph
+// (can't be comma-joined into the simple chain above) - each gets its own pass. ----
+function glowFilterComplex() {
+  return '[0:v]split=2[a][b];[b]gblur=sigma=8,eq=brightness=0.1[blurred];[a][blurred]blend=all_mode=screen[outv]';
+}
+function reflectionFilterComplex() {
+  return '[0:v]split=2[top][bot];[bot]vflip,eq=brightness=-0.3,format=yuva420p,colorchannelmixer=aa=0.4[reflected];[top][reflected]vstack=inputs=2[outv]';
+}
+function shadowFilterComplex() {
+  return "[0:v]split=2[a][b];[b]eq=brightness=-0.4,gblur=sigma=6,pad=iw+10:ih+10:5:5:black@0[shadow];[shadow][a]overlay=0:0[outv]";
+}
+function lensFlareFilterComplex() {
+  return '[0:v]split=2[a][b];[b]eq=brightness=0.15:saturation=1.5,gblur=sigma=15[glow];[a][glow]blend=all_mode=addition:all_opacity=0.3[outv]';
+}
 
 // ---- Point-effects (need a timestamp `t`) ----
 function pointEffectFilter(key, t) {
@@ -89,8 +135,13 @@ function verticalConversionFilterComplex() {
 module.exports = {
   esc,
   COLOR_GRADE_FILTERS,
+  STYLE_EFFECT_FILTERS,
   pointEffectFilter,
   beatSyncFilter,
   speedFilters,
   verticalConversionFilterComplex,
+  glowFilterComplex,
+  reflectionFilterComplex,
+  shadowFilterComplex,
+  lensFlareFilterComplex,
 };
