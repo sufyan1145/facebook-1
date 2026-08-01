@@ -147,9 +147,13 @@ function renderCueList() {
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
   document.getElementById('addCueBtn').addEventListener('click', () => {
-    const effect = document.getElementById('cueEffectSelect').value;
     const at = Number(document.getElementById('cueAtInput').value) || 0;
-    effectCues.push({ effect, at });
+    const checked = Array.from(document.querySelectorAll('.cueEffect:checked'));
+    if (!checked.length) return;
+    checked.forEach((cb) => {
+      effectCues.push({ effect: cb.value, at });
+      cb.checked = false;
+    });
     renderCueList();
   });
   document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
@@ -182,6 +186,8 @@ function renderCueList() {
     const effects = {
       colorGrade: document.getElementById('colorGrade').value || null,
       effectCues,
+      autoLoopEffects: Array.from(document.querySelectorAll('.loopEffect:checked')).map((el) => el.value),
+      autoLoopIntervalSeconds: Number(document.getElementById('loopIntervalInput').value) || 5,
       speedFactor: Number(document.getElementById('speedFactor').value) || 1,
       beatSyncBpm: document.getElementById('beatSyncBpm').value ? Number(document.getElementById('beatSyncBpm').value) : null,
       freezeFrameAt: document.getElementById('freezeFrameAt').value ? Number(document.getElementById('freezeFrameAt').value) : null,
@@ -201,6 +207,7 @@ function renderCueList() {
       });
       msg.textContent = 'Started! Editing can take a few minutes depending on the effects chosen — check the history table below.';
       effectCues = [];
+      document.querySelectorAll('.loopEffect:checked').forEach((cb) => { cb.checked = false; });
       renderCueList();
       loadJobs();
     } catch (err) {

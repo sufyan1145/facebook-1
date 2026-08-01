@@ -15,6 +15,7 @@ const VideoEditJob = require('./models.VideoEditJob');
 const videoDownloadService = require('./services.videoDownloadService');
 const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
+const ffmpeg = require('./utils.ffmpeg');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
@@ -84,9 +85,26 @@ async function processVideoEditJob(job) {
     // effects can fire at different timestamps (e.g. flash at 4s, jump cut
     // at 6s, slide at 10s) instead of everything sharing one timestamp.
     // Backward-compatible with the older pointEffects[] + effectAt shape.
-    const cues = Array.isArray(spec.effectCues) && spec.effectCues.length
+    const manualCues = Array.isArray(spec.effectCues) && spec.effectCues.length
       ? spec.effectCues
       : (spec.pointEffects || []).map((effect) => ({ effect, at: Number(spec.effectAt) || 2 }));
+
+    // Auto-loop: cycles through the selected effects at a fixed interval
+    // across the video's actual full length, instead of the user placing
+    // each one manually. Can be combined with manual cues above.
+    let autoLoopCues = [];
+    if (Array.isArray(spec.autoLoopEffects) && spec.autoLoopEffects.length) {
+      const interval = Math.max(1, Number(spec.autoLoopIntervalSeconds) || 5);
+      const duration = await ffmpeg.getMediaDuration(current);
+      let i = 0;
+      for (let t = interval; t < duration - 0.3; t += interval) {
+        autoLoopCues.push({ effect: spec.autoLoopEffects[i % spec.autoLoopEffects.length], at: t });
+        i += 1;
+      }
+      logger.info(`[video-edit] job ${job.id}: auto-loop generated ${autoLoopCues.length} cues over ${duration.toFixed(1)}s (every ${interval}s)`);
+    }
+
+    const cues = [...manualCues, ...autoLoopCues];
     cues.forEach(({ effect, at }) => {
       const filter = effects.pointEffectFilter(effect, Number(at) || 2);
       if (filter) simpleFilters.push(filter);

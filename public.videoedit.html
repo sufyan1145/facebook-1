@@ -36,32 +36,51 @@
         </div>
 
         <div class="field">
-          <label>Transition / punch effects (each one gets its own timestamp)</label>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
-            <div style="flex:1; min-width:160px;">
-              <label for="cueEffectSelect" style="font-size:11px;">Effect</label>
-              <select id="cueEffectSelect">
-                <option value="flash">Flash</option>
-                <option value="blur_transition">Blur</option>
-                <option value="spin">Spin</option>
-                <option value="glitch">Glitch</option>
-                <option value="shake">Shake</option>
-                <option value="whip_pan">Whip Pan</option>
-                <option value="light_leak">Light Leak</option>
-                <option value="zoom_punch">Zoom Punch (meme-style)</option>
-                <option value="jump_cut">Cutting / Jump Cut</option>
-                <option value="slide">Slide (drag-in transition)</option>
-                <option value="fade_out">Fade Out</option>
-              </select>
-            </div>
-            <div style="width:120px;">
+          <label>Transition / punch effects — check any you want, set a timestamp, then Add (adds all checked effects together at that moment; repeat with a different timestamp for more)</label>
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="flash" /> Flash</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="blur_transition" /> Blur</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="spin" /> Spin</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="glitch" /> Glitch</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="shake" /> Shake</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="whip_pan" /> Whip Pan</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="light_leak" /> Light Leak</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="zoom_punch" /> Zoom Punch (meme-style)</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="jump_cut" /> Cutting / Jump Cut</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="slide" /> Slide (drag-in)</label>
+            <label class="checkbox-row"><input type="checkbox" class="cueEffect" value="fade_out" /> Fade Out</label>
+          </div>
+          <div style="display:flex; gap:8px; align-items:flex-end; margin-top:10px;">
+            <div style="width:140px;">
               <label for="cueAtInput" style="font-size:11px;">At (seconds)</label>
               <input id="cueAtInput" type="number" min="0" step="0.5" value="4" />
             </div>
-            <button class="btn sm" id="addCueBtn" type="button">Add</button>
+            <button class="btn sm" id="addCueBtn" type="button">Add checked effects at this time</button>
           </div>
           <div id="cueList" style="margin-top:10px; display:flex; flex-direction:column; gap:6px;"></div>
         </div>
+
+        <div class="field">
+          <label>OR: Auto-loop effects across the whole video — check any, they'll cycle one-by-one every few seconds for the full length</label>
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="flash" /> Flash</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="blur_transition" /> Blur</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="spin" /> Spin</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="glitch" /> Glitch</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="shake" /> Shake</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="whip_pan" /> Whip Pan</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="light_leak" /> Light Leak</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="zoom_punch" /> Zoom Punch</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="jump_cut" /> Cutting / Jump Cut</label>
+            <label class="checkbox-row"><input type="checkbox" class="loopEffect" value="slide" /> Slide (drag-in)</label>
+          </div>
+          <div class="field" style="margin-top:8px; max-width:200px;">
+            <label for="loopIntervalInput">Every how many seconds?</label>
+            <input id="loopIntervalInput" type="number" min="1" step="1" value="5" />
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Shorter intervals on longer videos add many effect passes and take longer to process - start with 5-8s.</div>
+        </div>
+
         <div class="field">
           <label for="vineBoomAt">Vine Boom at (seconds, optional)</label>
           <input id="vineBoomAt" type="number" min="0" step="0.5" placeholder="e.g. 3" />
