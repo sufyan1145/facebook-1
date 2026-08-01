@@ -1,0 +1,101 @@
+diff --git a/jobs.videoEditWorker.js b/jobs.videoEditWorker.js
+index 3b1ed8b..3ff3b92 100644
+--- a/jobs.videoEditWorker.js
++++ b/jobs.videoEditWorker.js
+@@ -37,12 +37,15 @@ async function processVideoEditJob(job) {
+     const spec = typeof job.effects_json === 'string' ? JSON.parse(job.effects_json) : job.effects_json || {};
+ 
+     await VideoEditJob.setStatus(job.id, 'downloading');
++    logger.info(`[video-edit] job ${job.id}: downloading source`);
+     current = path.join(env.upload.tempDir, `${job.id}_0_source.mp4`);
+     await videoDownloadService.downloadVideo(job.source_url, current);
+     tempFiles.push(current);
++    logger.info(`[video-edit] job ${job.id}: source downloaded`);
+ 
+     let secondaryPath = null;
+     if (job.secondary_url && spec.splitScreen) {
++      logger.info(`[video-edit] job ${job.id}: downloading secondary (split-screen) video`);
+       secondaryPath = path.join(env.upload.tempDir, `${job.id}_secondary.mp4`);
+       await videoDownloadService.downloadVideo(job.secondary_url, secondaryPath);
+       tempFiles.push(secondaryPath);
+@@ -54,6 +57,7 @@ async function processVideoEditJob(job) {
+ 
+     // 1. Split screen (combines two videos into one before any other effect)
+     if (secondaryPath && spec.splitScreen) {
++      logger.info(`[video-edit] job ${job.id}: applying split-screen (${spec.splitScreen})`);
+       const out = next();
+       const mode = spec.splitScreen;
+       let filterComplex;
+@@ -67,6 +71,7 @@ async function processVideoEditJob(job) {
+       await runFfmpeg(['-i', current, '-i', secondaryPath, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
+       current = out;
+       tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: split-screen done`);
+     }
+ 
+     // 2. Simple -vf effects combined into one pass: color grade, point-effects
+@@ -85,14 +90,17 @@ async function processVideoEditJob(job) {
+     if (spec.blackAndWhite) simpleFilters.push('hue=s=0');
+ 
+     if (simpleFilters.length) {
++      logger.info(`[video-edit] job ${job.id}: applying color grade/point-effects/B&W pass`);
+       const out = next();
+       await runFfmpeg(['-i', current, '-vf', simpleFilters.join(','), ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
+       current = out;
+       tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: color grade/point-effects/B&W pass done`);
+     }
+ 
+     // 3. Light leak (needs a synthetic second input)
+     if ((spec.pointEffects || []).includes('light_leak')) {
++      logger.info(`[video-edit] job ${job.id}: applying light leak`);
+       const out = next();
+       const t0 = effectAt, t1 = (effectAt + 0.5).toFixed(2);
+       await runFfmpeg([
+@@ -103,10 +111,12 @@ async function processVideoEditJob(job) {
+       ]);
+       current = out;
+       tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: light leak done`);
+     }
+ 
+     // 4. Freeze frame
+     if (spec.freezeFrameAt != null) {
++      logger.info(`[video-edit] job ${job.id}: applying freeze frame`);
+       const t = Number(spec.freezeFrameAt);
+       const dur = Number(spec.freezeFrameDuration) || 1;
+       const framePng = path.join(env.upload.tempDir, `${job.id}_freeze_frame.png`);
+@@ -124,27 +134,33 @@ async function processVideoEditJob(job) {
+       ]);
+       current = out;
+       tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: freeze frame done`);
+     }
+ 
+     // 5. Vertical conversion (9:16, blurred-background pad, statically centered)
+     if (spec.verticalConvert) {
++      logger.info(`[video-edit] job ${job.id}: applying vertical conversion`);
+       const out = next();
+       await runFfmpeg(['-i', current, '-filter_complex', effects.verticalConversionFilterComplex(), '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
+       current = out;
+       tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: vertical conversion done`);
+     }
+ 
+     // 6. Speed ramping (affects both video and audio)
+     if (spec.speedFactor && Number(spec.speedFactor) !== 1) {
++      logger.info(`[video-edit] job ${job.id}: applying speed ramp (${spec.speedFactor}x)`);
+       const { videoFilter, audioFilter } = effects.speedFilters(Number(spec.speedFactor));
+       const out = next();
+       await runFfmpeg(['-i', current, '-vf', videoFilter, '-af', audioFilter, ...SAFE_VIDEO_ENCODE, out]);
+       current = out;
+       tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: speed ramp done`);
+     }
+ 
+     // 7. Vine boom (synthesized bass hit mixed into the audio at a timestamp)
+     if (spec.vineBoomAt != null) {
++      logger.info(`[video-edit] job ${job.id}: applying vine boom`);
+       const boomPath = path.join(env.upload.tempDir, `${job.id}_boom.wav`);
+       await runFfmpeg(['-f', 'lavfi', '-i', 'sine=frequency=60:duration=0.6', '-af', 'afade=t=out:st=0.1:d=0.5,volume=8', boomPath]);
+       tempFiles.push(boomPath);
