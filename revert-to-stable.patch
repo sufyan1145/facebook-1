@@ -1,0 +1,182 @@
+diff --git a/jobs.videoEditWorker.js b/jobs.videoEditWorker.js
+index b11edf0..2f611e3 100644
+--- a/jobs.videoEditWorker.js
++++ b/jobs.videoEditWorker.js
+@@ -87,9 +87,6 @@ async function processVideoEditJob(job) {
+     });
+     if (spec.beatSyncBpm) simpleFilters.push(effects.beatSyncFilter(Number(spec.beatSyncBpm)));
+     if (spec.blackAndWhite) simpleFilters.push('hue=s=0');
+-    (spec.styleEffects || []).forEach((key) => {
+-      if (effects.STYLE_EFFECT_FILTERS[key]) simpleFilters.push(effects.STYLE_EFFECT_FILTERS[key]);
+-    });
+ 
+     if (simpleFilters.length) {
+       logger.info(`[video-edit] job ${job.id}: applying color grade/point-effects/B&W pass`);
+@@ -123,24 +120,6 @@ async function processVideoEditJob(job) {
+       logger.info(`[video-edit] job ${job.id}: freeze frame done`);
+     }
+ 
+-    // 4b. Complex whole-clip effects that need their own split+blend pass
+-    const complexEffectMap = {
+-      glow: effects.glowFilterComplex,
+-      reflection: effects.reflectionFilterComplex,
+-      shadow: effects.shadowFilterComplex,
+-      lens_flare: effects.lensFlareFilterComplex,
+-    };
+-    for (const key of spec.complexEffects || []) {
+-      const builder = complexEffectMap[key];
+-      if (!builder) continue;
+-      logger.info(`[video-edit] job ${job.id}: applying ${key}`);
+-      const out = next();
+-      await runFfmpeg(['-i', current, '-filter_complex', builder(), '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
+-      current = out;
+-      tempFiles.push(out);
+-      logger.info(`[video-edit] job ${job.id}: ${key} done`);
+-    }
+-
+     // 5. Vertical conversion (9:16, blurred-background pad, statically centered)
+     if (spec.verticalConvert) {
+       logger.info(`[video-edit] job ${job.id}: applying vertical conversion`);
+diff --git a/public.videoedit.html b/public.videoedit.html
+index b37de00..8a63aa3 100644
+--- a/public.videoedit.html
++++ b/public.videoedit.html
+@@ -32,47 +32,9 @@
+             <option value="hdr">HDR effect</option>
+             <option value="vibrant">Vibrant colors</option>
+             <option value="skin_tone">Skin tone enhancement</option>
+-            <option value="warm">Warm / Golden hour</option>
+-            <option value="cool">Cool / Teal-blue</option>
+-            <option value="sepia">Sepia</option>
+-            <option value="vintage">Vintage / Faded film</option>
+-            <option value="moody">Moody / Dark contrast</option>
+-            <option value="bleach_bypass">Bleach bypass</option>
+-            <option value="pastel">Pastel / Soft</option>
+-            <option value="punchy">Punchy / High saturation</option>
+-            <option value="cross_process">Cross-process</option>
+-            <option value="matte">Matte / Faded</option>
+           </select>
+         </div>
+ 
+-        <div class="field">
+-          <label>Style effects (applied across the whole clip)</label>
+-          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="mirror" /> Mirror</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="chromatic_aberration" /> Chromatic Aberration / RGB Split</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="mosaic" /> Mosaic / Pixelate</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="emboss" /> Emboss</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="edge_detection" /> Edge Detection</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="outline" /> Outline / Stroke</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="posterize" /> Posterize</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="grain" /> Grain / Noise</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="fisheye" /> Fisheye</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="bulge" /> Bulge</label>
+-            <label class="checkbox-row"><input type="checkbox" class="styleEffect" value="pinch" /> Pinch</label>
+-          </div>
+-        </div>
+-
+-        <div class="field">
+-          <label>Glow / lighting effects (whole clip, one extra pass each)</label>
+-          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+-            <label class="checkbox-row"><input type="checkbox" class="complexEffect" value="glow" /> Glow / Bloom</label>
+-            <label class="checkbox-row"><input type="checkbox" class="complexEffect" value="reflection" /> Reflection</label>
+-            <label class="checkbox-row"><input type="checkbox" class="complexEffect" value="shadow" /> Shadow</label>
+-            <label class="checkbox-row"><input type="checkbox" class="complexEffect" value="lens_flare" /> Lens Flare</label>
+-          </div>
+-          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Not included: Kaleidoscope, Ripple/Wave, Oil Paint, Halftone - no clean, fast ffmpeg equivalent exists for these.</div>
+-        </div>
+-
+         <div class="field">
+           <label>Transition / punch effects (applied at the timestamp below)</label>
+           <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+diff --git a/public.videoedit.js b/public.videoedit.js
+index 7e4372f..67a5e3c 100644
+--- a/public.videoedit.js
++++ b/public.videoedit.js
+@@ -143,13 +143,9 @@ function updateSecondaryUrlVisibility() {
+     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
+ 
+     const pointEffects = Array.from(document.querySelectorAll('.pointEffect:checked')).map((el) => el.value);
+-    const styleEffects = Array.from(document.querySelectorAll('.styleEffect:checked')).map((el) => el.value);
+-    const complexEffects = Array.from(document.querySelectorAll('.complexEffect:checked')).map((el) => el.value);
+     const effects = {
+       colorGrade: document.getElementById('colorGrade').value || null,
+       pointEffects,
+-      styleEffects,
+-      complexEffects,
+       effectAt: Number(document.getElementById('effectAt').value) || 2,
+       speedFactor: Number(document.getElementById('speedFactor').value) || 1,
+       beatSyncBpm: document.getElementById('beatSyncBpm').value ? Number(document.getElementById('beatSyncBpm').value) : null,
+diff --git a/utils.videoEffects.js b/utils.videoEffects.js
+index 5954c61..910b314 100644
+--- a/utils.videoEffects.js
++++ b/utils.videoEffects.js
+@@ -27,54 +27,8 @@ const COLOR_GRADE_FILTERS = {
+   hdr: 'eq=contrast=1.2:brightness=0.02:saturation=1.15,unsharp=5:5:0.8:5:5:0.0',
+   vibrant: 'vibrance=intensity=0.4,eq=saturation=1.3',
+   skin_tone: 'selectivecolor=reds=0.05 0 0 0:yellows=0.05 0.02 0 0',
+-  warm: 'colorbalance=rm=0.15:gm=0.05:bm=-0.15,eq=saturation=1.1',
+-  cool: 'colorbalance=rm=-0.15:gm=0.0:bm=0.15,eq=saturation=1.05',
+-  sepia: 'colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131',
+-  vintage: "curves=r='0/0.05 0.5/0.5 1/0.9':b='0/0.1 0.5/0.45 1/0.8',eq=saturation=0.75:contrast=0.95",
+-  moody: 'eq=contrast=1.25:brightness=-0.06:saturation=0.85,colorbalance=bs=0.08:bm=0.03',
+-  bleach_bypass: 'eq=saturation=0.4:contrast=1.3:brightness=0.03',
+-  pastel: 'eq=saturation=0.7:brightness=0.06:contrast=0.9',
+-  punchy: 'eq=saturation=1.5:contrast=1.2',
+-  cross_process: 'colorbalance=gs=0.1:gm=0.1:rh=0.05:bh=-0.1,eq=saturation=1.2',
+-  matte: "curves=r='0/0.08 1/0.92':g='0/0.08 1/0.92':b='0/0.1 1/0.88',eq=contrast=0.9",
+ };
+ 
+-// ---- Whole-clip style effects (single-input, comma-joinable into the main
+-// filter chain alongside color grade - all individually tested against real
+-// ffmpeg). NOTE: Kaleidoscope, Ripple/Wave distortion, Oil Paint, and
+-// Halftone are NOT included - ffmpeg has no clean built-in filter for these,
+-// and the closest workaround (per-pixel `geq` expressions) is dramatically
+-// slower (~3x) and risks the same hangs/timeouts fixed elsewhere in this
+-// pipeline, especially on a memory/CPU-constrained server.
+-const STYLE_EFFECT_FILTERS = {
+-  mirror: 'hflip',
+-  chromatic_aberration: 'rgbashift=rh=4:bh=-4',
+-  mosaic: 'scale=64:36:flags=neighbor,scale=iw*10:ih*10:flags=neighbor',
+-  emboss: "convolution='0 1 0 1 0 -1 0 -1 0:0 1 0 1 0 -1 0 -1 0:0 1 0 1 0 -1 0 -1 0:0 1 0 1 0 -1 0 -1 0'",
+-  edge_detection: 'edgedetect=mode=colormix:high=0.3',
+-  outline: 'edgedetect=mode=colormix:high=0.15',
+-  posterize: 'lutyuv=y=val/32*32:u=val:v=val',
+-  grain: 'noise=alls=15:allf=t',
+-  fisheye: 'lenscorrection=k1=-0.3:k2=-0.1',
+-  bulge: 'lenscorrection=k1=-0.2:k2=-0.05',
+-  pinch: 'lenscorrection=k1=0.3:k2=0.1',
+-};
+-
+-// ---- Whole-clip effects that need a split+blend filter_complex graph
+-// (can't be comma-joined into the simple chain above) - each gets its own pass. ----
+-function glowFilterComplex() {
+-  return '[0:v]split=2[a][b];[b]gblur=sigma=8,eq=brightness=0.1[blurred];[a][blurred]blend=all_mode=screen[outv]';
+-}
+-function reflectionFilterComplex() {
+-  return '[0:v]split=2[top][bot];[bot]vflip,eq=brightness=-0.3,format=yuva420p,colorchannelmixer=aa=0.4[reflected];[top][reflected]vstack=inputs=2[outv]';
+-}
+-function shadowFilterComplex() {
+-  return "[0:v]split=2[a][b];[b]eq=brightness=-0.4,gblur=sigma=6,pad=iw+10:ih+10:5:5:black@0[shadow];[shadow][a]overlay=0:0[outv]";
+-}
+-function lensFlareFilterComplex() {
+-  return '[0:v]split=2[a][b];[b]eq=brightness=0.15:saturation=1.5,gblur=sigma=15[glow];[a][glow]blend=all_mode=addition:all_opacity=0.3[outv]';
+-}
+-
+ // ---- Point-effects (need a timestamp `t`) ----
+ function pointEffectFilter(key, t) {
+   const t2 = (extra) => (t + extra).toFixed(2);
+@@ -135,13 +89,8 @@ function verticalConversionFilterComplex() {
+ module.exports = {
+   esc,
+   COLOR_GRADE_FILTERS,
+-  STYLE_EFFECT_FILTERS,
+   pointEffectFilter,
+   beatSyncFilter,
+   speedFilters,
+   verticalConversionFilterComplex,
+-  glowFilterComplex,
+-  reflectionFilterComplex,
+-  shadowFilterComplex,
+-  lensFlareFilterComplex,
+ };

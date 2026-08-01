@@ -87,9 +87,6 @@ async function processVideoEditJob(job) {
     });
     if (spec.beatSyncBpm) simpleFilters.push(effects.beatSyncFilter(Number(spec.beatSyncBpm)));
     if (spec.blackAndWhite) simpleFilters.push('hue=s=0');
-    (spec.styleEffects || []).forEach((key) => {
-      if (effects.STYLE_EFFECT_FILTERS[key]) simpleFilters.push(effects.STYLE_EFFECT_FILTERS[key]);
-    });
 
     if (simpleFilters.length) {
       logger.info(`[video-edit] job ${job.id}: applying color grade/point-effects/B&W pass`);
@@ -121,24 +118,6 @@ async function processVideoEditJob(job) {
       current = out;
       tempFiles.push(out);
       logger.info(`[video-edit] job ${job.id}: freeze frame done`);
-    }
-
-    // 4b. Complex whole-clip effects that need their own split+blend pass
-    const complexEffectMap = {
-      glow: effects.glowFilterComplex,
-      reflection: effects.reflectionFilterComplex,
-      shadow: effects.shadowFilterComplex,
-      lens_flare: effects.lensFlareFilterComplex,
-    };
-    for (const key of spec.complexEffects || []) {
-      const builder = complexEffectMap[key];
-      if (!builder) continue;
-      logger.info(`[video-edit] job ${job.id}: applying ${key}`);
-      const out = next();
-      await runFfmpeg(['-i', current, '-filter_complex', builder(), '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
-      current = out;
-      tempFiles.push(out);
-      logger.info(`[video-edit] job ${job.id}: ${key} done`);
     }
 
     // 5. Vertical conversion (9:16, blurred-background pad, statically centered)
