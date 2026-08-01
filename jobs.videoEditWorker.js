@@ -98,7 +98,7 @@ async function processVideoEditJob(job) {
       await runFfmpeg([
         '-i', current,
         '-f', 'lavfi', '-i', 'color=c=0xFFA500:s=1280x720:d=30,format=rgba,colorchannelmixer=aa=0.35',
-        '-filter_complex', `[0:v][1:v]blend=all_mode=screen:enable='between(t\\,${t0}\\,${t1})'[outv]`,
+        '-filter_complex', `[1:v][0:v]scale2ref=w=iw:h=ih[leak][base];[base][leak]blend=all_mode=screen:enable='between(t\\,${t0}\\,${t1})'[outv]`,
         '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out,
       ]);
       current = out;
