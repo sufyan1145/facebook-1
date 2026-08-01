@@ -49,6 +49,15 @@ function pointEffectFilter(key, t) {
       return `curves=r='0/0 0.5/0.65 1/1':b='0/0 0.5/0.3 1/0.85':enable='between(t\\,${t}\\,${t2(0.6)})',eq=brightness=0.08:enable='between(t\\,${t}\\,${t2(0.6)})'`;
     case 'zoom_punch':
       return `crop=w='iw/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1)':h='ih/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1)':x='(iw-iw/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1))/2':y='(ih-ih/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1))/2'`;
+    case 'jump_cut':
+      // Brief black flash simulating a hard edit cut.
+      return `eq=brightness=-1:enable='between(t\\,${t}\\,${t2(0.08)})'`;
+    case 'fade_out':
+      // Fades to black starting at t, over 0.5s.
+      return `fade=t=out:st=${t}:d=0.5:color=black`;
+    case 'slide':
+      // Quick pan-in / wipe, like the next scene "sliding" into place.
+      return `crop=iw:ih:x='if(between(t\\,${t}\\,${t2(0.25)})\\,(iw*0.3)*(1-(t-${t})/0.25)\\,0)':y=0`;
     default:
       return null;
   }

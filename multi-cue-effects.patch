@@ -1,0 +1,183 @@
+diff --git a/jobs.videoEditWorker.js b/jobs.videoEditWorker.js
+index 2f611e3..c8160d5 100644
+--- a/jobs.videoEditWorker.js
++++ b/jobs.videoEditWorker.js
+@@ -80,9 +80,15 @@ async function processVideoEditJob(job) {
+     if (spec.colorGrade && effects.COLOR_GRADE_FILTERS[spec.colorGrade]) {
+       simpleFilters.push(effects.COLOR_GRADE_FILTERS[spec.colorGrade]);
+     }
+-    const effectAt = Number(spec.effectAt) || 2;
+-    (spec.pointEffects || []).forEach((key) => {
+-      const filter = effects.pointEffectFilter(key, effectAt);
++    // Effect cues: each one is its own {effect, at} pair, so different
++    // effects can fire at different timestamps (e.g. flash at 4s, jump cut
++    // at 6s, slide at 10s) instead of everything sharing one timestamp.
++    // Backward-compatible with the older pointEffects[] + effectAt shape.
++    const cues = Array.isArray(spec.effectCues) && spec.effectCues.length
++      ? spec.effectCues
++      : (spec.pointEffects || []).map((effect) => ({ effect, at: Number(spec.effectAt) || 2 }));
++    cues.forEach(({ effect, at }) => {
++      const filter = effects.pointEffectFilter(effect, Number(at) || 2);
+       if (filter) simpleFilters.push(filter);
+     });
+     if (spec.beatSyncBpm) simpleFilters.push(effects.beatSyncFilter(Number(spec.beatSyncBpm)));
+diff --git a/public.videoedit.html b/public.videoedit.html
+index 8a63aa3..d78e470 100644
+--- a/public.videoedit.html
++++ b/public.videoedit.html
+@@ -36,27 +36,35 @@
+         </div>
+ 
+         <div class="field">
+-          <label>Transition / punch effects (applied at the timestamp below)</label>
+-          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="flash" /> Flash</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="blur_transition" /> Blur</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="spin" /> Spin</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="glitch" /> Glitch</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="shake" /> Shake</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="whip_pan" /> Whip Pan</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="light_leak" /> Light Leak</label>
+-            <label class="checkbox-row"><input type="checkbox" class="pointEffect" value="zoom_punch" /> Zoom Punch (meme-style)</label>
++          <label>Transition / punch effects (each one gets its own timestamp)</label>
++          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
++            <div style="flex:1; min-width:160px;">
++              <label for="cueEffectSelect" style="font-size:11px;">Effect</label>
++              <select id="cueEffectSelect">
++                <option value="flash">Flash</option>
++                <option value="blur_transition">Blur</option>
++                <option value="spin">Spin</option>
++                <option value="glitch">Glitch</option>
++                <option value="shake">Shake</option>
++                <option value="whip_pan">Whip Pan</option>
++                <option value="light_leak">Light Leak</option>
++                <option value="zoom_punch">Zoom Punch (meme-style)</option>
++                <option value="jump_cut">Cutting / Jump Cut</option>
++                <option value="slide">Slide (drag-in transition)</option>
++                <option value="fade_out">Fade Out</option>
++              </select>
++            </div>
++            <div style="width:120px;">
++              <label for="cueAtInput" style="font-size:11px;">At (seconds)</label>
++              <input id="cueAtInput" type="number" min="0" step="0.5" value="4" />
++            </div>
++            <button class="btn sm" id="addCueBtn" type="button">Add</button>
+           </div>
++          <div id="cueList" style="margin-top:10px; display:flex; flex-direction:column; gap:6px;"></div>
+         </div>
+-        <div class="field-row">
+-          <div class="field">
+-            <label for="effectAt">Effect timestamp (seconds)</label>
+-            <input id="effectAt" type="number" min="0" step="0.5" value="2" />
+-          </div>
+-          <div class="field">
+-            <label for="vineBoomAt">Vine Boom at (seconds, optional)</label>
+-            <input id="vineBoomAt" type="number" min="0" step="0.5" placeholder="e.g. 3" />
+-          </div>
++        <div class="field">
++          <label for="vineBoomAt">Vine Boom at (seconds, optional)</label>
++          <input id="vineBoomAt" type="number" min="0" step="0.5" placeholder="e.g. 3" />
+         </div>
+ 
+         <div class="field-row">
+diff --git a/public.videoedit.js b/public.videoedit.js
+index 67a5e3c..5455d06 100644
+--- a/public.videoedit.js
++++ b/public.videoedit.js
+@@ -102,6 +102,36 @@ function updateSecondaryUrlVisibility() {
+   document.getElementById('secondaryUrlField').style.display = mode ? '' : 'none';
+ }
+ 
++const EFFECT_LABELS = {
++  flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
++  whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
++  jump_cut: 'Cutting / Jump Cut', slide: 'Slide (drag-in)', fade_out: 'Fade Out',
++};
++let effectCues = [];
++
++function renderCueList() {
++  const list = document.getElementById('cueList');
++  if (!effectCues.length) {
++    list.innerHTML = '<div style="font-size:12px; color:var(--text-muted);">No effects added yet.</div>';
++    return;
++  }
++  list.innerHTML = effectCues
++    .map(
++      (cue, i) =>
++        `<div style="display:flex; align-items:center; gap:8px; font-size:13px; background:var(--panel-2); padding:6px 10px; border-radius:6px;">
++          <span style="flex:1;">${EFFECT_LABELS[cue.effect] || cue.effect} @ ${cue.at}s</span>
++          <button type="button" class="btn xs danger" data-remove-cue="${i}">Remove</button>
++        </div>`
++    )
++    .join('');
++  list.querySelectorAll('button[data-remove-cue]').forEach((btn) => {
++    btn.addEventListener('click', () => {
++      effectCues.splice(Number(btn.dataset.removeCue), 1);
++      renderCueList();
++    });
++  });
++}
++
+ (async function init() {
+   const user = await requireAuthOrRedirect();
+   if (!user) return;
+@@ -111,10 +141,17 @@ function updateSecondaryUrlVisibility() {
+   await loadJobs();
+   updateFolderFieldVisibility();
+   updateSecondaryUrlVisibility();
++  renderCueList();
+ 
+   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
+   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
+   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
++  document.getElementById('addCueBtn').addEventListener('click', () => {
++    const effect = document.getElementById('cueEffectSelect').value;
++    const at = Number(document.getElementById('cueAtInput').value) || 0;
++    effectCues.push({ effect, at });
++    renderCueList();
++  });
+   document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
+     if (!confirm('Clear all edit history? (Drive files that were saved are not deleted, only the history list.)')) return;
+     try {
+@@ -142,11 +179,9 @@ function updateSecondaryUrlVisibility() {
+     const secondaryUrl = document.getElementById('secondaryUrlInput').value.trim();
+     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
+ 
+-    const pointEffects = Array.from(document.querySelectorAll('.pointEffect:checked')).map((el) => el.value);
+     const effects = {
+       colorGrade: document.getElementById('colorGrade').value || null,
+-      pointEffects,
+-      effectAt: Number(document.getElementById('effectAt').value) || 2,
++      effectCues,
+       speedFactor: Number(document.getElementById('speedFactor').value) || 1,
+       beatSyncBpm: document.getElementById('beatSyncBpm').value ? Number(document.getElementById('beatSyncBpm').value) : null,
+       freezeFrameAt: document.getElementById('freezeFrameAt').value ? Number(document.getElementById('freezeFrameAt').value) : null,
+@@ -165,6 +200,8 @@ function updateSecondaryUrlVisibility() {
+         body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive }),
+       });
+       msg.textContent = 'Started! Editing can take a few minutes depending on the effects chosen — check the history table below.';
++      effectCues = [];
++      renderCueList();
+       loadJobs();
+     } catch (err) {
+       msg.textContent = `Error: ${err.message}`;
+diff --git a/utils.videoEffects.js b/utils.videoEffects.js
+index 910b314..001ecaa 100644
+--- a/utils.videoEffects.js
++++ b/utils.videoEffects.js
+@@ -49,6 +49,15 @@ function pointEffectFilter(key, t) {
+       return `curves=r='0/0 0.5/0.65 1/1':b='0/0 0.5/0.3 1/0.85':enable='between(t\\,${t}\\,${t2(0.6)})',eq=brightness=0.08:enable='between(t\\,${t}\\,${t2(0.6)})'`;
+     case 'zoom_punch':
+       return `crop=w='iw/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1)':h='ih/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1)':x='(iw-iw/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1))/2':y='(ih-ih/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1))/2'`;
++    case 'jump_cut':
++      // Brief black flash simulating a hard edit cut.
++      return `eq=brightness=-1:enable='between(t\\,${t}\\,${t2(0.08)})'`;
++    case 'fade_out':
++      // Fades to black starting at t, over 0.5s.
++      return `fade=t=out:st=${t}:d=0.5:color=black`;
++    case 'slide':
++      // Quick pan-in / wipe, like the next scene "sliding" into place.
++      return `crop=iw:ih:x='if(between(t\\,${t}\\,${t2(0.25)})\\,(iw*0.3)*(1-(t-${t})/0.25)\\,0)':y=0`;
+     default:
+       return null;
+   }

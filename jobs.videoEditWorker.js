@@ -80,9 +80,15 @@ async function processVideoEditJob(job) {
     if (spec.colorGrade && effects.COLOR_GRADE_FILTERS[spec.colorGrade]) {
       simpleFilters.push(effects.COLOR_GRADE_FILTERS[spec.colorGrade]);
     }
-    const effectAt = Number(spec.effectAt) || 2;
-    (spec.pointEffects || []).forEach((key) => {
-      const filter = effects.pointEffectFilter(key, effectAt);
+    // Effect cues: each one is its own {effect, at} pair, so different
+    // effects can fire at different timestamps (e.g. flash at 4s, jump cut
+    // at 6s, slide at 10s) instead of everything sharing one timestamp.
+    // Backward-compatible with the older pointEffects[] + effectAt shape.
+    const cues = Array.isArray(spec.effectCues) && spec.effectCues.length
+      ? spec.effectCues
+      : (spec.pointEffects || []).map((effect) => ({ effect, at: Number(spec.effectAt) || 2 }));
+    cues.forEach(({ effect, at }) => {
+      const filter = effects.pointEffectFilter(effect, Number(at) || 2);
       if (filter) simpleFilters.push(filter);
     });
     if (spec.beatSyncBpm) simpleFilters.push(effects.beatSyncFilter(Number(spec.beatSyncBpm)));

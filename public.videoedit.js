@@ -102,6 +102,36 @@ function updateSecondaryUrlVisibility() {
   document.getElementById('secondaryUrlField').style.display = mode ? '' : 'none';
 }
 
+const EFFECT_LABELS = {
+  flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
+  whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
+  jump_cut: 'Cutting / Jump Cut', slide: 'Slide (drag-in)', fade_out: 'Fade Out',
+};
+let effectCues = [];
+
+function renderCueList() {
+  const list = document.getElementById('cueList');
+  if (!effectCues.length) {
+    list.innerHTML = '<div style="font-size:12px; color:var(--text-muted);">No effects added yet.</div>';
+    return;
+  }
+  list.innerHTML = effectCues
+    .map(
+      (cue, i) =>
+        `<div style="display:flex; align-items:center; gap:8px; font-size:13px; background:var(--panel-2); padding:6px 10px; border-radius:6px;">
+          <span style="flex:1;">${EFFECT_LABELS[cue.effect] || cue.effect} @ ${cue.at}s</span>
+          <button type="button" class="btn xs danger" data-remove-cue="${i}">Remove</button>
+        </div>`
+    )
+    .join('');
+  list.querySelectorAll('button[data-remove-cue]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      effectCues.splice(Number(btn.dataset.removeCue), 1);
+      renderCueList();
+    });
+  });
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
@@ -111,10 +141,17 @@ function updateSecondaryUrlVisibility() {
   await loadJobs();
   updateFolderFieldVisibility();
   updateSecondaryUrlVisibility();
+  renderCueList();
 
   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
+  document.getElementById('addCueBtn').addEventListener('click', () => {
+    const effect = document.getElementById('cueEffectSelect').value;
+    const at = Number(document.getElementById('cueAtInput').value) || 0;
+    effectCues.push({ effect, at });
+    renderCueList();
+  });
   document.getElementById('clearHistoryBtn').addEventListener('click', async () => {
     if (!confirm('Clear all edit history? (Drive files that were saved are not deleted, only the history list.)')) return;
     try {
@@ -142,11 +179,9 @@ function updateSecondaryUrlVisibility() {
     const secondaryUrl = document.getElementById('secondaryUrlInput').value.trim();
     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
 
-    const pointEffects = Array.from(document.querySelectorAll('.pointEffect:checked')).map((el) => el.value);
     const effects = {
       colorGrade: document.getElementById('colorGrade').value || null,
-      pointEffects,
-      effectAt: Number(document.getElementById('effectAt').value) || 2,
+      effectCues,
       speedFactor: Number(document.getElementById('speedFactor').value) || 1,
       beatSyncBpm: document.getElementById('beatSyncBpm').value ? Number(document.getElementById('beatSyncBpm').value) : null,
       freezeFrameAt: document.getElementById('freezeFrameAt').value ? Number(document.getElementById('freezeFrameAt').value) : null,
@@ -165,6 +200,8 @@ function updateSecondaryUrlVisibility() {
         body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive }),
       });
       msg.textContent = 'Started! Editing can take a few minutes depending on the effects chosen — check the history table below.';
+      effectCues = [];
+      renderCueList();
       loadJobs();
     } catch (err) {
       msg.textContent = `Error: ${err.message}`;
