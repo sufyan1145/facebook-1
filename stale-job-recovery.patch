@@ -1,0 +1,41 @@
+diff --git a/server.js b/server.js
+index e96a042..eb17f28 100644
+--- a/server.js
++++ b/server.js
+@@ -59,6 +59,36 @@ app.use(errorHandler);
+ 
+ app.listen(env.port, () => {
+   logger.info(`Drive2Facebook Automation server running on port ${env.port} [${env.nodeEnv}]`);
++  recoverStaleJobs().catch((err) => logger.error(`Stale job recovery failed: ${err.message}`));
+ });
+ 
++// If the process restarts (e.g. a redeploy) while a TikTok download or Video
++// Editor job is mid-processing, the in-memory queue that was running it is
++// gone - the job's DB row would otherwise stay stuck at "editing"/
++// "downloading" forever with nothing to pick it back up. Mark those as
++// failed on startup so the user sees a clear status instead of an
++// indefinite hang, and can just retry.
++async function recoverStaleJobs() {
++  const { query } = require('./config.database');
++  const message = 'Interrupted by a server restart - please try again.';
++  const tiktokRes = await query(
++    `UPDATE tiktok_download_jobs SET status = 'failed', error_message = $1, updated_at = now()
++     WHERE status IN ('pending','fetching_info','downloading','regenerating_metadata') RETURNING id`,
++    [message]
++  );
++  const videoEditRes = await query(
++    `UPDATE video_edit_jobs SET status = 'failed', error_message = $1, updated_at = now()
++     WHERE status IN ('pending','downloading','editing') RETURNING id`,
++    [message]
++  );
++  const videoGenRes = await query(
++    `UPDATE video_gen_jobs SET status = 'failed', error_message = $1, updated_at = now()
++     WHERE status IN ('pending','generating','downloading') AND provider = 'vertex' RETURNING id`,
++    [message]
++  );
++  if (tiktokRes.rowCount || videoEditRes.rowCount || videoGenRes.rowCount) {
++    logger.info(`Recovered ${tiktokRes.rowCount} stale TikTok job(s), ${videoEditRes.rowCount} stale Video Editor job(s), and ${videoGenRes.rowCount} stale Video Generator job(s) after restart.`);
++  }
++}
++
+ module.exports = app;
