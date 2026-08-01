@@ -20,6 +20,12 @@ const { notifyUploadEvent } = require('./services.notificationService');
 
 const EXEC_OPTS = { timeout: 15 * 60 * 1000, maxBuffer: 1024 * 1024 * 50 };
 
+// Same memory-safe encode settings that fixed the TikTok downloader's OOM
+// issue - low thread count + limited x264 lookahead keeps peak memory well
+// under control, and veryfast/crf20 keeps CPU time reasonable too. Used on
+// every pass below that re-encodes video (not needed where -c:v copy applies).
+const SAFE_VIDEO_ENCODE = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-x264-params', 'rc-lookahead=20:ref=2'];
+
 async function runFfmpeg(args) {
   await execFileAsync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-nostats', ...args], EXEC_OPTS);
 }
@@ -58,7 +64,7 @@ async function processVideoEditJob(job) {
       } else {
         filterComplex = '[0:v]scale=540:960[left];[1:v]scale=540:960[right];[left][right]hstack=inputs=2[outv]';
       }
-      await runFfmpeg(['-i', current, '-i', secondaryPath, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '0:a', '-c:a', 'copy', out]);
+      await runFfmpeg(['-i', current, '-i', secondaryPath, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
       current = out;
       tempFiles.push(out);
     }
@@ -80,7 +86,7 @@ async function processVideoEditJob(job) {
 
     if (simpleFilters.length) {
       const out = next();
-      await runFfmpeg(['-i', current, '-vf', simpleFilters.join(','), '-c:a', 'copy', out]);
+      await runFfmpeg(['-i', current, '-vf', simpleFilters.join(','), ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
       current = out;
       tempFiles.push(out);
     }
@@ -93,7 +99,7 @@ async function processVideoEditJob(job) {
         '-i', current,
         '-f', 'lavfi', '-i', 'color=c=0xFFA500:s=1280x720:d=30,format=rgba,colorchannelmixer=aa=0.35',
         '-filter_complex', `[0:v][1:v]blend=all_mode=screen:enable='between(t\\,${t0}\\,${t1})'[outv]`,
-        '-map', '[outv]', '-map', '0:a', '-c:a', 'copy', out,
+        '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out,
       ]);
       current = out;
       tempFiles.push(out);
@@ -114,7 +120,7 @@ async function processVideoEditJob(job) {
           `[1:v]loop=loop=${Math.round(dur * 25)}:size=1,setpts=N/25/TB,format=yuv420p[v2];` +
           `[0:v]trim=${t},setpts=PTS-STARTPTS[v3];` +
           `[v1][v2][v3]concat=n=3:v=1:a=0[outv]`,
-        '-map', '[outv]', '-map', '0:a', '-c:a', 'copy', out,
+        '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out,
       ]);
       current = out;
       tempFiles.push(out);
@@ -123,7 +129,7 @@ async function processVideoEditJob(job) {
     // 5. Vertical conversion (9:16, blurred-background pad, statically centered)
     if (spec.verticalConvert) {
       const out = next();
-      await runFfmpeg(['-i', current, '-filter_complex', effects.verticalConversionFilterComplex(), '-map', '[outv]', '-map', '0:a', '-c:a', 'copy', out]);
+      await runFfmpeg(['-i', current, '-filter_complex', effects.verticalConversionFilterComplex(), '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out]);
       current = out;
       tempFiles.push(out);
     }
@@ -132,7 +138,7 @@ async function processVideoEditJob(job) {
     if (spec.speedFactor && Number(spec.speedFactor) !== 1) {
       const { videoFilter, audioFilter } = effects.speedFilters(Number(spec.speedFactor));
       const out = next();
-      await runFfmpeg(['-i', current, '-vf', videoFilter, '-af', audioFilter, out]);
+      await runFfmpeg(['-i', current, '-vf', videoFilter, '-af', audioFilter, ...SAFE_VIDEO_ENCODE, out]);
       current = out;
       tempFiles.push(out);
     }
