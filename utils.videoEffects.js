@@ -46,7 +46,7 @@ function pointEffectFilter(key, t) {
     case 'whip_pan':
       return `gblur=sigma=15:enable='between(t\\,${t}\\,${t2(0.4)})'`;
     case 'light_leak':
-      return null; // handled separately (needs a second synthetic input)
+      return `curves=r='0/0 0.5/0.65 1/1':b='0/0 0.5/0.3 1/0.85':enable='between(t\\,${t}\\,${t2(0.6)})',eq=brightness=0.08:enable='between(t\\,${t}\\,${t2(0.6)})'`;
     case 'zoom_punch':
       return `crop=w='iw/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1)':h='ih/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1)':x='(iw-iw/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1))/2':y='(ih-ih/if(between(t\\,${t}\\,${t2(0.3)})\\,1.3\\,1))/2'`;
     default:

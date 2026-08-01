@@ -82,7 +82,6 @@ async function processVideoEditJob(job) {
     }
     const effectAt = Number(spec.effectAt) || 2;
     (spec.pointEffects || []).forEach((key) => {
-      if (key === 'light_leak') return; // handled separately below
       const filter = effects.pointEffectFilter(key, effectAt);
       if (filter) simpleFilters.push(filter);
     });
@@ -96,22 +95,6 @@ async function processVideoEditJob(job) {
       current = out;
       tempFiles.push(out);
       logger.info(`[video-edit] job ${job.id}: color grade/point-effects/B&W pass done`);
-    }
-
-    // 3. Light leak (needs a synthetic second input)
-    if ((spec.pointEffects || []).includes('light_leak')) {
-      logger.info(`[video-edit] job ${job.id}: applying light leak`);
-      const out = next();
-      const t0 = effectAt, t1 = (effectAt + 0.5).toFixed(2);
-      await runFfmpeg([
-        '-i', current,
-        '-f', 'lavfi', '-i', 'color=c=0xFFA500:s=1280x720:d=30,format=rgba,colorchannelmixer=aa=0.35',
-        '-filter_complex', `[1:v][0:v]scale2ref=w=iw:h=ih[leak][base];[base][leak]blend=all_mode=screen:enable='between(t\\,${t0}\\,${t1})'[outv]`,
-        '-map', '[outv]', '-map', '0:a', ...SAFE_VIDEO_ENCODE, '-c:a', 'copy', out,
-      ]);
-      current = out;
-      tempFiles.push(out);
-      logger.info(`[video-edit] job ${job.id}: light leak done`);
     }
 
     // 4. Freeze frame
