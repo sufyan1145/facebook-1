@@ -118,6 +118,13 @@ module.exports = {
     videoModel: (process.env.GROK_VIDEO_MODEL || 'grok-imagine-video').trim(),
   },
 
+  customTts: {
+    // Your self-hosted Avatar Video Tool API (Kokoro TTS). Update this in
+    // Railway every time the Cloudflare Tunnel restarts (its URL changes),
+    // or once it's permanently hosted, point it there instead.
+    apiUrl: (process.env.AVATAR_API_URL || '').trim().replace(/\/$/, ''),
+  },
+
   contentPipeline: {
     checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip

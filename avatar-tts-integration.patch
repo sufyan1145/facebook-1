@@ -1,0 +1,39 @@
+diff --git a/config.env.js b/config.env.js
+index c955d30..f071bd8 100644
+--- a/config.env.js
++++ b/config.env.js
+@@ -118,6 +118,13 @@ module.exports = {
+     videoModel: (process.env.GROK_VIDEO_MODEL || 'grok-imagine-video').trim(),
+   },
+ 
++  customTts: {
++    // Your self-hosted Avatar Video Tool API (Kokoro TTS). Update this in
++    // Railway every time the Cloudflare Tunnel restarts (its URL changes),
++    // or once it's permanently hosted, point it there instead.
++    apiUrl: (process.env.AVATAR_API_URL || '').trim().replace(/\/$/, ''),
++  },
++
+   contentPipeline: {
+     checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
+     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip
+diff --git a/jobs.contentPipelineWorker.js b/jobs.contentPipelineWorker.js
+index 57cd424..4d4563d 100644
+--- a/jobs.contentPipelineWorker.js
++++ b/jobs.contentPipelineWorker.js
+@@ -14,6 +14,7 @@ const Page = require('./models.Page');
+ const Log = require('./models.Log');
+ const geminiService = require('./services.geminiService');
+ const googleTtsService = require('./services.googleTtsService');
++const customTtsService = require('./services.customTtsService');
+ const kieVideoService = require('./services.kieVideoService');
+ const grokVideoService = require('./services.grokVideoService');
+ const vertexAiService = require('./services.vertexAiService');
+@@ -444,6 +445,8 @@ async function runPipeline(schedule) {
+       const sceneAudioPath = path.join(env.upload.tempDir, `${run.id}_voice${i}.mp3`);
+       if (env.contentPipeline.ttsProvider === 'vertex') {
+         await vertexAiService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
++      } else if (env.contentPipeline.ttsProvider === 'custom') {
++        await customTtsService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+       } else {
+         await googleTtsService.synthesizeToFile(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+       }

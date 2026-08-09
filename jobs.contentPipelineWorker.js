@@ -14,6 +14,7 @@ const Page = require('./models.Page');
 const Log = require('./models.Log');
 const geminiService = require('./services.geminiService');
 const googleTtsService = require('./services.googleTtsService');
+const customTtsService = require('./services.customTtsService');
 const kieVideoService = require('./services.kieVideoService');
 const grokVideoService = require('./services.grokVideoService');
 const vertexAiService = require('./services.vertexAiService');
@@ -444,6 +445,8 @@ async function runPipeline(schedule) {
       const sceneAudioPath = path.join(env.upload.tempDir, `${run.id}_voice${i}.mp3`);
       if (env.contentPipeline.ttsProvider === 'vertex') {
         await vertexAiService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+      } else if (env.contentPipeline.ttsProvider === 'custom') {
+        await customTtsService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
       } else {
         await googleTtsService.synthesizeToFile(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
       }
