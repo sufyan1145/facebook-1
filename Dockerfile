@@ -6,7 +6,10 @@ RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu curl
 # scheme often enough that an old yt-dlp starts failing with "Requested
 # format is not available" until it's updated. Pulling the standalone
 # binary straight from GitHub releases keeps this current at build time.
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+# Alpine uses musl libc (not glibc), so we need the musllinux-specific
+# standalone binary - the generic "yt-dlp" release asset is a Python script
+# that needs python3 installed, which this image doesn't have.
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_musllinux -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /usr/src/app
