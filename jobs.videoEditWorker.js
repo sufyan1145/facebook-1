@@ -13,6 +13,7 @@ const env = require('./config.env');
 const logger = require('./utils.logger');
 const VideoEditJob = require('./models.VideoEditJob');
 const videoDownloadService = require('./services.videoDownloadService');
+const transcribeDubService = require('./services.transcribeDubService');
 const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
 const ffmpeg = require('./utils.ffmpeg');
@@ -43,6 +44,25 @@ async function processVideoEditJob(job) {
     await videoDownloadService.downloadVideo(job.source_url, current);
     tempFiles.push(current);
     logger.info(`[video-edit] job ${job.id}: source downloaded`);
+
+    // 0. Transcribe & Dub (runs first, before any other effects, so later
+    //    steps operate on the already-dubbed video). Uses the self-hosted
+    //    transcribe-dub API: transcribes the original audio -> translates it
+    //    -> generates new speech in the target language via Kokoro -> we mux
+    //    that new audio onto the video here, replacing the original track.
+    if (spec.dubTargetLanguage) {
+      logger.info(`[video-edit] job ${job.id}: transcribing + dubbing into ${spec.dubTargetLanguage}`);
+      await VideoEditJob.setStatus(job.id, 'dubbing');
+      const dubbedAudioPath = path.join(env.upload.tempDir, `${job.id}_dubbed_audio.wav`);
+      await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null);
+      tempFiles.push(dubbedAudioPath);
+
+      const out = path.join(env.upload.tempDir, `${job.id}_0_dubbed.mp4`);
+      await runFfmpeg(['-i', current, '-i', dubbedAudioPath, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
+      current = out;
+      tempFiles.push(out);
+      logger.info(`[video-edit] job ${job.id}: dubbing done`);
+    }
 
     let secondaryPath = null;
     if (job.secondary_url && spec.splitScreen) {

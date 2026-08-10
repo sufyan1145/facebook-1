@@ -25,6 +25,45 @@
         </div>
 
         <div class="field">
+          <label class="checkbox-row" style="margin-bottom:8px;">
+            <input id="dubEnabled" type="checkbox" /> Transcribe &amp; dub into another language
+          </label>
+          <div id="dubFields" style="display:none;">
+            <div class="field-row">
+              <div class="field">
+                <label for="dubTargetLanguage">Dub into (target language)</label>
+                <select id="dubTargetLanguage">
+                  <option value="english">English</option>
+                  <option value="hindi">Hindi</option>
+                  <option value="chinese">Chinese</option>
+                  <option value="spanish">Spanish</option>
+                  <option value="french">French</option>
+                  <option value="italian">Italian</option>
+                  <option value="portuguese">Portuguese</option>
+                  <option value="japanese">Japanese</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="dubSourceLanguage">Original language (optional)</label>
+                <select id="dubSourceLanguage">
+                  <option value="">Auto-detect</option>
+                  <option value="english">English</option>
+                  <option value="hindi">Hindi</option>
+                  <option value="chinese">Chinese</option>
+                  <option value="spanish">Spanish</option>
+                  <option value="french">French</option>
+                  <option value="italian">Italian</option>
+                  <option value="portuguese">Portuguese</option>
+                  <option value="japanese">Japanese</option>
+                  <option value="german">German</option>
+                </select>
+              </div>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Replaces the video's original audio with an AI-generated voice speaking the target language. This runs first, before any effects below, and can take several minutes depending on the video's length.</div>
+          </div>
+        </div>
+
+        <div class="field">
           <label for="colorGrade">Color grading</label>
           <select id="colorGrade">
             <option value="">None</option>

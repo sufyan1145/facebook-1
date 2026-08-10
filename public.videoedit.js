@@ -1,6 +1,7 @@
 const STATUS_LABEL = {
   pending: 'Pending',
   downloading: 'Downloading…',
+  dubbing: 'Transcribing & dubbing…',
   editing: 'Applying effects…',
   completed: 'Completed',
   failed: 'Failed',
@@ -53,7 +54,7 @@ function renderJobs(jobs) {
     document.getElementById('previewCard').style.display = 'block';
   }
 
-  const stillActive = jobs.some((j) => ['pending', 'downloading', 'editing'].includes(j.status));
+  const stillActive = jobs.some((j) => ['pending', 'downloading', 'dubbing', 'editing'].includes(j.status));
   clearTimeout(jobsPollTimer);
   if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
 }
@@ -102,6 +103,11 @@ function updateSecondaryUrlVisibility() {
   document.getElementById('secondaryUrlField').style.display = mode ? '' : 'none';
 }
 
+function updateDubFieldsVisibility() {
+  const on = document.getElementById('dubEnabled').checked;
+  document.getElementById('dubFields').style.display = on ? '' : 'none';
+}
+
 const EFFECT_LABELS = {
   flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
   whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
@@ -141,11 +147,13 @@ function renderCueList() {
   await loadJobs();
   updateFolderFieldVisibility();
   updateSecondaryUrlVisibility();
+  updateDubFieldsVisibility();
   renderCueList();
 
   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
+  document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
   document.getElementById('addCueBtn').addEventListener('click', () => {
     const at = Number(document.getElementById('cueAtInput').value) || 0;
     const checked = Array.from(document.querySelectorAll('.cueEffect:checked'));
@@ -183,7 +191,11 @@ function renderCueList() {
     const secondaryUrl = document.getElementById('secondaryUrlInput').value.trim();
     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
 
+    const dubEnabled = document.getElementById('dubEnabled').checked;
+
     const effects = {
+      dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
+      dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       colorGrade: document.getElementById('colorGrade').value || null,
       effectCues,
       autoLoopEffects: Array.from(document.querySelectorAll('.loopEffect:checked')).map((el) => el.value),

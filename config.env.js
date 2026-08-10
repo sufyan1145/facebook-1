@@ -125,6 +125,13 @@ module.exports = {
     apiUrl: (process.env.AVATAR_API_URL || '').trim().replace(/\/$/, ''),
   },
 
+  transcribeDub: {
+    // Your self-hosted Transcribe-Dub API (Whisper + NLLB + Kokoro), used by
+    // the Video Editor's "Transcribe & Dub" feature. Same Cloudflare Tunnel
+    // caveat as customTts.apiUrl above - update in Railway on every restart.
+    apiUrl: (process.env.TRANSCRIBE_DUB_API_URL || '').trim().replace(/\/$/, ''),
+  },
+
   contentPipeline: {
     checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip

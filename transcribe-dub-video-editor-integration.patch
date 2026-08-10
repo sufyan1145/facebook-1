@@ -1,0 +1,242 @@
+diff --git a/config.env.js b/config.env.js
+index f071bd8..2f0458f 100644
+--- a/config.env.js
++++ b/config.env.js
+@@ -125,6 +125,13 @@ module.exports = {
+     apiUrl: (process.env.AVATAR_API_URL || '').trim().replace(/\/$/, ''),
+   },
+ 
++  transcribeDub: {
++    // Your self-hosted Transcribe-Dub API (Whisper + NLLB + Kokoro), used by
++    // the Video Editor's "Transcribe & Dub" feature. Same Cloudflare Tunnel
++    // caveat as customTts.apiUrl above - update in Railway on every restart.
++    apiUrl: (process.env.TRANSCRIBE_DUB_API_URL || '').trim().replace(/\/$/, ''),
++  },
++
+   contentPipeline: {
+     checkCron: process.env.CONTENT_PIPELINE_CRON || '* * * * *',
+     clipSeconds: Number(process.env.CONTENT_CLIP_SECONDS) || 10, // length of each generated video clip
+diff --git a/jobs.videoEditWorker.js b/jobs.videoEditWorker.js
+index 9d50aca..5248b2d 100644
+--- a/jobs.videoEditWorker.js
++++ b/jobs.videoEditWorker.js
+@@ -13,6 +13,7 @@ const env = require('./config.env');
+ const logger = require('./utils.logger');
+ const VideoEditJob = require('./models.VideoEditJob');
+ const videoDownloadService = require('./services.videoDownloadService');
++const transcribeDubService = require('./services.transcribeDubService');
+ const driveService = require('./services.googleDriveService');
+ const effects = require('./utils.videoEffects');
+ const ffmpeg = require('./utils.ffmpeg');
+@@ -44,6 +45,25 @@ async function processVideoEditJob(job) {
+     tempFiles.push(current);
+     logger.info(`[video-edit] job ${job.id}: source downloaded`);
+ 
++    // 0. Transcribe & Dub (runs first, before any other effects, so later
++    //    steps operate on the already-dubbed video). Uses the self-hosted
++    //    transcribe-dub API: transcribes the original audio -> translates it
++    //    -> generates new speech in the target language via Kokoro -> we mux
++    //    that new audio onto the video here, replacing the original track.
++    if (spec.dubTargetLanguage) {
++      logger.info(`[video-edit] job ${job.id}: transcribing + dubbing into ${spec.dubTargetLanguage}`);
++      await VideoEditJob.setStatus(job.id, 'dubbing');
++      const dubbedAudioPath = path.join(env.upload.tempDir, `${job.id}_dubbed_audio.wav`);
++      await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null);
++      tempFiles.push(dubbedAudioPath);
++
++      const out = path.join(env.upload.tempDir, `${job.id}_0_dubbed.mp4`);
++      await runFfmpeg(['-i', current, '-i', dubbedAudioPath, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
++      current = out;
++      tempFiles.push(out);
++      logger.info(`[video-edit] job ${job.id}: dubbing done`);
++    }
++
+     let secondaryPath = null;
+     if (job.secondary_url && spec.splitScreen) {
+       logger.info(`[video-edit] job ${job.id}: downloading secondary (split-screen) video`);
+diff --git a/public.videoedit.html b/public.videoedit.html
+index 4a9a285..e1f03de 100644
+--- a/public.videoedit.html
++++ b/public.videoedit.html
+@@ -24,6 +24,45 @@
+           <input id="urlInput" type="url" placeholder="https://..." />
+         </div>
+ 
++        <div class="field">
++          <label class="checkbox-row" style="margin-bottom:8px;">
++            <input id="dubEnabled" type="checkbox" /> Transcribe &amp; dub into another language
++          </label>
++          <div id="dubFields" style="display:none;">
++            <div class="field-row">
++              <div class="field">
++                <label for="dubTargetLanguage">Dub into (target language)</label>
++                <select id="dubTargetLanguage">
++                  <option value="english">English</option>
++                  <option value="hindi">Hindi</option>
++                  <option value="chinese">Chinese</option>
++                  <option value="spanish">Spanish</option>
++                  <option value="french">French</option>
++                  <option value="italian">Italian</option>
++                  <option value="portuguese">Portuguese</option>
++                  <option value="japanese">Japanese</option>
++                </select>
++              </div>
++              <div class="field">
++                <label for="dubSourceLanguage">Original language (optional)</label>
++                <select id="dubSourceLanguage">
++                  <option value="">Auto-detect</option>
++                  <option value="english">English</option>
++                  <option value="hindi">Hindi</option>
++                  <option value="chinese">Chinese</option>
++                  <option value="spanish">Spanish</option>
++                  <option value="french">French</option>
++                  <option value="italian">Italian</option>
++                  <option value="portuguese">Portuguese</option>
++                  <option value="japanese">Japanese</option>
++                  <option value="german">German</option>
++                </select>
++              </div>
++            </div>
++            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Replaces the video's original audio with an AI-generated voice speaking the target language. This runs first, before any effects below, and can take several minutes depending on the video's length.</div>
++          </div>
++        </div>
++
+         <div class="field">
+           <label for="colorGrade">Color grading</label>
+           <select id="colorGrade">
+diff --git a/public.videoedit.js b/public.videoedit.js
+index 0ed0e07..c796403 100644
+--- a/public.videoedit.js
++++ b/public.videoedit.js
+@@ -1,6 +1,7 @@
+ const STATUS_LABEL = {
+   pending: 'Pending',
+   downloading: 'Downloading…',
++  dubbing: 'Transcribing & dubbing…',
+   editing: 'Applying effects…',
+   completed: 'Completed',
+   failed: 'Failed',
+@@ -53,7 +54,7 @@ function renderJobs(jobs) {
+     document.getElementById('previewCard').style.display = 'block';
+   }
+ 
+-  const stillActive = jobs.some((j) => ['pending', 'downloading', 'editing'].includes(j.status));
++  const stillActive = jobs.some((j) => ['pending', 'downloading', 'dubbing', 'editing'].includes(j.status));
+   clearTimeout(jobsPollTimer);
+   if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
+ }
+@@ -102,6 +103,11 @@ function updateSecondaryUrlVisibility() {
+   document.getElementById('secondaryUrlField').style.display = mode ? '' : 'none';
+ }
+ 
++function updateDubFieldsVisibility() {
++  const on = document.getElementById('dubEnabled').checked;
++  document.getElementById('dubFields').style.display = on ? '' : 'none';
++}
++
+ const EFFECT_LABELS = {
+   flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
+   whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
+@@ -141,11 +147,13 @@ function renderCueList() {
+   await loadJobs();
+   updateFolderFieldVisibility();
+   updateSecondaryUrlVisibility();
++  updateDubFieldsVisibility();
+   renderCueList();
+ 
+   document.getElementById('refreshJobsBtn').addEventListener('click', loadJobs);
+   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
+   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
++  document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
+   document.getElementById('addCueBtn').addEventListener('click', () => {
+     const at = Number(document.getElementById('cueAtInput').value) || 0;
+     const checked = Array.from(document.querySelectorAll('.cueEffect:checked'));
+@@ -183,7 +191,11 @@ function renderCueList() {
+     const secondaryUrl = document.getElementById('secondaryUrlInput').value.trim();
+     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
+ 
++    const dubEnabled = document.getElementById('dubEnabled').checked;
++
+     const effects = {
++      dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
++      dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
+       colorGrade: document.getElementById('colorGrade').value || null,
+       effectCues,
+       autoLoopEffects: Array.from(document.querySelectorAll('.loopEffect:checked')).map((el) => el.value),
+diff --git a/services.transcribeDubService.js b/services.transcribeDubService.js
+new file mode 100644
+index 0000000..c9bc14b
+--- /dev/null
++++ b/services.transcribeDubService.js
+@@ -0,0 +1,71 @@
++/**
++ * Client for the user's own self-hosted Transcribe-Dub API (Whisper
++ * transcription + NLLB translation + Kokoro TTS dubbing), currently reached
++ * through a Cloudflare Tunnel while it runs on their PC.
++ *
++ * Flow: POST /api/v1/dub (multipart: file, target_language, source_language)
++ *       -> returns the dubbed audio (.wav) directly as the response body.
++ *
++ * NOTE: TRANSCRIBE_DUB_API_URL must be updated in Railway whenever the
++ * Cloudflare Quick Tunnel restarts (its URL changes every time) or when this
++ * moves to a permanently-hosted machine.
++ */
++const axios = require('axios');
++const fs = require('fs');
++const FormData = require('form-data');
++const env = require('./config.env');
++const logger = require('./utils.logger');
++
++// Processing a several-minute video through Whisper + NLLB + Kokoro on a
++// CPU-only machine can take multiple minutes - keep the timeout generous.
++const DUB_TIMEOUT_MS = 15 * 60 * 1000;
++
++/**
++ * Sends a video/audio file to the transcribe-dub API and gets back a dubbed
++ * audio (.wav) file, saved to destAudioPath.
++ *
++ * @param {string} sourceFilePath - path to the video/audio file to dub
++ * @param {string} destAudioPath - where to save the resulting .wav
++ * @param {string} targetLanguage - e.g. "hindi", "english", "chinese" (see
++ *   the transcribe-dub module's supported language list)
++ * @param {string|null} sourceLanguage - optional hint, e.g. "chinese".
++ *   Leave null/empty to auto-detect.
++ */
++async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage = null) {
++  const baseUrl = env.transcribeDub.apiUrl;
++  if (!baseUrl) throw new Error('TRANSCRIBE_DUB_API_URL is not set');
++  if (!targetLanguage) throw new Error('A target language is required for dubbing');
++
++  const form = new FormData();
++  form.append('file', fs.createReadStream(sourceFilePath));
++  form.append('target_language', targetLanguage);
++  if (sourceLanguage) form.append('source_language', sourceLanguage);
++
++  try {
++    const resp = await axios.post(`${baseUrl}/api/v1/dub`, form, {
++      headers: form.getHeaders(),
++      responseType: 'arraybuffer',
++      timeout: DUB_TIMEOUT_MS,
++      maxContentLength: Infinity,
++      maxBodyLength: Infinity,
++    });
++    fs.writeFileSync(destAudioPath, Buffer.from(resp.data));
++    return destAudioPath;
++  } catch (err) {
++    // err.response.data is an arraybuffer here (since responseType is set
++    // above), so decode it to read the actual {"detail": "..."} error the
++    // API sends back - otherwise this just logs "[object ArrayBuffer]".
++    let detail = err.message;
++    if (err.response?.data) {
++      try {
++        detail = JSON.parse(Buffer.from(err.response.data).toString('utf8')).detail || detail;
++      } catch (_) {
++        // response wasn't JSON - fall back to err.message
++      }
++    }
++    logger.error(`[transcribe-dub] dub FAILED: ${detail}`);
++    throw new Error(detail);
++  }
++}
++
++module.exports = { dubVideo };
