@@ -29,7 +29,8 @@ const logger = require('./utils.logger');
 
 const POLL_INTERVAL_MS = 5 * 1000;
 const MAX_WAIT_MS = 20 * 60 * 1000; // covers even a long video on a slow CPU
-const SHORT_TIMEOUT_MS = 30 * 1000; // for the quick calls (start, each poll)
+const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // dub-start includes uploading the whole video file - can be slow on a mobile-network tunnel
+const POLL_TIMEOUT_MS = 30 * 1000; // status polls carry no file, should always be fast
 const RESULT_TIMEOUT_MS = 2 * 60 * 1000; // fetching the finished audio file
 
 function extractErrorDetail(err) {
@@ -79,7 +80,7 @@ async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLan
   try {
     const startResp = await axios.post(`${baseUrl}/api/v1/dub-start`, form, {
       headers: form.getHeaders(),
-      timeout: SHORT_TIMEOUT_MS,
+      timeout: UPLOAD_TIMEOUT_MS,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
     });
@@ -100,7 +101,7 @@ async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLan
 
     let statusResp;
     try {
-      statusResp = await axios.get(`${baseUrl}/api/v1/dub-status/${jobId}`, { timeout: SHORT_TIMEOUT_MS });
+      statusResp = await axios.get(`${baseUrl}/api/v1/dub-status/${jobId}`, { timeout: POLL_TIMEOUT_MS });
     } catch (err) {
       // a single poll failing (e.g. a momentary tunnel blip) isn't fatal -
       // just try again on the next interval
