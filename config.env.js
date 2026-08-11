@@ -102,6 +102,19 @@ module.exports = {
     apiKey: (process.env.PEXELS_API_KEY || '').trim(),
   },
 
+  videoDownload: {
+    // Optional: a YouTube cookies.txt file, base64-encoded into one env
+    // var (same trick as VERTEX_CREDENTIALS_BASE64 above, safe for
+    // Railway). YouTube's "Sign in to confirm you're not a bot" block is
+    // an IP-reputation/anti-bot check on cloud IPs like Railway's - real
+    // browser cookies from a logged-in session are the standard yt-dlp
+    // workaround. Export with a browser extension like "Get cookies.txt
+    // LOCALLY", base64-encode the file, and set YTDLP_COOKIES_BASE64.
+    // Leave unset to skip this (downloads still work for sites that don't
+    // need it).
+    cookiesBase64: process.env.YTDLP_COOKIES_BASE64,
+  },
+
   vertexAi: {
     projectId: process.env.VERTEX_PROJECT_ID,
     location: (process.env.VERTEX_LOCATION || 'us-central1').trim(),

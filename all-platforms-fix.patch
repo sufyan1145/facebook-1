@@ -1,0 +1,140 @@
+diff --git a/Dockerfile b/Dockerfile
+index 1d0b484..8d62cc8 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -2,14 +2,16 @@ FROM node:18-alpine
+ 
+ RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu curl
+ 
+-# yt-dlp: Alpine's apk package lags behind - YouTube changes its extraction
+-# scheme often enough that an old yt-dlp starts failing with "Requested
+-# format is not available" until it's updated. Pulling the standalone
+-# binary straight from GitHub releases keeps this current at build time.
+-# Alpine uses musl libc (not glibc), so we need the musllinux-specific
+-# standalone binary - the generic "yt-dlp" release asset is a Python script
+-# that needs python3 installed, which this image doesn't have.
+-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_musllinux -o /usr/local/bin/yt-dlp \
++# yt-dlp: Alpine's apk package lags behind - YouTube/TikTok change their
++# extraction schemes often enough that an old yt-dlp starts failing until
++# it's updated. Pulling the standalone binary straight from the NIGHTLY
++# channel (not stable) keeps this as current as possible, since site
++# breakages often get fixed in nightly days before they reach a stable
++# release. Alpine uses musl libc (not glibc), so we need the
++# musllinux-specific standalone binary - the generic "yt-dlp" release asset
++# is a Python script that needs python3 installed, which this image doesn't
++# have.
++RUN curl -L https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_musllinux -o /usr/local/bin/yt-dlp \
+     && chmod a+rx /usr/local/bin/yt-dlp
+ 
+ WORKDIR /usr/src/app
+diff --git a/config.env.js b/config.env.js
+index 2f0458f..5523481 100644
+--- a/config.env.js
++++ b/config.env.js
+@@ -102,6 +102,19 @@ module.exports = {
+     apiKey: (process.env.PEXELS_API_KEY || '').trim(),
+   },
+ 
++  videoDownload: {
++    // Optional: a YouTube cookies.txt file, base64-encoded into one env
++    // var (same trick as VERTEX_CREDENTIALS_BASE64 above, safe for
++    // Railway). YouTube's "Sign in to confirm you're not a bot" block is
++    // an IP-reputation/anti-bot check on cloud IPs like Railway's - real
++    // browser cookies from a logged-in session are the standard yt-dlp
++    // workaround. Export with a browser extension like "Get cookies.txt
++    // LOCALLY", base64-encode the file, and set YTDLP_COOKIES_BASE64.
++    // Leave unset to skip this (downloads still work for sites that don't
++    // need it).
++    cookiesBase64: process.env.YTDLP_COOKIES_BASE64,
++  },
++
+   vertexAi: {
+     projectId: process.env.VERTEX_PROJECT_ID,
+     location: (process.env.VERTEX_LOCATION || 'us-central1').trim(),
+diff --git a/services.videoDownloadService.js b/services.videoDownloadService.js
+index f3163d6..93f700e 100644
+--- a/services.videoDownloadService.js
++++ b/services.videoDownloadService.js
+@@ -8,13 +8,39 @@
+ const { execFile } = require('child_process');
+ const util = require('util');
+ const fs = require('fs');
++const os = require('os');
++const path = require('path');
+ const execFileAsync = util.promisify(execFile);
+ const logger = require('./utils.logger');
++const env = require('./config.env');
+ 
+ const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
+ const TIMEOUT_MS = 8 * 60 * 1000;
+ const TRANSCODE_TIMEOUT_MS = 15 * 60 * 1000;
+ 
++// Lazily decode YTDLP_COOKIES_BASE64 (if set) to a cookies.txt file once,
++// and reuse that same file for every yt-dlp call. This is the standard
++// yt-dlp workaround for YouTube's "Sign in to confirm you're not a bot"
++// anti-bot block, which cloud/datacenter IPs (like Railway's) commonly hit.
++let cookiesFilePath = null;
++let cookiesFileChecked = false;
++function getCookiesArgs() {
++  if (!cookiesFileChecked) {
++    cookiesFileChecked = true;
++    if (env.videoDownload?.cookiesBase64) {
++      try {
++        const p = path.join(os.tmpdir(), 'ytdlp-cookies.txt');
++        fs.writeFileSync(p, Buffer.from(env.videoDownload.cookiesBase64, 'base64'));
++        cookiesFilePath = p;
++        logger.info('[videodl] loaded YouTube cookies from YTDLP_COOKIES_BASE64');
++      } catch (err) {
++        logger.error(`[videodl] failed to decode YTDLP_COOKIES_BASE64: ${err.message}`);
++      }
++    }
++  }
++  return cookiesFilePath ? ['--cookies', cookiesFilePath] : [];
++}
++
+ function isValidUrl(url) {
+   try {
+     const u = new URL(url);
+@@ -28,7 +54,7 @@ async function getMetadata(url) {
+   try {
+     const { stdout } = await execFileAsync(
+       YTDLP_BIN,
+-      ['--dump-json', '--no-warnings', '--skip-download', url],
++      [...getCookiesArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
+       { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
+     );
+     const data = JSON.parse(stdout.trim().split('\n')[0]);
+@@ -84,7 +110,7 @@ async function getCodecs(filePath) {
+ 
+ async function findAudioVideoFormatId(url) {
+   try {
+-    const { stdout } = await execFileAsync(YTDLP_BIN, ['--dump-json', '--no-warnings', '--skip-download', url], {
++    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
+       timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20,
+     });
+     const data = JSON.parse(stdout.trim().split('\n')[0]);
+@@ -101,20 +127,21 @@ async function findAudioVideoFormatId(url) {
+ 
+ async function downloadVideo(url, destPath) {
+   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
+-  await ytdlpDownload(url, rawPath, ['-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
++  const cookiesArgs = getCookiesArgs();
++  await ytdlpDownload(url, rawPath, [...cookiesArgs, '-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
+ 
+   let hasAudio = await hasAudioStream(rawPath);
+   if (!hasAudio) {
+     const explicitFormatId = await findAudioVideoFormatId(url);
+     if (explicitFormatId) {
+-      await ytdlpDownload(url, rawPath, ['-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
++      await ytdlpDownload(url, rawPath, [...cookiesArgs, '-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
+       hasAudio = await hasAudioStream(rawPath);
+     }
+   }
+   if (!hasAudio) {
+     try {
+       await ytdlpDownload(url, rawPath, [
+-        '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
++        ...cookiesArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
+       ]);
+       hasAudio = await hasAudioStream(rawPath);
+     } catch (mergeErr) {

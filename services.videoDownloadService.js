@@ -8,12 +8,38 @@
 const { execFile } = require('child_process');
 const util = require('util');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const execFileAsync = util.promisify(execFile);
 const logger = require('./utils.logger');
+const env = require('./config.env');
 
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const TIMEOUT_MS = 8 * 60 * 1000;
 const TRANSCODE_TIMEOUT_MS = 15 * 60 * 1000;
+
+// Lazily decode YTDLP_COOKIES_BASE64 (if set) to a cookies.txt file once,
+// and reuse that same file for every yt-dlp call. This is the standard
+// yt-dlp workaround for YouTube's "Sign in to confirm you're not a bot"
+// anti-bot block, which cloud/datacenter IPs (like Railway's) commonly hit.
+let cookiesFilePath = null;
+let cookiesFileChecked = false;
+function getCookiesArgs() {
+  if (!cookiesFileChecked) {
+    cookiesFileChecked = true;
+    if (env.videoDownload?.cookiesBase64) {
+      try {
+        const p = path.join(os.tmpdir(), 'ytdlp-cookies.txt');
+        fs.writeFileSync(p, Buffer.from(env.videoDownload.cookiesBase64, 'base64'));
+        cookiesFilePath = p;
+        logger.info('[videodl] loaded YouTube cookies from YTDLP_COOKIES_BASE64');
+      } catch (err) {
+        logger.error(`[videodl] failed to decode YTDLP_COOKIES_BASE64: ${err.message}`);
+      }
+    }
+  }
+  return cookiesFilePath ? ['--cookies', cookiesFilePath] : [];
+}
 
 function isValidUrl(url) {
   try {
@@ -28,7 +54,7 @@ async function getMetadata(url) {
   try {
     const { stdout } = await execFileAsync(
       YTDLP_BIN,
-      ['--dump-json', '--no-warnings', '--skip-download', url],
+      [...getCookiesArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
       { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
     );
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -84,7 +110,7 @@ async function getCodecs(filePath) {
 
 async function findAudioVideoFormatId(url) {
   try {
-    const { stdout } = await execFileAsync(YTDLP_BIN, ['--dump-json', '--no-warnings', '--skip-download', url], {
+    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
       timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20,
     });
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -101,20 +127,21 @@ async function findAudioVideoFormatId(url) {
 
 async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
-  await ytdlpDownload(url, rawPath, ['-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
+  const cookiesArgs = getCookiesArgs();
+  await ytdlpDownload(url, rawPath, [...cookiesArgs, '-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
 
   let hasAudio = await hasAudioStream(rawPath);
   if (!hasAudio) {
     const explicitFormatId = await findAudioVideoFormatId(url);
     if (explicitFormatId) {
-      await ytdlpDownload(url, rawPath, ['-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
+      await ytdlpDownload(url, rawPath, [...cookiesArgs, '-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
       hasAudio = await hasAudioStream(rawPath);
     }
   }
   if (!hasAudio) {
     try {
       await ytdlpDownload(url, rawPath, [
-        '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
+        ...cookiesArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
       ]);
       hasAudio = await hasAudioStream(rawPath);
     } catch (mergeErr) {
