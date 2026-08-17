@@ -46,7 +46,14 @@ function getCookiesArgs() {
 // fingerprint. The musllinux x86_64 build bundles curl_cffi so this works
 // without extra setup; if it's ever missing, yt-dlp just warns and
 // continues rather than failing the whole download.
+let impersonateChecked = false;
 function getImpersonateArgs() {
+  if (!impersonateChecked) {
+    impersonateChecked = true;
+    execFile(YTDLP_BIN, ['--list-impersonate-targets'], (err, stdout) => {
+      logger.info(`[videodl] impersonate targets check: ${(stdout || err?.message || '').trim().replace(/\n/g, ' | ')}`);
+    });
+  }
   return ['--impersonate', 'chrome'];
 }
 
