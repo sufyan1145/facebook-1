@@ -26,6 +26,19 @@
 
         <div class="field">
           <label class="checkbox-row" style="margin-bottom:8px;">
+            <input id="autoHighlightEnabled" type="checkbox" /> Auto-Highlight (shorten a long video to its loudest/most active moments)
+          </label>
+          <div id="autoHighlightFields" style="display:none;">
+            <div class="field" style="max-width:220px;">
+              <label for="autoHighlightMinutes">Target length (minutes)</label>
+              <input id="autoHighlightMinutes" type="number" min="0.5" step="0.5" value="1.5" />
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:-4px;">Not AI-based - picks the loudest/most active stretches of audio, not "what's important." Keeps content fragments and re-encodes them, which lowers automated detection risk (e.g. Content ID) - it does not make reposting someone else's copyrighted content legal.</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="checkbox-row" style="margin-bottom:8px;">
             <input id="dubEnabled" type="checkbox" /> Transcribe &amp; dub into another language
           </label>
           <div id="dubFields" style="display:none;">

@@ -16,6 +16,7 @@ const videoDownloadService = require('./services.videoDownloadService');
 const transcribeDubService = require('./services.transcribeDubService');
 const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
+const autoHighlight = require('./utils.autoHighlight');
 const ffmpeg = require('./utils.ffmpeg');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
@@ -75,6 +76,31 @@ async function processVideoEditJob(job) {
     await VideoEditJob.setStatus(job.id, 'editing');
     let step = 1;
     const next = () => path.join(env.upload.tempDir, `${job.id}_${step++}.mp4`);
+
+    // 0. Auto-Highlight (non-AI): shortens the video to a target length by
+    // keeping the loudest/most active segments and cutting quieter stretches.
+    if (spec.autoHighlightMinutes) {
+      logger.info(`[video-edit] job ${job.id}: auto-highlight - analyzing audio`);
+      const sourceDuration = await ffmpeg.getMediaDuration(current);
+      const targetSeconds = Math.max(10, Number(spec.autoHighlightMinutes) * 60);
+      if (targetSeconds < sourceDuration) {
+        const loudSegments = await autoHighlight.detectLoudSegments(current, sourceDuration);
+        const selected = autoHighlight.selectSegments(loudSegments, targetSeconds);
+        if (selected.length) {
+          logger.info(`[video-edit] job ${job.id}: auto-highlight - keeping ${selected.length} segment(s)`);
+          const out = next();
+          const filterComplex = autoHighlight.buildTrimConcatFilter(selected);
+          await runFfmpeg(['-i', current, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', ...SAFE_VIDEO_ENCODE, '-c:a', 'aac', out]);
+          current = out;
+          tempFiles.push(out);
+          logger.info(`[video-edit] job ${job.id}: auto-highlight done`);
+        } else {
+          logger.info(`[video-edit] job ${job.id}: auto-highlight - no segments found, skipping`);
+        }
+      } else {
+        logger.info(`[video-edit] job ${job.id}: auto-highlight - source already at/under target length, skipping`);
+      }
+    }
 
     // 1. Split screen (combines two videos into one before any other effect)
     if (secondaryPath && spec.splitScreen) {

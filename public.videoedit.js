@@ -108,6 +108,11 @@ function updateDubFieldsVisibility() {
   document.getElementById('dubFields').style.display = on ? '' : 'none';
 }
 
+function updateAutoHighlightFieldsVisibility() {
+  const on = document.getElementById('autoHighlightEnabled').checked;
+  document.getElementById('autoHighlightFields').style.display = on ? '' : 'none';
+}
+
 const EFFECT_LABELS = {
   flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
   whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
@@ -154,6 +159,8 @@ function renderCueList() {
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
   document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
+  document.getElementById('autoHighlightEnabled').addEventListener('change', updateAutoHighlightFieldsVisibility);
+  updateAutoHighlightFieldsVisibility();
   document.getElementById('addCueBtn').addEventListener('click', () => {
     const at = Number(document.getElementById('cueAtInput').value) || 0;
     const checked = Array.from(document.querySelectorAll('.cueEffect:checked'));
@@ -192,9 +199,11 @@ function renderCueList() {
     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
 
     const dubEnabled = document.getElementById('dubEnabled').checked;
+    const autoHighlightEnabled = document.getElementById('autoHighlightEnabled').checked;
 
     const effects = {
       dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
+      autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       colorGrade: document.getElementById('colorGrade').value || null,
       effectCues,

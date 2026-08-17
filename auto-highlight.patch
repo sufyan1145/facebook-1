@@ -1,0 +1,105 @@
+diff --git a/jobs.videoEditWorker.js b/jobs.videoEditWorker.js
+index 5248b2d..adf00b1 100644
+--- a/jobs.videoEditWorker.js
++++ b/jobs.videoEditWorker.js
+@@ -16,6 +16,7 @@ const videoDownloadService = require('./services.videoDownloadService');
+ const transcribeDubService = require('./services.transcribeDubService');
+ const driveService = require('./services.googleDriveService');
+ const effects = require('./utils.videoEffects');
++const autoHighlight = require('./utils.autoHighlight');
+ const ffmpeg = require('./utils.ffmpeg');
+ const Log = require('./models.Log');
+ const { notifyUploadEvent } = require('./services.notificationService');
+@@ -76,6 +77,31 @@ async function processVideoEditJob(job) {
+     let step = 1;
+     const next = () => path.join(env.upload.tempDir, `${job.id}_${step++}.mp4`);
+ 
++    // 0. Auto-Highlight (non-AI): shortens the video to a target length by
++    // keeping the loudest/most active segments and cutting quieter stretches.
++    if (spec.autoHighlightMinutes) {
++      logger.info(`[video-edit] job ${job.id}: auto-highlight - analyzing audio`);
++      const sourceDuration = await ffmpeg.getMediaDuration(current);
++      const targetSeconds = Math.max(10, Number(spec.autoHighlightMinutes) * 60);
++      if (targetSeconds < sourceDuration) {
++        const loudSegments = await autoHighlight.detectLoudSegments(current, sourceDuration);
++        const selected = autoHighlight.selectSegments(loudSegments, targetSeconds);
++        if (selected.length) {
++          logger.info(`[video-edit] job ${job.id}: auto-highlight - keeping ${selected.length} segment(s)`);
++          const out = next();
++          const filterComplex = autoHighlight.buildTrimConcatFilter(selected);
++          await runFfmpeg(['-i', current, '-filter_complex', filterComplex, '-map', '[outv]', '-map', '[outa]', ...SAFE_VIDEO_ENCODE, '-c:a', 'aac', out]);
++          current = out;
++          tempFiles.push(out);
++          logger.info(`[video-edit] job ${job.id}: auto-highlight done`);
++        } else {
++          logger.info(`[video-edit] job ${job.id}: auto-highlight - no segments found, skipping`);
++        }
++      } else {
++        logger.info(`[video-edit] job ${job.id}: auto-highlight - source already at/under target length, skipping`);
++      }
++    }
++
+     // 1. Split screen (combines two videos into one before any other effect)
+     if (secondaryPath && spec.splitScreen) {
+       logger.info(`[video-edit] job ${job.id}: applying split-screen (${spec.splitScreen})`);
+diff --git a/public.videoedit.html b/public.videoedit.html
+index e1f03de..f39a974 100644
+--- a/public.videoedit.html
++++ b/public.videoedit.html
+@@ -24,6 +24,19 @@
+           <input id="urlInput" type="url" placeholder="https://..." />
+         </div>
+ 
++        <div class="field">
++          <label class="checkbox-row" style="margin-bottom:8px;">
++            <input id="autoHighlightEnabled" type="checkbox" /> Auto-Highlight (shorten a long video to its loudest/most active moments)
++          </label>
++          <div id="autoHighlightFields" style="display:none;">
++            <div class="field" style="max-width:220px;">
++              <label for="autoHighlightMinutes">Target length (minutes)</label>
++              <input id="autoHighlightMinutes" type="number" min="0.5" step="0.5" value="1.5" />
++            </div>
++            <div style="font-size:11px; color:var(--text-muted); margin-top:-4px;">Not AI-based - picks the loudest/most active stretches of audio, not "what's important." Keeps content fragments and re-encodes them, which lowers automated detection risk (e.g. Content ID) - it does not make reposting someone else's copyrighted content legal.</div>
++          </div>
++        </div>
++
+         <div class="field">
+           <label class="checkbox-row" style="margin-bottom:8px;">
+             <input id="dubEnabled" type="checkbox" /> Transcribe &amp; dub into another language
+diff --git a/public.videoedit.js b/public.videoedit.js
+index c796403..f61f872 100644
+--- a/public.videoedit.js
++++ b/public.videoedit.js
+@@ -108,6 +108,11 @@ function updateDubFieldsVisibility() {
+   document.getElementById('dubFields').style.display = on ? '' : 'none';
+ }
+ 
++function updateAutoHighlightFieldsVisibility() {
++  const on = document.getElementById('autoHighlightEnabled').checked;
++  document.getElementById('autoHighlightFields').style.display = on ? '' : 'none';
++}
++
+ const EFFECT_LABELS = {
+   flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
+   whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
+@@ -154,6 +159,8 @@ function renderCueList() {
+   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
+   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
+   document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
++  document.getElementById('autoHighlightEnabled').addEventListener('change', updateAutoHighlightFieldsVisibility);
++  updateAutoHighlightFieldsVisibility();
+   document.getElementById('addCueBtn').addEventListener('click', () => {
+     const at = Number(document.getElementById('cueAtInput').value) || 0;
+     const checked = Array.from(document.querySelectorAll('.cueEffect:checked'));
+@@ -192,9 +199,11 @@ function renderCueList() {
+     if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
+ 
+     const dubEnabled = document.getElementById('dubEnabled').checked;
++    const autoHighlightEnabled = document.getElementById('autoHighlightEnabled').checked;
+ 
+     const effects = {
+       dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
++      autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
+       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
+       colorGrade: document.getElementById('colorGrade').value || null,
+       effectCues,
