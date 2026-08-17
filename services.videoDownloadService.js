@@ -41,6 +41,15 @@ function getCookiesArgs() {
   return cookiesFilePath ? ['--cookies', cookiesFilePath] : [];
 }
 
+// Browser-fingerprint spoofing - several sites (Facebook's "Cannot parse
+// data" error, YouTube bot-detection) now expect a realistic TLS/HTTP
+// fingerprint. The musllinux x86_64 build bundles curl_cffi so this works
+// without extra setup; if it's ever missing, yt-dlp just warns and
+// continues rather than failing the whole download.
+function getImpersonateArgs() {
+  return ['--impersonate', 'chrome'];
+}
+
 function isValidUrl(url) {
   try {
     const u = new URL(url);
@@ -54,7 +63,7 @@ async function getMetadata(url) {
   try {
     const { stdout } = await execFileAsync(
       YTDLP_BIN,
-      [...getCookiesArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
+      [...getCookiesArgs(), ...getImpersonateArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
       { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
     );
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -110,7 +119,7 @@ async function getCodecs(filePath) {
 
 async function findAudioVideoFormatId(url) {
   try {
-    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
+    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
       timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20,
     });
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -128,20 +137,21 @@ async function findAudioVideoFormatId(url) {
 async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
   const cookiesArgs = getCookiesArgs();
-  await ytdlpDownload(url, rawPath, [...cookiesArgs, '-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
+  const impersonateArgs = getImpersonateArgs();
+  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, '-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
 
   let hasAudio = await hasAudioStream(rawPath);
   if (!hasAudio) {
     const explicitFormatId = await findAudioVideoFormatId(url);
     if (explicitFormatId) {
-      await ytdlpDownload(url, rawPath, [...cookiesArgs, '-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
+      await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, '-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
       hasAudio = await hasAudioStream(rawPath);
     }
   }
   if (!hasAudio) {
     try {
       await ytdlpDownload(url, rawPath, [
-        ...cookiesArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
+        ...cookiesArgs, ...impersonateArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
       ]);
       hasAudio = await hasAudioStream(rawPath);
     } catch (mergeErr) {
