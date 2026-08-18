@@ -109,7 +109,10 @@ const worker = new Worker(
       if (tempPath) driveService.deleteTempFile(tempPath);
     }
   },
-  { connection, concurrency: 3 }
+  // Configurable so it can be tuned without a code change - e.g. lowered if
+  // Facebook/YouTube start rate-limiting rapid concurrent posts (a platform-
+  // side limit, separate from this server's own CPU/RAM capacity).
+  { connection, concurrency: Number(process.env.UPLOAD_CONCURRENCY) || 50 }
 );
 
 worker.on('completed', (job) => logger.info(`Job ${job.id} completed`));
