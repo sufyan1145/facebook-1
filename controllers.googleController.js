@@ -38,7 +38,7 @@ async function handleCallback(req, res, next) {
     await User.updateProfile(userId, { avatarUrl: profile.data.picture });
 
     await Log.record(userId, 'User Connected Drive', {});
-    res.redirect(`${env.frontendUrl}/dashboard.html?drive_connected=1`);
+    res.redirect(`${env.frontendUrl}/drive.html?drive_connected=1`);
   } catch (err) {
     next(err);
   }
