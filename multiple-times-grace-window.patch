@@ -1,0 +1,65 @@
+--- a/jobs.scheduleChecker.js
++++ b/jobs.scheduleChecker.js
+@@ -33,6 +33,17 @@ function nowInTimezone(timezone) {
+   };
+ }
+ 
++function hhmmInTimezone(date, timezone) {
++  const fmt = new Intl.DateTimeFormat('en-US', {
++    timeZone: timezone,
++    hour: '2-digit',
++    minute: '2-digit',
++    hour12: false,
++  });
++  const parts = fmt.formatToParts(date);
++  const get = (type) => parts.find((p) => p.type === type).value;
++  return `${get('hour')}:${get('minute')}`;
++}
++
+ function dateKeyInTimezone(date, timezone) {
+   const fmt = new Intl.DateTimeFormat('en-US', {
+     timeZone: timezone,
+@@ -79,17 +90,32 @@ async function checkSchedules() {
+           isDue = elapsedMs >= intervalMs;
+         }
+       } else if (schedule.repeat_type === 'multiple_times') {
+-        const { hhmm } = nowInTimezone(schedule.timezone);
++        const { hhmm, dateKey } = nowInTimezone(schedule.timezone);
+         const times = Array.isArray(schedule.times) ? schedule.times : [];
+-        if (times.includes(hhmm)) {
+-          if (schedule.last_run_at) {
+-            const diffMs = Date.now() - new Date(schedule.last_run_at).getTime();
+-            isDue = diffMs >= 55000; // avoid double-run within same minute
+-          } else {
+-            isDue = true;
+-          }
++        const [curH, curM] = hhmm.split(':').map(Number);
++        const curMinutes = curH * 60 + curM;
++        const GRACE_MINUTES = 15; // catch up if the exact minute was missed (e.g. deploy/restart)
++
++        const lastRunDateKey = schedule.last_run_at
++          ? dateKeyInTimezone(new Date(schedule.last_run_at), schedule.timezone)
++          : null;
++        const lastRunHHMM = schedule.last_run_at ? hhmmInTimezone(new Date(schedule.last_run_at), schedule.timezone) : null;
++        const [lastH, lastM] = lastRunHHMM ? lastRunHHMM.split(':').map(Number) : [null, null];
++        const lastRunMinutes = lastRunHHMM ? lastH * 60 + lastM : null;
++
++        for (const t of times) {
++          const [targetH, targetM] = t.split(':').map(Number);
++          const targetMinutes = targetH * 60 + targetM;
++          const withinWindow = curMinutes >= targetMinutes && curMinutes <= targetMinutes + GRACE_MINUTES;
++          if (!withinWindow) continue;
++
++          const alreadyRanForThisSlot =
++            lastRunDateKey === dateKey &&
++            lastRunMinutes !== null &&
++            lastRunMinutes >= targetMinutes &&
++            lastRunMinutes <= targetMinutes + GRACE_MINUTES;
++
++          if (!alreadyRanForThisSlot) {
++            isDue = true;
++            break;
++          }
+         }
+       } else {
+         const { hhmm, weekday, dateKey } = nowInTimezone(schedule.timezone);
