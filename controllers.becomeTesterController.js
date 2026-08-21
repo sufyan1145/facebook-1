@@ -22,7 +22,7 @@ function startAuth(req, res) {
   const params = new URLSearchParams({
     client_id: env.facebook.appId,
     redirect_uri: env.facebook.becomeTesterRedirectUri,
-    config_id: env.facebook.becomeTesterConfigId, // Facebook Login for Business requires a Login Configuration, not a raw scope list
+    scope: env.facebook.scopes.join(','), // reuse the exact scope list already proven to work for the Page-connect flow
     state,
     response_type: 'code',
   });
