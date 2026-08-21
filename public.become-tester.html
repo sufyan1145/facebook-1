@@ -6,18 +6,63 @@
 <title>Become a Tester</title>
 <style>
   body { font-family: -apple-system, sans-serif; background:#0b0b0f; color:#eaeaea; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; padding:24px; }
-  .card { max-width:420px; text-align:center; background:#16161c; border:1px solid #2a2a2a; border-radius:12px; padding:32px 24px; }
+  .card { max-width:440px; width:100%; background:#16161c; border:1px solid #2a2a2a; border-radius:12px; padding:32px 24px; }
   h1 { font-size:20px; margin:0 0 12px; }
-  p { color:#a3a3a3; line-height:1.5; margin-bottom:24px; }
-  a.btn { display:inline-block; background:#1877f2; color:#fff; text-decoration:none; padding:12px 24px; border-radius:8px; font-weight:600; }
-  a.btn:hover { background:#166fe0; }
+  p { color:#a3a3a3; line-height:1.5; margin-bottom:8px; font-size:14px; }
+  label { display:block; margin:16px 0 6px; font-size:13px; color:#d4d4d4; }
+  input { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:8px; border:1px solid #2a2a2a; background:#0b0b0f; color:#eaeaea; font-size:14px; }
+  button { margin-top:20px; width:100%; background:#1877f2; color:#fff; border:none; padding:12px; border-radius:8px; font-weight:600; font-size:15px; cursor:pointer; }
+  button:hover { background:#166fe0; }
+  button:disabled { opacity:0.6; cursor:not-allowed; }
+  .result { margin-top:16px; font-size:14px; padding:12px; border-radius:8px; display:none; }
+  .result.ok { display:block; background:rgba(34,197,94,0.12); color:#22c55e; }
+  .result.err { display:block; background:rgba(248,113,113,0.12); color:#f87171; }
+  a { color:#60a5fa; }
 </style>
 </head>
 <body>
   <div class="card">
     <h1>Get access to this app</h1>
-    <p>Click below to log in with Facebook. This just confirms who you are - it doesn't ask for any Page or posting permissions.</p>
-    <a class="btn" href="/become-tester">Login with Facebook</a>
+    <p>Enter your Facebook numeric ID below and you'll be added as a tester instantly.</p>
+    <p>Don't know your ID? Go to <a href="https://www.facebook.com/settings" target="_blank" rel="noopener">facebook.com/settings</a> - your ID is usually shown there, or visible in your profile page's URL.</p>
+    <label for="fbId">Your Facebook ID</label>
+    <input id="fbId" type="text" inputmode="numeric" placeholder="e.g. 100012345678901" />
+    <button id="submitBtn">Add me as a tester</button>
+    <div class="result" id="resultBox"></div>
   </div>
+  <script>
+    document.getElementById('submitBtn').addEventListener('click', async () => {
+      const fbId = document.getElementById('fbId').value.trim();
+      const box = document.getElementById('resultBox');
+      const btn = document.getElementById('submitBtn');
+      box.className = 'result';
+      box.style.display = 'none';
+
+      if (!fbId || !/^\d+$/.test(fbId)) {
+        box.className = 'result err';
+        box.textContent = 'Please enter a valid numeric Facebook ID.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Adding...';
+      try {
+        const res = await fetch('/become-tester/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fbUserId: fbId }),
+        });
+        const data = await res.json();
+        box.className = 'result ' + (data.success ? 'ok' : 'err');
+        box.textContent = data.success ? "You're added as a tester! You can close this page." : (data.message || 'Something went wrong.');
+      } catch (err) {
+        box.className = 'result err';
+        box.textContent = 'Network error - please try again.';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Add me as a tester';
+      }
+    });
+  </script>
 </body>
 </html>
