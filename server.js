@@ -53,6 +53,7 @@ app.use('/api/tiktok', require('./routes.tiktok'));
 app.use('/api/videoedit', require('./routes.videoEdit'));
 app.use('/api/text-image-posts', require('./routes.textImagePost'));
 app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
+app.use('/become-tester', require('./routes.becomeTester'));
 
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'OK' }));
 
