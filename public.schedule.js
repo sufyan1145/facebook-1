@@ -87,6 +87,17 @@ async function loadOptions() {
     document.getElementById('specificDaysField').style.display = e.target.value === 'specific_days' ? 'block' : 'none';
     document.getElementById('intervalHoursField').style.display = e.target.value === 'interval_hours' ? 'block' : 'none';
     document.getElementById('multipleTimesField').style.display = e.target.value === 'multiple_times' ? 'block' : 'none';
+
+    // Switching to "Multiple Times a Day": the Upload Time field above is ignored in this
+    // mode, so carry its value into the first time slot instead of silently dropping it -
+    // this is exactly what caused schedules to be created with a time nobody ever checks.
+    if (e.target.value === 'multiple_times') {
+      const uploadTimeVal = document.getElementById('uploadTime').value;
+      const firstSlot = document.querySelector('.multi-time-input');
+      if (uploadTimeVal && firstSlot && !firstSlot.value) {
+        firstSlot.value = uploadTimeVal;
+      }
+    }
   });
 
   function wireRemoveButton(btn) {

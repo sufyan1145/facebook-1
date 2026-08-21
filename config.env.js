@@ -79,6 +79,14 @@ module.exports = {
     tempDir: process.env.TEMP_UPLOAD_DIR || './uploads',
     scheduleCheckCron: process.env.SCHEDULE_CHECK_CRON || '* * * * *',
     maxRandomDelaySeconds: Number(process.env.MAX_RANDOM_DELAY_SECONDS) || 300,
+    // How many minutes late a schedule can still be caught and fired (covers deploys,
+    // restarts, or a slow previous tick). Applies to daily/weekly/monthly/specific_days
+    // AND multiple_times schedules alike, so no schedule silently skips a day.
+    scheduleGraceMinutes: Number(process.env.SCHEDULE_GRACE_MINUTES) || 20,
+    // How many schedules the checker evaluates/fires in parallel per tick, so a large
+    // number of schedules (hundreds/thousands) due at the same minute doesn't serialize
+    // behind slow Drive API calls and run past the next cron tick.
+    scheduleCheckConcurrency: Number(process.env.SCHEDULE_CHECK_CONCURRENCY) || 15,
   },
 
   kie: {

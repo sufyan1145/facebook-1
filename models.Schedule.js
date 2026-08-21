@@ -51,6 +51,47 @@ const Schedule = {
     await query('UPDATE schedules SET last_run_at = now() WHERE id = $1', [id]);
   },
 
+  /**
+   * Atomically claims a time-of-day "slot" (e.g. "18:00" for a multiple_times entry,
+   * or "daily"/"weekly"/"monthly"/"specific_days" for the single-time repeat modes)
+   * for a given calendar date (in the schedule's own timezone).
+   *
+   * Returns true if this call is the one that gets to fire the schedule for that
+   * slot+date; returns false if it was already claimed (by an earlier tick today,
+   * or by another concurrent worker process). This makes it safe to run several
+   * schedule-checker instances in parallel without double-posting, and safe to
+   * retry a late/slow tick without re-firing something already sent.
+   */
+  async claimSlot(id, slotKey, dateKey) {
+    const res = await query(
+      `UPDATE schedules
+       SET last_run_slots = jsonb_set(COALESCE(last_run_slots, '{}'::jsonb), ARRAY[$2::text], to_jsonb($3::text), true),
+           last_run_at = now()
+       WHERE id = $1
+         AND COALESCE(last_run_slots ->> $2, '') IS DISTINCT FROM $3
+       RETURNING id`,
+      [id, slotKey, dateKey]
+    );
+    return res.rows.length > 0;
+  },
+
+  /**
+   * Atomically claims an interval_hours schedule for firing "now" only if enough time
+   * has actually elapsed since its last run (or it has never run). Safe against
+   * concurrent/overlapping checker ticks and multiple worker replicas.
+   */
+  async claimInterval(id, intervalSeconds) {
+    const res = await query(
+      `UPDATE schedules
+       SET last_run_at = now()
+       WHERE id = $1
+         AND (last_run_at IS NULL OR now() - last_run_at >= ($2 || ' seconds')::interval)
+       RETURNING id`,
+      [id, intervalSeconds]
+    );
+    return res.rows.length > 0;
+  },
+
   async remove(userId, id) {
     await query('DELETE FROM schedules WHERE user_id = $1 AND id = $2', [userId, id]);
   },
