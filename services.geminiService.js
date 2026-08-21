@@ -107,7 +107,7 @@ async function generateImage(prompt, destPath) {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseModalities: ['IMAGE'] },
           },
-          { params: { key: env.googleAi.geminiApiKey } }
+          { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 } // 2 min cap - fails+retries instead of hanging forever if Google's side stalls
         ),
       { label: 'Gemini image' }
     );
