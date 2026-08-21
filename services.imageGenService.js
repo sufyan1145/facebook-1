@@ -12,15 +12,16 @@ const geminiService = require('./services.geminiService');
 const pollinationsService = require('./services.pollinationsService');
 const logger = require('./utils.logger');
 
-// Generates one still image from a text prompt, saved to destPath.
-// Tries Gemini (Nano Banana) first; if that throws for any reason, automatically
-// falls back to Pollinations.ai instead of failing the whole post.
+// Tries Gemini (Nano Banana) first with ZERO retries - a single quota-exceeded
+// (429) or any other failure falls straight through to Pollinations.ai instantly,
+// with no retry/backoff delay. This trades "wait a few minutes for Gemini to
+// possibly recover" for "never keep the post waiting."
 async function generateImage(prompt, destPath, { width = 1080, height = 1080 } = {}) {
   try {
-    await geminiService.generateImage(prompt, destPath);
+    await geminiService.generateImage(prompt, destPath, { retries: 0 });
     return;
   } catch (err) {
-    logger.warn(`[imageGenService] Gemini image generation failed (${err.message}) - falling back to Pollinations.ai`);
+    logger.warn(`[imageGenService] Gemini image generation failed (${err.message}) - falling back to Pollinations.ai instantly`);
   }
 
   await pollinationsService.generateImage(prompt, destPath, width, height);

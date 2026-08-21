@@ -59,7 +59,10 @@
         </div>
 
         <div class="card">
-          <div class="section-title">Recent Text + Image Posts</div>
+          <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
+            <span>Recent Text + Image Posts</span>
+            <button type="button" class="btn sm" id="refreshHistoryBtn">Refresh</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Page</th><th>Source</th><th>Status</th><th>When</th></tr></thead>
@@ -174,7 +177,10 @@
         </div>
 
         <div class="card">
-          <div class="section-title">Active Schedules</div>
+          <div class="section-title" style="display:flex; align-items:center; justify-content:space-between;">
+            <span>Active Schedules</span>
+            <button type="button" class="btn sm" id="refreshSchedulesBtn">Refresh</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Page</th><th>Source</th><th>Time</th><th>Repeat</th><th>Active</th><th></th></tr></thead>

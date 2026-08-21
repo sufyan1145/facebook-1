@@ -92,7 +92,7 @@ module.exports = { writeScript, generateImage };
  * (gemini-2.5-flash-image, aka "Nano Banana"). Saves the result as a PNG file.
  * This is a free-tier alternative to paying for Kie.ai image credits.
  */
-async function generateImage(prompt, destPath) {
+async function generateImage(prompt, destPath, { retries } = {}) {
   const fs = require('fs');
   const model = env.googleAi.imageModel;
   logger.info(`[Gemini] generateImage using model: ${JSON.stringify(model)}`);
@@ -109,7 +109,7 @@ async function generateImage(prompt, destPath) {
           },
           { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 } // 2 min cap - fails+retries instead of hanging forever if Google's side stalls
         ),
-      { label: 'Gemini image' }
+      { label: 'Gemini image', retries } // retries undefined -> retryOn429's own default (4) applies unchanged
     );
   } catch (err) {
     const geminiError = err.response?.data?.error;

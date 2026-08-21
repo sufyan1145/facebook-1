@@ -285,6 +285,9 @@ function initScheduleForm() {
   loadSchedules();
   initScheduleForm();
 
+  document.getElementById('refreshHistoryBtn').addEventListener('click', loadHistory);
+  document.getElementById('refreshSchedulesBtn').addEventListener('click', loadSchedules);
+
   document.getElementById('folderId').addEventListener('change', (e) => loadDriveImages(e.target.value));
   document.getElementById('pageId').addEventListener('change', () => {
     const folderId = document.getElementById('folderId').value;
