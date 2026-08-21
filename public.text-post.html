@@ -69,6 +69,121 @@
         </div>
       </div>
 
+      <div class="grid cols-2" style="align-items:start; margin-top:24px;">
+        <div class="card">
+          <div class="section-title">New Schedule (auto-post repeatedly)</div>
+          <form id="scheduleForm">
+            <div class="field">
+              <label for="schedPageId">Facebook Page</label>
+              <select id="schedPageId" required></select>
+            </div>
+
+            <div class="field">
+              <label for="schedMessage">Post Text</label>
+              <textarea id="schedMessage" rows="3" placeholder="Caption used for every scheduled post..."></textarea>
+            </div>
+
+            <div class="field">
+              <label>Image Source</label>
+              <div style="display:flex; gap:16px; margin-top:4px;">
+                <label class="checkbox-row"><input type="radio" name="schedImageSource" value="drive" checked /> Auto-pick a new image from Drive each run</label>
+                <label class="checkbox-row"><input type="radio" name="schedImageSource" value="ai" /> Generate a new AI image each run</label>
+              </div>
+              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">Drive mode always picks an image that hasn't been posted to this Page yet - it never repeats. If every image in the folder is used, that run is skipped.</div>
+            </div>
+
+            <div class="field" id="schedFolderField">
+              <label for="schedFolderId">Google Drive Folder</label>
+              <select id="schedFolderId"></select>
+            </div>
+
+            <div class="field" id="schedAiField" style="display:none;">
+              <label for="schedAiPrompt">Image prompt for AI</label>
+              <textarea id="schedAiPrompt" rows="3" placeholder="e.g. a cozy travel trailer parked by a lake at sunset, warm lighting"></textarea>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="schedUploadTime">Upload Time</label>
+                <input id="schedUploadTime" type="time" required />
+              </div>
+              <div class="field">
+                <label for="schedTimezone">Timezone</label>
+                <select id="schedTimezone" required>
+                  <option value="Asia/Karachi" selected>Pakistan (Asia/Karachi)</option>
+                  <option value="UTC">UTC</option>
+                  <option value="Asia/Dubai">UAE (Asia/Dubai)</option>
+                  <option value="Asia/Kolkata">India (Asia/Kolkata)</option>
+                  <option value="Asia/Dhaka">Bangladesh (Asia/Dhaka)</option>
+                  <option value="Asia/Riyadh">Saudi Arabia (Asia/Riyadh)</option>
+                  <option value="Europe/London">UK (Europe/London)</option>
+                  <option value="America/New_York">US Eastern (America/New_York)</option>
+                  <option value="America/Chicago">US Central (America/Chicago)</option>
+                  <option value="America/Denver">US Mountain (America/Denver)</option>
+                  <option value="America/Los_Angeles">US Pacific (America/Los_Angeles)</option>
+                  <option value="Australia/Sydney">Australia (Australia/Sydney)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="schedRepeat">Repeat</label>
+              <select id="schedRepeat">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="specific_days">Specific Days</option>
+                <option value="interval_hours">Every N Hours</option>
+                <option value="multiple_times">Multiple Times a Day</option>
+              </select>
+            </div>
+
+            <div class="field" id="schedIntervalHoursField" style="display:none;">
+              <label>Post every how many hours?</label>
+              <input type="number" id="schedIntervalHours" min="1" max="168" placeholder="e.g. 6" />
+            </div>
+
+            <div class="field" id="schedMultipleTimesField" style="display:none;">
+              <label>Post times (daily)</label>
+              <div id="schedMultipleTimesList" style="display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; gap:8px;">
+                  <input type="time" class="sched-multi-time-input" style="flex:1;" />
+                  <button type="button" class="btn sm danger sched-remove-time-btn">Remove</button>
+                </div>
+              </div>
+              <button type="button" class="btn sm" id="schedAddTimeBtn" style="margin-top:8px;">+ Add another time</button>
+              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">The Upload Time field above is ignored for this mode - only the times listed here are used.</div>
+            </div>
+
+            <div class="field" id="schedSpecificDaysField" style="display:none;">
+              <label>Days</label>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button type="button" class="btn sm sched-day-chip" data-day="1">Mon</button>
+                <button type="button" class="btn sm sched-day-chip" data-day="2">Tue</button>
+                <button type="button" class="btn sm sched-day-chip" data-day="3">Wed</button>
+                <button type="button" class="btn sm sched-day-chip" data-day="4">Thu</button>
+                <button type="button" class="btn sm sched-day-chip" data-day="5">Fri</button>
+                <button type="button" class="btn sm sched-day-chip" data-day="6">Sat</button>
+                <button type="button" class="btn sm sched-day-chip" data-day="0">Sun</button>
+              </div>
+            </div>
+
+            <div id="schedErrorText" class="error-text"></div>
+            <button type="submit" class="btn primary" style="margin-top:12px;">Create Schedule</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Active Schedules</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Page</th><th>Source</th><th>Time</th><th>Repeat</th><th>Active</th><th></th></tr></thead>
+              <tbody id="scheduleBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>

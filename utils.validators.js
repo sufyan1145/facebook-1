@@ -50,6 +50,20 @@ const textImagePostRules = [
   body('aiPrompt').if(body('imageSource').equals('ai')).trim().notEmpty().withMessage('Describe the image you want AI to generate'),
 ];
 
+const textImageScheduleRules = [
+  body('pageId').isUUID().withMessage('A Facebook Page is required'),
+  body('message').optional({ checkFalsy: true }).isString().isLength({ max: 5000 }).withMessage('Message is too long'),
+  body('imageSource').isIn(['drive', 'ai']).withMessage('imageSource must be drive or ai'),
+  body('folderId').if(body('imageSource').equals('drive')).notEmpty().withMessage('A Drive folder is required'),
+  body('aiPrompt').if(body('imageSource').equals('ai')).trim().notEmpty().withMessage('Describe the image you want AI to generate'),
+  body('uploadTime').matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('uploadTime must be HH:mm'),
+  body('timezone').notEmpty().withMessage('Timezone is required'),
+  body('repeat').isIn(['daily', 'weekly', 'monthly', 'specific_days', 'interval_hours', 'multiple_times']).withMessage('Invalid repeat type'),
+  body('intervalHours').optional({ checkFalsy: true }).isInt({ min: 1, max: 168 }).withMessage('intervalHours must be between 1 and 168'),
+  body('times').optional().isArray({ max: 24 }).withMessage('times must be an array'),
+  body('times.*').optional().matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('each time must be HH:mm'),
+];
+
 module.exports = {
   handleValidation,
   registerRules,
@@ -57,4 +71,5 @@ module.exports = {
   scheduleRules,
   idParamRule,
   textImagePostRules,
+  textImageScheduleRules,
 };

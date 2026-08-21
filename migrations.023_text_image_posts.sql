@@ -2,7 +2,7 @@
 -- pipeline's tables besides users/pages (read-only references), so it cannot
 -- affect existing video upload/schedule behavior.
 CREATE TABLE IF NOT EXISTS text_image_posts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   page_id UUID NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
   message TEXT,

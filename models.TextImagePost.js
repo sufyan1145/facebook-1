@@ -3,8 +3,8 @@ const { query } = require('./config.database');
 const TextImagePost = {
   async create(userId, data) {
     const res = await query(
-      `INSERT INTO text_image_posts (user_id, page_id, message, image_source, drive_file_id, drive_file_name, ai_prompt, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'queued')
+      `INSERT INTO text_image_posts (user_id, page_id, message, image_source, drive_file_id, drive_file_name, ai_prompt, schedule_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'queued')
        RETURNING *`,
       [
         userId,
@@ -14,6 +14,7 @@ const TextImagePost = {
         data.driveFileId || null,
         data.driveFileName || null,
         data.aiPrompt || null,
+        data.scheduleId || null,
       ]
     );
     return res.rows[0];
@@ -75,6 +76,18 @@ const TextImagePost = {
       [pageId, driveFileId]
     );
     return res.rows.length > 0;
+  },
+
+  // Broader than getPostedFileIds: also includes images currently queued/processing
+  // for this page, so the auto-scheduler never picks the same image twice across
+  // two ticks that both ran before the first one finished.
+  async getReservedFileIds(pageId) {
+    const res = await query(
+      `SELECT DISTINCT drive_file_id FROM text_image_posts
+       WHERE page_id = $1 AND status IN ('success', 'queued', 'processing') AND drive_file_id IS NOT NULL`,
+      [pageId]
+    );
+    return res.rows.map((r) => r.drive_file_id);
   },
 };
 
