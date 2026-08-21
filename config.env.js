@@ -88,7 +88,7 @@ module.exports = {
     // How many minutes late a schedule can still be caught and fired (covers deploys,
     // restarts, or a slow previous tick). Applies to daily/weekly/monthly/specific_days
     // AND multiple_times schedules alike, so no schedule silently skips a day.
-    scheduleGraceMinutes: Number(process.env.SCHEDULE_GRACE_MINUTES) || 20,
+    scheduleGraceMinutes: Number(process.env.SCHEDULE_GRACE_MINUTES) || 60,
     // How many schedules the checker evaluates/fires in parallel per tick, so a large
     // number of schedules (hundreds/thousands) due at the same minute doesn't serialize
     // behind slow Drive API calls and run past the next cron tick.
