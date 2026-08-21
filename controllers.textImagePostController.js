@@ -1,8 +1,14 @@
+const fs = require('fs');
+const path = require('path');
 const driveService = require('./services.googleDriveService');
 const TextImagePost = require('./models.TextImagePost');
 const Page = require('./models.Page');
 const Log = require('./models.Log');
 const { addTextImagePostJob } = require('./queue.queues');
+const imageGenService = require('./services.imageGenService');
+const previewStore = require('./services.previewStore');
+const credits = require('./utils.credits');
+const env = require('./config.env');
 
 // Lists images in a chosen Drive folder, for the "pick from my Drive" option.
 // If pageId is given, images already successfully posted to that page are
@@ -26,6 +32,49 @@ async function listDriveImages(req, res, next) {
   }
 }
 
+// Generates an AI image right now (for the "live preview" step) without
+// posting anything to Facebook. Charges the AI-image credit here, since this
+// is the point where the image is actually generated - if the person never
+// posts the preview, the generation still happened and is still charged,
+// same as generating it at post-time would have been.
+async function previewAiImage(req, res, next) {
+  try {
+    const prompt = (req.body.aiPrompt || '').trim();
+    if (!prompt) return res.status(400).json({ success: false, message: 'aiPrompt is required' });
+
+    await credits.charge(req.user.id, 1, 'text_image_post_ai', 'preview');
+
+    if (!fs.existsSync(env.upload.tempDir)) fs.mkdirSync(env.upload.tempDir, { recursive: true });
+    const tempPath = path.join(env.upload.tempDir, `preview_${req.user.id}_${Date.now()}.png`);
+    await imageGenService.generateImage(prompt, tempPath);
+
+    const buffer = fs.readFileSync(tempPath);
+    fs.unlinkSync(tempPath); // the bytes now live in Redis (previewStore) - no need to keep the local file
+    const previewId = await previewStore.savePreview(req.user.id, buffer);
+
+    res.json({ success: true, data: { previewId } });
+  } catch (err) {
+    if (err.code === 'INSUFFICIENT_CREDITS') {
+      return res.status(402).json({ success: false, message: err.message });
+    }
+    next(err);
+  }
+}
+
+// Streams a previously generated preview image back for display in an <img> tag.
+async function getPreviewImage(req, res, next) {
+  try {
+    const preview = await previewStore.getPreview(req.params.previewId);
+    if (!preview || preview.userId !== req.user.id) {
+      return res.status(404).json({ success: false, message: 'Preview not found or expired' });
+    }
+    res.set('Content-Type', 'image/png');
+    res.send(preview.buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function createPost(req, res, next) {
   try {
     const page = await Page.findById(req.user.id, req.body.pageId);
@@ -42,6 +91,16 @@ async function createPost(req, res, next) {
       }
     }
 
+    // If the person previewed an AI image first, confirm that preview still
+    // exists and belongs to them before queueing - the worker will consume it
+    // by previewId instead of generating (and charging for) a new image.
+    if (req.body.imageSource === 'ai' && req.body.previewId) {
+      const preview = await previewStore.getPreview(req.body.previewId);
+      if (!preview || preview.userId !== req.user.id) {
+        return res.status(400).json({ success: false, message: 'That preview has expired - generate a new preview before posting.' });
+      }
+    }
+
     const post = await TextImagePost.create(req.user.id, req.body);
     await addTextImagePostJob({
       userId: req.user.id,
@@ -53,6 +112,7 @@ async function createPost(req, res, next) {
       driveFileId: req.body.driveFileId,
       driveFileName: req.body.driveFileName,
       aiPrompt: req.body.aiPrompt,
+      previewId: req.body.previewId || null,
     });
     await Log.record(req.user.id, 'Text+Image Post Queued', { postId: post.id, source: req.body.imageSource });
 
@@ -71,4 +131,4 @@ async function listHistory(req, res, next) {
   }
 }
 
-module.exports = { listDriveImages, createPost, listHistory };
+module.exports = { listDriveImages, previewAiImage, getPreviewImage, createPost, listHistory };

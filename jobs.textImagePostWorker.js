@@ -7,6 +7,7 @@ const env = require('./config.env');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const imageGenService = require('./services.imageGenService');
+const previewStore = require('./services.previewStore');
 const TextImagePost = require('./models.TextImagePost');
 const Page = require('./models.Page');
 const Log = require('./models.Log');
@@ -15,7 +16,7 @@ const credits = require('./utils.credits');
 const worker = new Worker(
   'text-image-post',
   async (job) => {
-    const { userId, postId, pageId, pageDbId, message, imageSource, driveFileId, driveFileName, aiPrompt } = job.data;
+    const { userId, postId, pageId, pageDbId, message, imageSource, driveFileId, driveFileName, aiPrompt, previewId } = job.data;
 
     await TextImagePost.markProcessing(postId);
 
@@ -23,8 +24,17 @@ const worker = new Worker(
     try {
       if (imageSource === 'drive') {
         tempPath = await driveService.downloadFile(userId, driveFileId, driveFileName || 'image.jpg');
+      } else if (previewId) {
+        // Already generated (and already charged) during the live-preview step -
+        // pull the exact bytes the person saw, don't regenerate or charge again.
+        const preview = await previewStore.getPreview(previewId);
+        if (!preview) throw new Error('Preview image expired before it could be posted');
+        if (!fs.existsSync(env.upload.tempDir)) fs.mkdirSync(env.upload.tempDir, { recursive: true });
+        tempPath = path.join(env.upload.tempDir, `${postId}_ai.png`);
+        fs.writeFileSync(tempPath, preview.buffer);
+        await previewStore.deletePreview(previewId);
       } else {
-        // AI-generated: charge credits upfront (throws InsufficientCreditsError if not enough).
+        // AI-generated, no preview used: charge credits upfront (throws InsufficientCreditsError if not enough).
         await credits.charge(userId, 1, 'text_image_post_ai', postId);
         if (!fs.existsSync(env.upload.tempDir)) fs.mkdirSync(env.upload.tempDir, { recursive: true });
         tempPath = path.join(env.upload.tempDir, `${postId}_ai.png`);

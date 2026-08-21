@@ -48,6 +48,7 @@ const textImagePostRules = [
   body('imageSource').isIn(['drive', 'ai']).withMessage('imageSource must be drive or ai'),
   body('driveFileId').if(body('imageSource').equals('drive')).notEmpty().withMessage('Select an image from Drive'),
   body('aiPrompt').if(body('imageSource').equals('ai')).trim().notEmpty().withMessage('Describe the image you want AI to generate'),
+  body('previewId').optional({ checkFalsy: true }).isUUID().withMessage('Invalid previewId'),
 ];
 
 const textImageScheduleRules = [

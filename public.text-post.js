@@ -38,6 +38,7 @@ async function loadDriveImages(folderId) {
   selectedFileId = null;
   document.getElementById('selectedDriveFileId').value = '';
   document.getElementById('selectedDriveFileName').value = '';
+  document.getElementById('drivePreviewWrap').style.display = 'none';
 
   if (!folderId) {
     grid.innerHTML = '<div style="color:var(--text-faint); font-size:13px;">Select a folder to see its images.</div>';
@@ -56,7 +57,7 @@ async function loadDriveImages(folderId) {
     }
     grid.innerHTML = images
       .map(
-        (img) => `<div class="drive-image-thumb" data-id="${img.id}" data-name="${escapeHtml(img.name)}"
+        (img) => `<div class="drive-image-thumb" data-id="${img.id}" data-name="${escapeHtml(img.name)}" data-thumb="${img.thumbnailLink ? escapeHtml(img.thumbnailLink) : ''}"
           style="width:88px; height:88px; border-radius:8px; overflow:hidden; cursor:pointer; border:2px solid transparent; display:flex; align-items:center; justify-content:center; background:var(--bg-inset);">
           ${
             img.thumbnailLink
@@ -74,6 +75,16 @@ async function loadDriveImages(folderId) {
         selectedFileId = el.dataset.id;
         document.getElementById('selectedDriveFileId').value = el.dataset.id;
         document.getElementById('selectedDriveFileName').value = el.dataset.name;
+
+        const previewWrap = document.getElementById('drivePreviewWrap');
+        const previewImg = document.getElementById('drivePreviewImg');
+        if (el.dataset.thumb) {
+          // Drive thumbnail links end in a small size like "=s220" - bump it up for a bigger live preview.
+          previewImg.src = el.dataset.thumb.replace(/=s\d+$/, '=s800');
+          previewWrap.style.display = 'block';
+        } else {
+          previewWrap.style.display = 'none';
+        }
       });
     });
   } catch (err) {
@@ -301,6 +312,49 @@ function initScheduleForm() {
     });
   });
 
+  document.getElementById('aiPrompt').addEventListener('input', () => {
+    // Prompt changed since the last preview - the shown image no longer matches
+    // what would actually get posted, so clear it and require a fresh preview.
+    document.getElementById('aiPreviewId').value = '';
+    document.getElementById('aiPreviewWrap').style.display = 'none';
+  });
+
+  document.getElementById('previewAiBtn').addEventListener('click', async () => {
+    const prompt = document.getElementById('aiPrompt').value.trim();
+    const errorText = document.getElementById('errorText');
+    errorText.textContent = '';
+    if (!prompt) {
+      errorText.textContent = 'Describe the image you want AI to generate first.';
+      return;
+    }
+
+    const btn = document.getElementById('previewAiBtn');
+    const statusEl = document.getElementById('aiPreviewStatus');
+    const wrap = document.getElementById('aiPreviewWrap');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    wrap.style.display = 'block';
+    statusEl.textContent = 'Generating preview…';
+    document.getElementById('aiPreviewImg').style.display = 'none';
+
+    try {
+      const { data } = await apiFetch('/text-image-posts/preview-ai', {
+        method: 'POST',
+        body: JSON.stringify({ aiPrompt: prompt }),
+      });
+      document.getElementById('aiPreviewId').value = data.previewId;
+      const img = document.getElementById('aiPreviewImg');
+      img.src = `/api/text-image-posts/preview-ai/${data.previewId}`;
+      img.style.display = 'block';
+      statusEl.textContent = 'This is exactly what will be posted - regenerate if you want something different.';
+    } catch (err) {
+      statusEl.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Regenerate preview';
+    }
+  });
+
   document.getElementById('postForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorText = document.getElementById('errorText');
@@ -326,11 +380,15 @@ function initScheduleForm() {
           driveFileId: document.getElementById('selectedDriveFileId').value || null,
           driveFileName: document.getElementById('selectedDriveFileName').value || null,
           aiPrompt: document.getElementById('aiPrompt').value || null,
+          previewId: document.getElementById('aiPreviewId').value || null,
         }),
       });
       e.target.reset();
       document.getElementById('driveSourceField').style.display = 'block';
       document.getElementById('aiSourceField').style.display = 'none';
+      document.getElementById('aiPreviewWrap').style.display = 'none';
+      document.getElementById('drivePreviewWrap').style.display = 'none';
+      document.getElementById('previewAiBtn').textContent = 'Preview image';
       selectedFileId = null;
       loadHistory();
     } catch (err) {
