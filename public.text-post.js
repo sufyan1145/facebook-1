@@ -44,10 +44,14 @@ async function loadDriveImages(folderId) {
     return;
   }
 
+  const pageId = document.getElementById('pageId').value;
+
   try {
-    const { data: images } = await apiFetch(`/text-image-posts/drive-images?folderId=${encodeURIComponent(folderId)}`);
+    const qs = new URLSearchParams({ folderId });
+    if (pageId) qs.set('pageId', pageId);
+    const { data: images } = await apiFetch(`/text-image-posts/drive-images?${qs.toString()}`);
     if (!images.length) {
-      grid.innerHTML = '<div style="color:var(--text-faint); font-size:13px;">No images found in this folder.</div>';
+      grid.innerHTML = '<div style="color:var(--text-faint); font-size:13px;">No new images left in this folder for this Page - every image here has already been posted to it. Try another folder, another Page, or add fresh images to Drive.</div>';
       return;
     }
     grid.innerHTML = images
@@ -110,11 +114,15 @@ async function loadHistory() {
   if (!user) return;
   renderNav('text-post');
 
-  loadPageOptions();
-  loadFolderOptions();
+  await loadPageOptions();
+  await loadFolderOptions();
   loadHistory();
 
   document.getElementById('folderId').addEventListener('change', (e) => loadDriveImages(e.target.value));
+  document.getElementById('pageId').addEventListener('change', () => {
+    const folderId = document.getElementById('folderId').value;
+    if (folderId) loadDriveImages(folderId);
+  });
 
   document.querySelectorAll('input[name="imageSource"]').forEach((radio) => {
     radio.addEventListener('change', (e) => {

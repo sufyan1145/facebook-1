@@ -54,6 +54,28 @@ const TextImagePost = {
     );
     return res.rows;
   },
+
+  // Drive file ids already successfully posted to this specific page - used both to
+  // hide them from the picker and to block a duplicate repost of the same image on
+  // the same page (a different page is unaffected, so the same image can still be
+  // used there).
+  async getPostedFileIds(pageId) {
+    const res = await query(
+      `SELECT DISTINCT drive_file_id FROM text_image_posts
+       WHERE page_id = $1 AND status = 'success' AND drive_file_id IS NOT NULL`,
+      [pageId]
+    );
+    return res.rows.map((r) => r.drive_file_id);
+  },
+
+  async wasAlreadyPostedToPage(pageId, driveFileId) {
+    const res = await query(
+      `SELECT 1 FROM text_image_posts
+       WHERE page_id = $1 AND drive_file_id = $2 AND status = 'success' LIMIT 1`,
+      [pageId, driveFileId]
+    );
+    return res.rows.length > 0;
+  },
 };
 
 module.exports = TextImagePost;
