@@ -22,7 +22,7 @@ function startAuth(req, res) {
   const params = new URLSearchParams({
     client_id: env.facebook.appId,
     redirect_uri: env.facebook.becomeTesterRedirectUri,
-    scope: 'public_profile', // minimal - just enough to identify who to add, no advanced permissions
+    config_id: env.facebook.becomeTesterConfigId, // Facebook Login for Business requires a Login Configuration, not a raw scope list
     state,
     response_type: 'code',
   });

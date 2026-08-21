@@ -52,6 +52,7 @@ module.exports = {
     appSecret: process.env.FACEBOOK_APP_SECRET,
     redirectUri: process.env.FACEBOOK_REDIRECT_URI,
     becomeTesterRedirectUri: process.env.FACEBOOK_BECOME_TESTER_REDIRECT_URI,
+    becomeTesterConfigId: process.env.FACEBOOK_BECOME_TESTER_CONFIG_ID,
     graphVersion: process.env.FACEBOOK_GRAPH_VERSION || 'v19.0',
     scopes: [
       'email',
