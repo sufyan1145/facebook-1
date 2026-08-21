@@ -17,7 +17,7 @@
     <div class="topbar"><h1>Text + Image Post</h1></div>
     <div class="content">
 
-      <div class="grid cols-2" style="align-items:start;">
+      <div class="grid cols-3" style="align-items:start;">
         <div class="card">
           <div class="section-title">New Post</div>
           <form id="postForm">
@@ -42,9 +42,6 @@
             <div class="field" id="driveSourceField">
               <label for="folderId">Google Drive Folder</label>
               <select id="folderId"></select>
-              <div id="drivePreviewWrap" style="display:none; margin-top:10px;">
-                <img id="drivePreviewImg" style="max-width:100%; max-height:320px; border-radius:8px; display:block;" />
-              </div>
               <div id="driveImageGrid" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; max-height:280px; overflow-y:auto;"></div>
               <input type="hidden" id="selectedDriveFileId" />
               <input type="hidden" id="selectedDriveFileName" />
@@ -55,16 +52,24 @@
               <textarea id="aiPrompt" rows="3" placeholder="e.g. a cozy travel trailer parked by a lake at sunset, warm lighting"></textarea>
               <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">Uses your configured image AI provider (falls back automatically if it fails). A small credit charge applies per generated image.</div>
               <button type="button" class="btn sm" id="previewAiBtn" style="margin-top:8px;">Preview image</button>
-              <div id="aiPreviewWrap" style="display:none; margin-top:10px;">
-                <img id="aiPreviewImg" style="max-width:100%; max-height:320px; border-radius:8px; display:block;" />
-                <div id="aiPreviewStatus" style="font-size:12px; color:var(--text-faint); margin-top:4px;"></div>
-              </div>
               <input type="hidden" id="aiPreviewId" />
             </div>
 
             <div id="errorText" class="error-text"></div>
             <button type="submit" class="btn primary" style="margin-top:12px;">Post to Facebook</button>
           </form>
+        </div>
+
+        <div class="card" id="previewCard" style="display:none;">
+          <div class="section-title">Preview</div>
+          <div id="previewStatus" style="font-size:12px; color:var(--text-faint); margin-bottom:8px;"></div>
+          <div style="border:1px solid var(--border, #2a2a2a); border-radius:10px; overflow:hidden; background:var(--bg-inset);">
+            <img id="postPreviewImg" style="width:100%; display:block; max-height:360px; object-fit:cover;" />
+            <div style="padding:10px 12px;">
+              <div id="postPreviewPage" style="font-weight:600; font-size:13px;"></div>
+              <div id="postPreviewMessage" style="white-space:pre-wrap; margin-top:4px; font-size:13px; color:var(--text-muted);"></div>
+            </div>
+          </div>
         </div>
 
         <div class="card">

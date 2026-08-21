@@ -32,13 +32,31 @@ async function loadFolderOptions() {
   }
 }
 
+function updatePostPreview({ imageSrc } = {}) {
+  const card = document.getElementById('previewCard');
+  const pageSelect = document.getElementById('pageId');
+  const pageLabel = pageSelect.options[pageSelect.selectedIndex] ? pageSelect.options[pageSelect.selectedIndex].text : '';
+  const message = document.getElementById('message').value;
+
+  if (!imageSrc) {
+    card.style.display = 'none';
+    return;
+  }
+
+  document.getElementById('postPreviewImg').src = imageSrc;
+  document.getElementById('postPreviewPage').textContent = pageLabel || 'Facebook Page';
+  document.getElementById('postPreviewMessage').textContent = message || '(no caption text)';
+  document.getElementById('previewStatus').textContent = 'This is exactly what will be posted.';
+  card.style.display = 'block';
+}
+
 async function loadDriveImages(folderId) {
   const grid = document.getElementById('driveImageGrid');
   grid.innerHTML = '<div style="color:var(--text-faint); font-size:13px;">Loading images…</div>';
   selectedFileId = null;
   document.getElementById('selectedDriveFileId').value = '';
   document.getElementById('selectedDriveFileName').value = '';
-  document.getElementById('drivePreviewWrap').style.display = 'none';
+  updatePostPreview({});
 
   if (!folderId) {
     grid.innerHTML = '<div style="color:var(--text-faint); font-size:13px;">Select a folder to see its images.</div>';
@@ -76,15 +94,9 @@ async function loadDriveImages(folderId) {
         document.getElementById('selectedDriveFileId').value = el.dataset.id;
         document.getElementById('selectedDriveFileName').value = el.dataset.name;
 
-        const previewWrap = document.getElementById('drivePreviewWrap');
-        const previewImg = document.getElementById('drivePreviewImg');
-        if (el.dataset.thumb) {
-          // Drive thumbnail links end in a small size like "=s220" - bump it up for a bigger live preview.
-          previewImg.src = el.dataset.thumb.replace(/=s\d+$/, '=s800');
-          previewWrap.style.display = 'block';
-        } else {
-          previewWrap.style.display = 'none';
-        }
+        // Drive thumbnail links end in a small size like "=s220" - bump it up for the Preview card.
+        const bigThumb = el.dataset.thumb ? el.dataset.thumb.replace(/=s\d+$/, '=s800') : '';
+        updatePostPreview({ imageSrc: bigThumb || null });
       });
     });
   } catch (err) {
@@ -300,15 +312,12 @@ function initScheduleForm() {
   document.getElementById('refreshSchedulesBtn').addEventListener('click', loadSchedules);
 
   document.getElementById('folderId').addEventListener('change', (e) => loadDriveImages(e.target.value));
-  document.getElementById('pageId').addEventListener('change', () => {
-    const folderId = document.getElementById('folderId').value;
-    if (folderId) loadDriveImages(folderId);
-  });
 
   document.querySelectorAll('input[name="imageSource"]').forEach((radio) => {
     radio.addEventListener('change', (e) => {
       document.getElementById('driveSourceField').style.display = e.target.value === 'drive' ? 'block' : 'none';
       document.getElementById('aiSourceField').style.display = e.target.value === 'ai' ? 'block' : 'none';
+      updatePostPreview({});
     });
   });
 
@@ -316,7 +325,25 @@ function initScheduleForm() {
     // Prompt changed since the last preview - the shown image no longer matches
     // what would actually get posted, so clear it and require a fresh preview.
     document.getElementById('aiPreviewId').value = '';
-    document.getElementById('aiPreviewWrap').style.display = 'none';
+    updatePostPreview({});
+  });
+
+  document.getElementById('message').addEventListener('input', () => {
+    // Keep the Preview card's caption text in sync as the person types, as
+    // long as an image is already showing there.
+    const img = document.getElementById('postPreviewImg');
+    if (document.getElementById('previewCard').style.display !== 'none' && img.src) {
+      updatePostPreview({ imageSrc: img.src });
+    }
+  });
+
+  document.getElementById('pageId').addEventListener('change', () => {
+    const folderId = document.getElementById('folderId').value;
+    if (folderId) loadDriveImages(folderId);
+    const img = document.getElementById('postPreviewImg');
+    if (document.getElementById('previewCard').style.display !== 'none' && img.src) {
+      updatePostPreview({ imageSrc: img.src });
+    }
   });
 
   document.getElementById('previewAiBtn').addEventListener('click', async () => {
@@ -329,13 +356,10 @@ function initScheduleForm() {
     }
 
     const btn = document.getElementById('previewAiBtn');
-    const statusEl = document.getElementById('aiPreviewStatus');
-    const wrap = document.getElementById('aiPreviewWrap');
     btn.disabled = true;
     btn.textContent = 'Generating…';
-    wrap.style.display = 'block';
-    statusEl.textContent = 'Generating preview…';
-    document.getElementById('aiPreviewImg').style.display = 'none';
+    document.getElementById('previewCard').style.display = 'block';
+    document.getElementById('previewStatus').textContent = 'Generating preview…';
 
     try {
       const { data } = await apiFetch('/text-image-posts/preview-ai', {
@@ -343,12 +367,9 @@ function initScheduleForm() {
         body: JSON.stringify({ aiPrompt: prompt }),
       });
       document.getElementById('aiPreviewId').value = data.previewId;
-      const img = document.getElementById('aiPreviewImg');
-      img.src = `/api/text-image-posts/preview-ai/${data.previewId}`;
-      img.style.display = 'block';
-      statusEl.textContent = 'This is exactly what will be posted - regenerate if you want something different.';
+      updatePostPreview({ imageSrc: `/api/text-image-posts/preview-ai/${data.previewId}` });
     } catch (err) {
-      statusEl.textContent = err.message;
+      document.getElementById('previewStatus').textContent = err.message;
     } finally {
       btn.disabled = false;
       btn.textContent = 'Regenerate preview';
@@ -386,8 +407,7 @@ function initScheduleForm() {
       e.target.reset();
       document.getElementById('driveSourceField').style.display = 'block';
       document.getElementById('aiSourceField').style.display = 'none';
-      document.getElementById('aiPreviewWrap').style.display = 'none';
-      document.getElementById('drivePreviewWrap').style.display = 'none';
+      updatePostPreview({});
       document.getElementById('previewAiBtn').textContent = 'Preview image';
       selectedFileId = null;
       loadHistory();
