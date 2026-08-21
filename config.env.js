@@ -53,6 +53,10 @@ module.exports = {
     redirectUri: process.env.FACEBOOK_REDIRECT_URI,
     becomeTesterRedirectUri: process.env.FACEBOOK_BECOME_TESTER_REDIRECT_URI,
     becomeTesterConfigId: process.env.FACEBOOK_BECOME_TESTER_CONFIG_ID,
+    // The /roles edge needs a real admin's user access token, not an app access
+    // token - generate via Graph API Explorer (see /areas/facebook-1.md notes),
+    // expires periodically and needs refreshing.
+    becomeTesterAdminToken: process.env.FACEBOOK_BECOME_TESTER_ADMIN_TOKEN,
     graphVersion: process.env.FACEBOOK_GRAPH_VERSION || 'v19.0',
     scopes: [
       'email',

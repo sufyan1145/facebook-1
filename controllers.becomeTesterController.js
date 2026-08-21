@@ -24,9 +24,8 @@ async function addTester(req, res) {
   }
 
   try {
-    const appAccessToken = `${env.facebook.appId}|${env.facebook.appSecret}`;
     await axios.post(`${GRAPH_URL}/${env.facebook.appId}/roles`, null, {
-      params: { user: fbUserId, role: 'testers', access_token: appAccessToken },
+      params: { user: fbUserId, role: 'testers', access_token: env.facebook.becomeTesterAdminToken },
     });
 
     logger.info(`Added Facebook user ${fbUserId} as a tester (manual entry)`);
