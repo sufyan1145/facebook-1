@@ -104,23 +104,57 @@ async function loadDriveImages(folderId) {
   }
 }
 
+let historyPosts = [];
+
 function renderHistoryRows(posts) {
+  historyPosts = posts;
   const body = document.getElementById('historyBody');
   if (!posts.length) {
-    body.innerHTML = '<tr><td colspan="4" class="empty">No posts yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty">No posts yet.</td></tr>';
     return;
   }
   const statusClass = { success: 'success', failed: 'failed', processing: 'pending', queued: 'pending' };
   body.innerHTML = posts
-    .map(
-      (p) => `<tr>
+    .map((p) => {
+      const resultCell =
+        p.status === 'failed'
+          ? `<span style="color:var(--signal-red); font-size:12px;">${escapeHtml(p.error_message || '')}</span>`
+          : p.status === 'success'
+          ? `<button class="btn xs" data-history-preview="${p.id}">Preview</button>`
+          : '—';
+      return `<tr>
         <td>${escapeHtml(p.page_name || '—')}</td>
         <td style="text-transform:capitalize;">${escapeHtml(p.image_source)}</td>
         <td><span class="badge ${statusClass[p.status] || ''}">${escapeHtml(p.status)}</span></td>
+        <td>${resultCell}</td>
         <td>${new Date(p.created_at).toLocaleString()}</td>
-      </tr>`
-    )
+      </tr>`;
+    })
     .join('');
+
+  body.querySelectorAll('button[data-history-preview]').forEach((btn) => {
+    btn.addEventListener('click', () => showHistoryPreview(btn.dataset.historyPreview));
+  });
+}
+
+async function showHistoryPreview(postId) {
+  const post = historyPosts.find((p) => p.id === postId);
+  const card = document.getElementById('previewCard');
+  const statusEl = document.getElementById('previewStatus');
+
+  card.style.display = 'block';
+  statusEl.textContent = 'Loading…';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const { data } = await apiFetch(`/text-image-posts/${postId}/image`);
+    document.getElementById('postPreviewImg').src = data.imageUrl;
+    document.getElementById('postPreviewPage').textContent = post ? post.page_name || '' : '';
+    document.getElementById('postPreviewMessage').textContent = post ? post.message || '(no caption text)' : '';
+    statusEl.textContent = 'This is the actual image that was posted.';
+  } catch (err) {
+    statusEl.textContent = err.message;
+  }
 }
 
 async function loadHistory() {
@@ -128,7 +162,7 @@ async function loadHistory() {
     const { data } = await apiFetch('/text-image-posts');
     renderHistoryRows(data);
   } catch (err) {
-    document.getElementById('historyBody').innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    document.getElementById('historyBody').innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

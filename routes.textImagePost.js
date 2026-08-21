@@ -9,5 +9,6 @@ router.post('/preview-ai', requireAuth, controller.previewAiImage);
 router.get('/preview-ai/:previewId', requireAuth, controller.getPreviewImage);
 router.post('/', requireAuth, textImagePostRules, handleValidation, controller.createPost);
 router.get('/', requireAuth, controller.listHistory);
+router.get('/:id/image', requireAuth, controller.getHistoryImage);
 
 module.exports = router;

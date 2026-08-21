@@ -132,4 +132,14 @@ async function postPhotoToPage({ pageId, pageAccessToken, filePath, message }) {
   }
 }
 
-module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage };
+// Fetches the actual hosted image URL for a published post - used by the
+// History "Preview" button, since our own temp file is deleted right after
+// posting. Facebook is the permanent source of truth for what was posted.
+async function getPostImageUrl(facebookPostId, pageAccessToken) {
+  const resp = await axios.get(`${GRAPH_URL}/${facebookPostId}`, {
+    params: { fields: 'full_picture', access_token: pageAccessToken },
+  });
+  return resp.data.full_picture || null;
+}
+
+module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage, getPostImageUrl };

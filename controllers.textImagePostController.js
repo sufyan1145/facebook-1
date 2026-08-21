@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const driveService = require('./services.googleDriveService');
+const facebookService = require('./services.facebookService');
 const TextImagePost = require('./models.TextImagePost');
 const Page = require('./models.Page');
 const Log = require('./models.Log');
@@ -9,6 +10,27 @@ const imageGenService = require('./services.imageGenService');
 const previewStore = require('./services.previewStore');
 const credits = require('./utils.credits');
 const env = require('./config.env');
+
+// Fetches the actual posted image for a history row (used by the History
+// table's "Preview" button) - straight from Facebook, since our own temp
+// file was deleted right after the original post completed.
+async function getHistoryImage(req, res, next) {
+  try {
+    const post = await TextImagePost.findByIdForUser(req.user.id, req.params.id);
+    if (!post || post.status !== 'success' || !post.facebook_post_id) {
+      return res.status(404).json({ success: false, message: 'No posted image available for this entry' });
+    }
+    const page = await Page.findById(req.user.id, post.page_id);
+    if (!page) return res.status(404).json({ success: false, message: 'Page no longer available' });
+
+    const imageUrl = await facebookService.getPostImageUrl(post.facebook_post_id, page.page_access_token);
+    if (!imageUrl) return res.status(404).json({ success: false, message: 'Facebook did not return an image for this post' });
+
+    res.json({ success: true, data: { imageUrl } });
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Lists images in a chosen Drive folder, for the "pick from my Drive" option.
 // If pageId is given, images already successfully posted to that page are
@@ -131,4 +153,4 @@ async function listHistory(req, res, next) {
   }
 }
 
-module.exports = { listDriveImages, previewAiImage, getPreviewImage, createPost, listHistory };
+module.exports = { listDriveImages, previewAiImage, getPreviewImage, createPost, listHistory, getHistoryImage };

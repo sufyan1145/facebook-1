@@ -25,6 +25,11 @@ const TextImagePost = {
     return res.rows[0];
   },
 
+  async findByIdForUser(userId, id) {
+    const res = await query('SELECT * FROM text_image_posts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+  },
+
   async markProcessing(id) {
     await query(`UPDATE text_image_posts SET status = 'processing', updated_at = now() WHERE id = $1`, [id]);
   },
