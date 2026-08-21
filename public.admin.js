@@ -52,6 +52,7 @@ const HIDEABLE_SECTIONS = [
     { key: 'content-schedule', label: 'Content Pipeline' },
     { key: 'tiktok', label: 'TikTok Downloader' },
     { key: 'videoedit', label: 'Video Editor' },
+    { key: 'text-post', label: 'Text + Image Post' },
     { key: 'pages', label: 'Facebook Pages' },
     { key: 'schedule', label: 'Schedules' },
     { key: 'queue', label: 'Queue' },

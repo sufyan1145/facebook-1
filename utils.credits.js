@@ -10,6 +10,7 @@ const MONTHLY_CREDITS = 20000;
 const RATE_BY_REASON = {
   pipeline_video: 2,
   video_generator: 18.75,
+  text_image_post_ai: 40, // flat cost for one AI-generated image (charged as costForSeconds(1, ...))
 };
 const DEFAULT_RATE = 2;
 

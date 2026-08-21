@@ -71,6 +71,30 @@ async function listUnpublishedVideos(userId, folderId, alreadyUploadedIds = []) 
   return files.filter((f) => !alreadyUploadedIds.includes(f.id));
 }
 
+const IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+];
+
+// Lists image files in a Drive folder for the Text + Image Post picker.
+// Read-only listing, independent of listUnpublishedVideos (video pipeline).
+async function listImagesInFolder(userId, folderId) {
+  const auth = await getValidGoogleClient(userId);
+  const drive = google.drive({ version: 'v3', auth });
+
+  const mimeQuery = IMAGE_MIME_TYPES.map((m) => `mimeType='${m}'`).join(' or ');
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed = false and (${mimeQuery})`,
+    fields: 'files(id, name, size, mimeType, createdTime, thumbnailLink)',
+    orderBy: 'createdTime desc',
+    pageSize: 200,
+  });
+
+  return res.data.files || [];
+}
+
 async function downloadFile(userId, fileId, fileName) {
   const auth = await getValidGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth });
@@ -146,4 +170,4 @@ function deleteTempFile(filePath) {
   }
 }
 
-module.exports = { listFolders, listUnpublishedVideos, downloadFile, uploadFile, streamFile, deleteTempFile, VIDEO_MIME_TYPES };
+module.exports = { listFolders, listUnpublishedVideos, listImagesInFolder, downloadFile, uploadFile, streamFile, deleteTempFile, VIDEO_MIME_TYPES };

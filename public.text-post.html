@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Text + Image Post — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Text + Image Post</h1></div>
+    <div class="content">
+
+      <div class="grid cols-2" style="align-items:start;">
+        <div class="card">
+          <div class="section-title">New Post</div>
+          <form id="postForm">
+            <div class="field">
+              <label for="pageId">Facebook Page</label>
+              <select id="pageId" required></select>
+            </div>
+
+            <div class="field">
+              <label for="message">Post Text</label>
+              <textarea id="message" rows="4" placeholder="Write the caption/text for this post..."></textarea>
+            </div>
+
+            <div class="field">
+              <label>Image Source</label>
+              <div style="display:flex; gap:16px; margin-top:4px;">
+                <label class="checkbox-row"><input type="radio" name="imageSource" value="drive" checked /> Pick from my Drive</label>
+                <label class="checkbox-row"><input type="radio" name="imageSource" value="ai" /> Generate with AI</label>
+              </div>
+            </div>
+
+            <div class="field" id="driveSourceField">
+              <label for="folderId">Google Drive Folder</label>
+              <select id="folderId"></select>
+              <div id="driveImageGrid" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; max-height:280px; overflow-y:auto;"></div>
+              <input type="hidden" id="selectedDriveFileId" />
+              <input type="hidden" id="selectedDriveFileName" />
+            </div>
+
+            <div class="field" id="aiSourceField" style="display:none;">
+              <label for="aiPrompt">Describe the image you want AI to generate</label>
+              <textarea id="aiPrompt" rows="3" placeholder="e.g. a cozy travel trailer parked by a lake at sunset, warm lighting"></textarea>
+              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">Uses your configured image AI provider. A small credit charge applies per generated image.</div>
+            </div>
+
+            <div id="errorText" class="error-text"></div>
+            <button type="submit" class="btn primary" style="margin-top:12px;">Post to Facebook</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Recent Text + Image Posts</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Page</th><th>Source</th><th>Status</th><th>When</th></tr></thead>
+              <tbody id="historyBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="text-post.js"></script>
+</body>
+</html>

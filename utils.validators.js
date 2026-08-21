@@ -42,10 +42,19 @@ const scheduleRules = [
 
 const idParamRule = [param('id').isUUID().withMessage('Invalid id')];
 
+const textImagePostRules = [
+  body('pageId').isUUID().withMessage('A Facebook Page is required'),
+  body('message').optional({ checkFalsy: true }).isString().isLength({ max: 5000 }).withMessage('Message is too long'),
+  body('imageSource').isIn(['drive', 'ai']).withMessage('imageSource must be drive or ai'),
+  body('driveFileId').if(body('imageSource').equals('drive')).notEmpty().withMessage('Select an image from Drive'),
+  body('aiPrompt').if(body('imageSource').equals('ai')).trim().notEmpty().withMessage('Describe the image you want AI to generate'),
+];
+
 module.exports = {
   handleValidation,
   registerRules,
   loginRules,
   scheduleRules,
   idParamRule,
+  textImagePostRules,
 };

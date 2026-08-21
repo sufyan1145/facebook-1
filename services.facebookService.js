@@ -108,4 +108,28 @@ async function uploadVideoToPage({ pageId, pageAccessToken, filePath, caption, h
   }
 }
 
-module.exports = { getUserPages, uploadVideoToPage };
+// Posts a single photo (with optional caption text) to a Page's feed via the
+// Photos edge. Fully independent of the video chunked-upload flow above -
+// uses a different Graph API endpoint and has no shared state with it.
+async function postPhotoToPage({ pageId, pageAccessToken, filePath, message }) {
+  const form = new FormData();
+  form.append('source', fs.createReadStream(filePath));
+  if (message) form.append('message', message);
+  form.append('access_token', pageAccessToken);
+
+  try {
+    const resp = await axios.post(`${GRAPH_URL}/${pageId}/photos`, form, {
+      headers: form.getHeaders(),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    logger.info(`Posted photo to page ${pageId}, fb post id: ${resp.data.post_id || resp.data.id}`);
+    return resp.data.post_id || resp.data.id;
+  } catch (err) {
+    const fbError = err.response?.data?.error;
+    logger.error(`[FB photo post] FAILED for page ${pageId}: ${JSON.stringify(fbError || err.message)}`);
+    throw new Error(fbError?.message || err.message);
+  }
+}
+
+module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage };
