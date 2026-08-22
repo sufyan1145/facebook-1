@@ -10,9 +10,11 @@ const logger = require('./utils.logger');
 // or returns unparseable output for any reason, falls back to using the raw
 // topic text as both the caption and the image prompt, so the scheduled post
 // still goes out rather than failing entirely.
-async function generatePostContent(topic) {
+// avoidList: recent captions from this same schedule, passed through so the
+// AI knows what's already been covered and picks something different.
+async function generatePostContent(topic, avoidList) {
   try {
-    return await geminiService.generatePostContent(topic, { retries: 0 });
+    return await geminiService.generatePostContent(topic, { retries: 0, avoidList });
   } catch (err) {
     logger.warn(`[captionGenService] Structured content generation failed (${err.message}) - falling back to using the topic text directly for both caption and image`);
     return { caption: topic, imagePrompt: topic };

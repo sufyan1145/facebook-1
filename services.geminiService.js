@@ -127,13 +127,19 @@ Reply with ONLY the caption text itself - no quotes, no labels, no extra comment
  * current facts and may produce inaccurate or outdated "current events" -
  * there is no live grounding here.
  */
-async function generatePostContent(topic, { retries } = {}) {
+async function generatePostContent(topic, { retries, avoidList } = {}) {
+  const avoidSection =
+    avoidList && avoidList.length
+      ? `\n\nIMPORTANT - AVOID REPEATING: these are the captions from the most recent posts on this same schedule. Do NOT feature the same person, the same quote, or the same specific angle as any of these - pick someone/something clearly different this time:\n${avoidList.map((m, i) => `${i + 1}. ${m}`).join('\n')}`
+      : '';
+
   const prompt = `You are generating ONE social media post from the topic/instructions below. The topic may be a single word, a short phrase, or a detailed multi-part instruction - follow it as closely as you reasonably can, for any subject (a public figure, a general theme, a quote/wisdom style, current events framing, anything).
 
 TOPIC/INSTRUCTIONS:
 """
 ${topic}
 """
+${avoidSection}
 
 Respond with STRICT JSON only (no markdown fences, no commentary before or after), with exactly these two keys:
 {

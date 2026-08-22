@@ -123,9 +123,11 @@ async function fireSchedule(schedule) {
 
   if (schedule.image_source === 'ai' && schedule.topic) {
     // Topic mode: generate a brand new, matching caption + image prompt every
-    // run (in whatever language the topic itself is written in) - so nothing
-    // repeats between scheduled posts, and the image actually matches the text.
-    const content = await captionGenService.generatePostContent(schedule.topic);
+    // run (in whatever language the topic itself is written in) - and tell the
+    // AI what's already been posted recently on this schedule so it picks a
+    // genuinely different person/quote/angle instead of repeating.
+    const recentMessages = await TextImagePost.getRecentMessagesForSchedule(schedule.id, 15);
+    const content = await captionGenService.generatePostContent(schedule.topic, recentMessages);
     message = content.caption;
     aiPrompt = content.imagePrompt;
   }

@@ -94,6 +94,20 @@ const TextImagePost = {
     );
     return res.rows.map((r) => r.drive_file_id);
   },
+
+  // Recent captions posted by this specific AI-topic schedule - fed back into the
+  // next generation prompt so the AI knows what's already been covered (which
+  // person, which quote, which angle) and picks something genuinely different
+  // instead of gravitating to the same famous option every run.
+  async getRecentMessagesForSchedule(scheduleId, limit = 15) {
+    const res = await query(
+      `SELECT message FROM text_image_posts
+       WHERE schedule_id = $1 AND message IS NOT NULL
+       ORDER BY created_at DESC LIMIT $2`,
+      [scheduleId, limit]
+    );
+    return res.rows.map((r) => r.message).filter(Boolean);
+  },
 };
 
 module.exports = TextImagePost;
