@@ -10,6 +10,52 @@ const STATUS_LABEL = {
 let jobsPollTimer = null;
 let currentPreviewJobId = null;
 
+// Extracts every http(s) URL found in a blob of text, trimming common trailing
+// punctuation that tends to stick to a URL when it's embedded in share text
+// (e.g. Douyin's "打开抖音,看看 https://v.douyin.com/xxxx/ 复制此链接..." format).
+function extractUrls(text) {
+  const matches = String(text || '').match(/https?:\/\/[^\s"'<>]+/g) || [];
+  return matches.map((u) => u.replace(/[.,;:)\]}'"，。、！]+$/, ''));
+}
+
+// Wires an input so pasting into it keeps only the first URL found in the
+// pasted text, discarding any extra words/text around it.
+function wireSingleUrlAutoClean(inputEl) {
+  inputEl.addEventListener('paste', (e) => {
+    const pasted = (e.clipboardData || window.clipboardData).getData('text');
+    const urls = extractUrls(pasted);
+    if (urls.length) {
+      e.preventDefault();
+      inputEl.value = urls[0];
+    }
+  });
+}
+
+// Wires a textarea so pasting appends every URL found in the pasted text
+// (one per line), discarding any extra words/text around each link - handles
+// both a single share-text paste and many lines pasted together at once.
+function wireBulkUrlsAutoClean(textareaEl) {
+  textareaEl.addEventListener('paste', (e) => {
+    const pasted = (e.clipboardData || window.clipboardData).getData('text');
+    const urls = extractUrls(pasted);
+    if (urls.length) {
+      e.preventDefault();
+      const existing = textareaEl.value.trim();
+      textareaEl.value = (existing ? existing + '\n' : '') + urls.join('\n');
+    }
+  });
+}
+
+function updateBulkModeVisibility() {
+  const bulk = document.getElementById('bulkMode').checked;
+  document.getElementById('singleUrlField').style.display = bulk ? 'none' : 'block';
+  document.getElementById('bulkUrlField').style.display = bulk ? 'block' : 'none';
+  document.getElementById('splitScreenField').style.display = bulk ? 'none' : 'block';
+  if (bulk) document.getElementById('secondaryUrlField').style.display = 'none';
+  else updateSecondaryUrlVisibility();
+  document.getElementById('createBtn').textContent = bulk ? 'Edit Videos' : 'Edit Video';
+}
+
 function renderJobs(jobs) {
   const body = document.getElementById('jobsBody');
   if (!jobs.length) {
@@ -161,6 +207,11 @@ function renderCueList() {
   document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
   document.getElementById('autoHighlightEnabled').addEventListener('change', updateAutoHighlightFieldsVisibility);
   updateAutoHighlightFieldsVisibility();
+  document.getElementById('bulkMode').addEventListener('change', updateBulkModeVisibility);
+  updateBulkModeVisibility();
+  wireSingleUrlAutoClean(document.getElementById('urlInput'));
+  wireSingleUrlAutoClean(document.getElementById('secondaryUrlInput'));
+  wireBulkUrlsAutoClean(document.getElementById('bulkUrlsTextarea'));
   document.getElementById('addCueBtn').addEventListener('click', () => {
     const at = Number(document.getElementById('cueAtInput').value) || 0;
     const checked = Array.from(document.querySelectorAll('.cueEffect:checked'));
@@ -184,9 +235,8 @@ function renderCueList() {
   });
 
   document.getElementById('createBtn').addEventListener('click', async () => {
-    const url = document.getElementById('urlInput').value.trim();
+    const bulk = document.getElementById('bulkMode').checked;
     const msg = document.getElementById('createMsg');
-    if (!url) { msg.textContent = 'Please paste a video URL.'; return; }
 
     const saveToDrive = document.getElementById('saveToDrive').checked;
     const folderSelect = document.getElementById('folderSelect');
@@ -194,14 +244,10 @@ function renderCueList() {
     const driveFolderName = saveToDrive ? folderSelect.selectedOptions[0]?.dataset.name : null;
     if (saveToDrive && !driveFolderId) { msg.textContent = 'Please select a Drive folder, or turn off "Save to Google Drive".'; return; }
 
-    const splitScreenMode = document.getElementById('splitScreenMode').value;
-    const secondaryUrl = document.getElementById('secondaryUrlInput').value.trim();
-    if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
-
     const dubEnabled = document.getElementById('dubEnabled').checked;
     const autoHighlightEnabled = document.getElementById('autoHighlightEnabled').checked;
 
-    const effects = {
+    const baseEffects = {
       dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
@@ -216,8 +262,43 @@ function renderCueList() {
       blackAndWhite: document.getElementById('blackAndWhite').checked,
       verticalConvert: document.getElementById('verticalConvert').checked,
       vineBoomAt: document.getElementById('vineBoomAt').value ? Number(document.getElementById('vineBoomAt').value) : null,
-      splitScreen: splitScreenMode || null,
+      splitScreen: null, // not available in bulk mode; single-video path below sets its own value
     };
+
+    if (bulk) {
+      const urls = extractUrls(document.getElementById('bulkUrlsTextarea').value).slice(0, 100);
+      if (!urls.length) { msg.textContent = 'Please paste at least one video URL.'; return; }
+
+      msg.textContent = `Queuing ${urls.length} video(s)…`;
+      document.getElementById('createBtn').disabled = true;
+      let queued = 0;
+      let failed = 0;
+      for (const url of urls) {
+        try {
+          await apiFetch('/videoedit/create', {
+            method: 'POST',
+            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive }),
+          });
+          queued += 1;
+        } catch (err) {
+          failed += 1;
+        }
+      }
+      msg.textContent = `Queued ${queued} of ${urls.length} video(s)${failed ? `, ${failed} failed to queue` : ''}. They process one at a time - check the history table below.`;
+      if (queued) document.getElementById('bulkUrlsTextarea').value = '';
+      loadJobs();
+      document.getElementById('createBtn').disabled = false;
+      return;
+    }
+
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) { msg.textContent = 'Please paste a video URL.'; return; }
+
+    const splitScreenMode = document.getElementById('splitScreenMode').value;
+    const secondaryUrl = document.getElementById('secondaryUrlInput').value.trim();
+    if (splitScreenMode && !secondaryUrl) { msg.textContent = 'Split screen needs a second video URL.'; return; }
+
+    const effects = { ...baseEffects, splitScreen: splitScreenMode || null };
 
     msg.textContent = 'Starting…';
     document.getElementById('createBtn').disabled = true;
