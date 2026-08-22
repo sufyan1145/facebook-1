@@ -6,7 +6,7 @@ const { enqueueVideoEditJob } = require('./jobs.videoEditWorker');
 
 async function create(req, res, next) {
   try {
-    const { url, secondaryUrl, effects, driveFolderId, driveFolderName, saveToDrive } = req.body;
+    const { url, secondaryUrl, effects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata } = req.body;
     if (!url) return res.status(400).json({ success: false, message: 'A video URL is required' });
     if (!videoDownloadService.isValidUrl(url)) {
       return res.status(400).json({ success: false, message: 'That does not look like a valid URL' });
@@ -29,7 +29,7 @@ async function create(req, res, next) {
       driveFolderName: saveToDrive ? driveFolderName : null,
     });
 
-    enqueueVideoEditJob(job);
+    enqueueVideoEditJob(job, { regenerateMetadata: !!regenerateMetadata });
     await Log.record(req.user.id, 'Video Edit Started', { sourceUrl: url, jobId: job.id });
     res.json({ success: true, data: job });
   } catch (err) {

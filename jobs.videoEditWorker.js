@@ -14,6 +14,7 @@ const logger = require('./utils.logger');
 const VideoEditJob = require('./models.VideoEditJob');
 const videoDownloadService = require('./services.videoDownloadService');
 const transcribeDubService = require('./services.transcribeDubService');
+const geminiService = require('./services.geminiService');
 const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
 const autoHighlight = require('./utils.autoHighlight');
@@ -43,7 +44,7 @@ async function runFfmpeg(args) {
   }
 }
 
-async function processVideoEditJob(job) {
+async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
   const tempFiles = [];
   let current;
   try {
@@ -55,6 +56,22 @@ async function processVideoEditJob(job) {
     await videoDownloadService.downloadVideo(job.source_url, current);
     tempFiles.push(current);
     logger.info(`[video-edit] job ${job.id}: source downloaded`);
+
+    // Optional: regenerate the source video's original title/description (any
+    // language) into a catchy English title + hashtags. Never fails the whole
+    // job - falls back to the original title if AI regeneration is off, or if
+    // it's on but fails for any reason (e.g. quota).
+    if (regenerateMetadata) {
+      await VideoEditJob.setStatus(job.id, 'regenerating_metadata');
+      try {
+        const meta = await videoDownloadService.getMetadata(job.source_url);
+        const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
+        await VideoEditJob.setGeneratedMetadata(job.id, { generatedTitle: regenerated.title, generatedHashtags: regenerated.hashtags });
+      } catch (metaErr) {
+        logger.error(`[video-edit] title regeneration failed for job ${job.id}, continuing without it: ${metaErr.message}`);
+        await Log.record(job.user_id, 'Video Edit Title Regeneration Failed', { sourceUrl: job.source_url, jobId: job.id, error: metaErr.message }, 'error');
+      }
+    }
 
     // 0. Transcribe & Dub (runs first, before any other effects, so later
     //    steps operate on the already-dubbed video). Uses the self-hosted
@@ -272,8 +289,8 @@ async function processVideoEditJob(job) {
 const queue = [];
 let draining = false;
 
-function enqueueVideoEditJob(job) {
-  queue.push(job);
+function enqueueVideoEditJob(job, options = {}) {
+  queue.push({ job, options });
   drainQueue();
 }
 
@@ -282,9 +299,9 @@ async function drainQueue() {
   draining = true;
   try {
     while (queue.length) {
-      const job = queue.shift();
+      const { job, options } = queue.shift();
       try {
-        await processVideoEditJob(job);
+        await processVideoEditJob(job, options);
       } catch (err) {
         logger.error(`[video-edit] queued job ${job.id} threw unexpectedly: ${err.message}`);
       }

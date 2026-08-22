@@ -15,6 +15,13 @@ const VideoEditJob = {
     await query('UPDATE video_edit_jobs SET status = $2, updated_at = now() WHERE id = $1', [id, status]);
   },
 
+  async setGeneratedMetadata(id, { generatedTitle, generatedHashtags }) {
+    await query(
+      'UPDATE video_edit_jobs SET generated_title = $2, generated_hashtags = $3, updated_at = now() WHERE id = $1',
+      [id, generatedTitle || null, generatedHashtags || null]
+    );
+  },
+
   async markCompleted(id, { driveFileId = null, driveFileName = null, localFilePath = null }) {
     await query(
       `UPDATE video_edit_jobs SET status = 'completed', drive_file_id = $2, drive_file_name = $3, local_file_path = $4, updated_at = now() WHERE id = $1`,

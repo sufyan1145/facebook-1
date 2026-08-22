@@ -182,7 +182,49 @@ Do not fabricate specific claimed facts, dates, or quotes you are not confident 
   return { caption: parsed.caption.trim(), imagePrompt: parsed.imagePrompt.trim() };
 }
 
-module.exports = { writeScript, generateImage, generateCaption, generatePostContent };
+/**
+ * Rewrites a video's original title/description (any language) into a catchy
+ * English title + matching English hashtags. Used by both the TikTok
+ * Downloader and the Video Editor's "Regenerate title" option.
+ */
+async function regenerateTitleAndHashtags(originalTitle, originalDescription, { retries = 2 } = {}) {
+  const prompt = `You are rewriting a short video's title and hashtags for social media reposting.
+
+ORIGINAL TITLE: "${originalTitle || ''}"
+ORIGINAL DESCRIPTION: "${originalDescription || ''}"
+
+The original may be in ANY language or script. Write a catchy, engaging title IN ENGLISH that captures the same meaning/topic (translate/adapt it, don't just transliterate), and matching relevant English hashtags.
+
+Respond with STRICT JSON only (no markdown fences, no commentary before or after), with exactly these two keys:
+{
+  "title": "<catchy English title, under 100 characters>",
+  "hashtags": "<5-8 relevant English hashtags, space separated, each starting with #>"
+}`;
+
+  const resp = await retryOn429(
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
+    { label: 'Gemini title/hashtags', retries }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini did not return title/hashtags');
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error(`Gemini response did not contain valid JSON: ${text.slice(0, 200)}`);
+  }
+  const parsed = JSON.parse(text.slice(firstBrace, lastBrace + 1));
+  if (!parsed.title) throw new Error('Gemini response missing title');
+  return { title: parsed.title.trim(), hashtags: (parsed.hashtags || '').trim() };
+}
+
+module.exports = { writeScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags };
 
 /**
  * Generates a still image from a text prompt using Gemini's own image model

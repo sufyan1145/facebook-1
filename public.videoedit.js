@@ -1,6 +1,7 @@
 const STATUS_LABEL = {
   pending: 'Pending',
   downloading: 'Downloading…',
+  regenerating_metadata: 'Rewriting title/hashtags…',
   dubbing: 'Transcribing & dubbing…',
   editing: 'Applying effects…',
   completed: 'Completed',
@@ -59,7 +60,7 @@ function updateBulkModeVisibility() {
 function renderJobs(jobs) {
   const body = document.getElementById('jobsBody');
   if (!jobs.length) {
-    body.innerHTML = '<tr><td colspan="6" class="empty">No edits yet.</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="empty">No edits yet.</td></tr>';
     return;
   }
   body.innerHTML = jobs
@@ -72,6 +73,11 @@ function renderJobs(jobs) {
           : '—';
       return `<tr>
         <td style="font-size:12px;">${escapeHtml(j.source_url.slice(0, 45))}${j.source_url.length > 45 ? '…' : ''}</td>
+        <td style="font-size:12px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(j.generated_title || '')}">
+          ${j.generated_title ? escapeHtml(j.generated_title) : '<span style="color:var(--text-faint);">—</span>'}
+          ${j.generated_title ? `<button class="btn xs" data-copy-title="${j.id}" style="margin-left:4px;">Copy</button>` : ''}
+        </td>
+        <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(j.generated_hashtags || '')}">${escapeHtml(j.generated_hashtags || '')}</td>
         <td>${escapeHtml(j.drive_folder_name || 'Local only')}</td>
         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
         <td>${resultCell}</td>
@@ -80,6 +86,13 @@ function renderJobs(jobs) {
       </tr>`;
     })
     .join('');
+
+  body.querySelectorAll('button[data-copy-title]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const job = jobs.find((j) => j.id === btn.dataset.copyTitle);
+      if (job) navigator.clipboard.writeText(`${job.generated_title || ''}\n\n${job.generated_hashtags || ''}`).catch(() => {});
+    });
+  });
 
   body.querySelectorAll('button[data-preview]').forEach((btn) => {
     btn.addEventListener('click', () => showPreview(btn.dataset.preview, btn.dataset.name));
@@ -123,7 +136,7 @@ async function loadJobs() {
     const { data } = await apiFetch('/videoedit/jobs');
     renderJobs(data);
   } catch (err) {
-    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    document.getElementById('jobsBody').innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -277,7 +290,7 @@ function renderCueList() {
         try {
           await apiFetch('/videoedit/create', {
             method: 'POST',
-            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive }),
+            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked }),
           });
           queued += 1;
         } catch (err) {
@@ -305,7 +318,7 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive }),
+        body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked }),
       });
       msg.textContent = 'Started! Editing can take a few minutes depending on the effects chosen — check the history table below.';
       effectCues = [];
