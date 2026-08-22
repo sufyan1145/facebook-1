@@ -4,14 +4,15 @@ const TextImageSchedule = {
   async create(userId, data) {
     const res = await query(
       `INSERT INTO text_image_schedules
-        (user_id, page_id, message, image_source, folder_id, ai_prompt, upload_time, timezone,
+        (user_id, page_id, message, image_source, folder_id, ai_prompt, topic, upload_time, timezone,
          repeat_type, specific_days, interval_hours, times)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING *`,
       [
         userId, data.pageId, data.message || null, data.imageSource,
         data.imageSource === 'drive' ? data.folderId : null,
-        data.imageSource === 'ai' ? data.aiPrompt : null,
+        data.imageSource === 'ai' ? data.aiPrompt || null : null,
+        data.imageSource === 'ai' ? data.topic || null : null,
         data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,

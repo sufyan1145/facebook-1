@@ -85,7 +85,34 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
   return parsed;
 }
 
-module.exports = { writeScript, generateImage };
+/**
+ * Generates a short, fresh social media caption about a topic, in whatever
+ * language the topic itself is written in (e.g. a Roman Urdu or Urdu-script
+ * topic gets a caption in that same language back). Used by Text+Image Post
+ * schedules in "topic" mode, so every scheduled run posts new wording instead
+ * of repeating the same caption.
+ */
+async function generateCaption(topic, { retries } = {}) {
+  const prompt = `Write ONE short, engaging social media caption (under 300 characters, no hashtag spam, natural human tone, not repetitive/generic) about this topic: "${topic}".
+Respond in the exact same language and script the topic is written in - if the topic is in Roman Urdu, reply in Roman Urdu; if it's in Urdu script, reply in Urdu script; if English, reply in English; and so on for any other language.
+Reply with ONLY the caption text itself - no quotes, no labels, no extra commentary.`;
+
+  const resp = await retryOn429(
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
+    { label: 'Gemini caption', retries }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini did not return caption text');
+  return text.trim();
+}
+
+module.exports = { writeScript, generateImage, generateCaption };
 
 /**
  * Generates a still image from a text prompt using Gemini's own image model

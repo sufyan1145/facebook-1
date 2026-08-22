@@ -92,7 +92,7 @@ module.exports = {
     // How many schedules the checker evaluates/fires in parallel per tick, so a large
     // number of schedules (hundreds/thousands) due at the same minute doesn't serialize
     // behind slow Drive API calls and run past the next cron tick.
-    scheduleCheckConcurrency: Number(process.env.SCHEDULE_CHECK_CONCURRENCY) || 15,
+    scheduleCheckConcurrency: Number(process.env.SCHEDULE_CHECK_CONCURRENCY) || 50,
   },
 
   kie: {

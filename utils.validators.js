@@ -56,7 +56,7 @@ const textImageScheduleRules = [
   body('message').optional({ checkFalsy: true }).isString().isLength({ max: 5000 }).withMessage('Message is too long'),
   body('imageSource').isIn(['drive', 'ai']).withMessage('imageSource must be drive or ai'),
   body('folderId').if(body('imageSource').equals('drive')).notEmpty().withMessage('A Drive folder is required'),
-  body('aiPrompt').if(body('imageSource').equals('ai')).trim().notEmpty().withMessage('Describe the image you want AI to generate'),
+  body('topic').if(body('imageSource').equals('ai')).trim().notEmpty().withMessage('Describe a topic for AI to post about'),
   body('uploadTime').matches(/^([01]\d|2[0-3]):([0-5]\d)$/).withMessage('uploadTime must be HH:mm'),
   body('timezone').notEmpty().withMessage('Timezone is required'),
   body('repeat').isIn(['daily', 'weekly', 'monthly', 'specific_days', 'interval_hours', 'multiple_times']).withMessage('Invalid repeat type'),

@@ -30,7 +30,7 @@ function renderJobs(jobs) {
         <td>${escapeHtml(j.drive_folder_name || 'Local only')}</td>
         <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
         <td>${resultCell}</td>
-        <td style="font-size:12px; color:var(--text-muted);">${new Date(j.created_at).toLocaleString()}</td>
+        <td style="font-size:12px; color:var(--text-muted);">${timeAgo(j.created_at)}</td>
         <td><button class="btn xs danger" data-delete="${j.id}">Delete</button></td>
       </tr>`;
     })

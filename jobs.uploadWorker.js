@@ -38,14 +38,24 @@ const worker = new Worker(
 
     await QueueJob.upsertFromBullJob(job, 'active', userId, scheduleId);
 
-    const historyRow = await UploadHistory.create(userId, {
-      scheduleId,
-      driveFileId: file.id,
-      videoName: file.name,
-      facebookPageId: pageDbId,
-      driveFolderName: file.folderName,
-      status: 'uploading',
-    });
+    let historyRow;
+    try {
+      historyRow = await UploadHistory.create(userId, {
+        scheduleId,
+        driveFileId: file.id,
+        videoName: file.name,
+        facebookPageId: pageDbId,
+        driveFolderName: file.folderName,
+        status: 'uploading',
+      });
+    } catch (createErr) {
+      // This line used to be outside any try/catch - if it ever failed, the whole
+      // job threw with no Upload History row AND no distinct log entry explaining
+      // why, making it look like the upload vanished. Now it's traceable.
+      logger.error(`Failed to create Upload History row for ${file.name}: ${createErr.message}`);
+      await Log.record(userId, 'Upload Failed', { file: file.name, page: pageName, error: `History record could not be created: ${createErr.message}` }, 'error');
+      throw createErr;
+    }
 
     let tempPath;
     try {

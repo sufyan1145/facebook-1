@@ -76,7 +76,7 @@ function renderRuns(runs) {
           <span class="badge ${r.status === 'completed' ? 'success' : r.status === 'failed' ? 'failed' : ''}">${RUN_STATUS_LABEL[r.status] || r.status}</span>
           ${r.status === 'failed' && r.error_message ? `<div style="font-size:11px; color:var(--signal-red); margin-top:4px;">${escapeHtml(r.error_message)}</div>` : ''}
         </td>
-        <td style="font-size:12px; color:var(--text-muted);">${new Date(r.created_at).toLocaleString()}</td>
+        <td style="font-size:12px; color:var(--text-muted);">${timeAgo(r.created_at)}</td>
       </tr>`
     )
     .join('');

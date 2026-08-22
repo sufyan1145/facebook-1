@@ -17,6 +17,7 @@ const cron = require('node-cron');
 const { query } = require('./config.database');
 const { addTextImagePostJob } = require('./queue.queues');
 const driveService = require('./services.googleDriveService');
+const captionGenService = require('./services.captionGenService');
 const TextImageSchedule = require('./models.TextImageSchedule');
 const TextImagePost = require('./models.TextImagePost');
 const Log = require('./models.Log');
@@ -117,13 +118,24 @@ async function fireSchedule(schedule) {
     driveFileName = fresh.name;
   }
 
+  let message = schedule.message;
+  let aiPrompt = schedule.ai_prompt;
+
+  if (schedule.image_source === 'ai' && schedule.topic) {
+    // Topic mode: generate a brand new caption (in whatever language the topic
+    // itself is written in) every run, and use the topic itself to drive a
+    // brand new image too - so nothing repeats between scheduled posts.
+    message = await captionGenService.generateCaption(schedule.topic);
+    aiPrompt = schedule.topic;
+  }
+
   const post = await TextImagePost.create(schedule.user_id, {
     pageId: schedule.page_id,
-    message: schedule.message,
+    message,
     imageSource: schedule.image_source,
     driveFileId,
     driveFileName,
-    aiPrompt: schedule.ai_prompt,
+    aiPrompt,
     scheduleId: schedule.id,
   });
 
@@ -132,11 +144,11 @@ async function fireSchedule(schedule) {
     postId: post.id,
     pageId: schedule.page_id,
     pageDbId: schedule.page_id,
-    message: schedule.message,
+    message,
     imageSource: schedule.image_source,
     driveFileId,
     driveFileName,
-    aiPrompt: schedule.ai_prompt,
+    aiPrompt,
   });
 
   await Log.record(schedule.user_id, 'Text+Image Schedule Triggered', {
