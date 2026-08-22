@@ -118,7 +118,7 @@ function renderScheduleRows(schedules) {
     .map(
       (s) => `<tr>
         <td>${escapeHtml(s.page_name || '—')}</td>
-        <td style="text-transform:capitalize;">${s.image_source === 'drive' ? escapeHtml(s.folder_name || 'Drive') : 'AI: ' + escapeHtml(s.topic || '')}</td>
+        <td style="text-transform:capitalize; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.image_source === 'ai' ? escapeHtml(s.topic || '') : ''}">${s.image_source === 'drive' ? escapeHtml(s.folder_name || 'Drive') : 'AI: ' + escapeHtml((s.topic || '').slice(0, 40)) + ((s.topic || '').length > 40 ? '…' : '')}</td>
         <td class="mono">${escapeHtml(s.upload_time)} <span style="color:var(--text-faint);">${escapeHtml(s.timezone)}</span></td>
         <td style="text-transform:capitalize;">${s.repeat_type === 'interval_hours' ? `Every ${s.interval_hours || '?'}h` : s.repeat_type === 'multiple_times' ? (Array.isArray(s.times) ? s.times.join(', ') : 'multiple times') : s.repeat_type.replace('_', ' ')}</td>
         <td><span class="badge ${s.is_active ? 'success' : 'failed'}">${s.is_active ? 'Active' : 'Paused'}</span></td>

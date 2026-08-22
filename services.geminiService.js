@@ -112,7 +112,57 @@ Reply with ONLY the caption text itself - no quotes, no labels, no extra comment
   return text.trim();
 }
 
-module.exports = { writeScript, generateImage, generateCaption };
+/**
+ * Generates a fresh, matching (caption + image prompt) pair for a Text+Image
+ * Post schedule's "topic" mode. Works for any kind of topic input - a single
+ * word/phrase, a full paragraph, or an elaborate multi-section instruction
+ * like the user might paste in - and in any language/script the topic itself
+ * is written in. Asks Gemini to return strict JSON so the caption and image
+ * prompt are reliably separated, instead of a single blob of text.
+ *
+ * IMPORTANT LIMITATION: this call has NO live internet/news access. For
+ * evergreen topics (famous quotes, general knowledge, well-known public
+ * figures' established history) the model's training knowledge covers this
+ * well. For anything requiring TODAY's specific news, it cannot verify
+ * current facts and may produce inaccurate or outdated "current events" -
+ * there is no live grounding here.
+ */
+async function generatePostContent(topic, { retries } = {}) {
+  const prompt = `You are generating ONE social media post from the topic/instructions below. The topic may be a single word, a short phrase, or a detailed multi-part instruction - follow it as closely as you reasonably can, for any subject (a public figure, a general theme, a quote/wisdom style, current events framing, anything).
+
+TOPIC/INSTRUCTIONS:
+"""
+${topic}
+"""
+
+Respond with STRICT JSON only (no markdown fences, no commentary before or after), with exactly these two keys:
+{
+  "caption": "<the ready-to-publish post text - respond in the exact same language/script the topic above is written in>",
+  "imagePrompt": "<one detailed, realistic image-generation prompt matching the caption - no text, watermark, or logo inside the image, always describe the image in English regardless of the caption's language>"
+}
+
+Do not fabricate specific claimed facts, dates, or quotes you are not confident are accurate - if the topic implies needing today's exact news and you are not certain of current details, keep the caption general/evergreen instead of inventing specifics.`;
+
+  const resp = await retryOn429(
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
+    { label: 'Gemini post content', retries }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini did not return post content');
+
+  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+  const parsed = JSON.parse(cleaned);
+  if (!parsed.caption || !parsed.imagePrompt) throw new Error('Gemini response missing caption or imagePrompt');
+  return { caption: parsed.caption.trim(), imagePrompt: parsed.imagePrompt.trim() };
+}
+
+module.exports = { writeScript, generateImage, generateCaption, generatePostContent };
 
 /**
  * Generates a still image from a text prompt using Gemini's own image model

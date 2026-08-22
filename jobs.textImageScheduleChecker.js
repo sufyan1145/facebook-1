@@ -122,11 +122,12 @@ async function fireSchedule(schedule) {
   let aiPrompt = schedule.ai_prompt;
 
   if (schedule.image_source === 'ai' && schedule.topic) {
-    // Topic mode: generate a brand new caption (in whatever language the topic
-    // itself is written in) every run, and use the topic itself to drive a
-    // brand new image too - so nothing repeats between scheduled posts.
-    message = await captionGenService.generateCaption(schedule.topic);
-    aiPrompt = schedule.topic;
+    // Topic mode: generate a brand new, matching caption + image prompt every
+    // run (in whatever language the topic itself is written in) - so nothing
+    // repeats between scheduled posts, and the image actually matches the text.
+    const content = await captionGenService.generatePostContent(schedule.topic);
+    message = content.caption;
+    aiPrompt = content.imagePrompt;
   }
 
   const post = await TextImagePost.create(schedule.user_id, {
