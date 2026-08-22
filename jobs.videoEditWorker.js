@@ -30,7 +30,17 @@ const EXEC_OPTS = { timeout: 15 * 60 * 1000, maxBuffer: 1024 * 1024 * 50 };
 const SAFE_VIDEO_ENCODE = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-x264-params', 'rc-lookahead=20:ref=2'];
 
 async function runFfmpeg(args) {
-  await execFileAsync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-nostats', ...args], EXEC_OPTS);
+  try {
+    await execFileAsync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-nostats', ...args], EXEC_OPTS);
+  } catch (err) {
+    // execFileAsync's rejection normally only surfaces "Command failed: <cmd>"
+    // in err.message, silently dropping ffmpeg's actual stderr explanation
+    // (e.g. "Filter graph too complex", a bad filter argument, etc.) - attach
+    // it so failures are actually diagnosable instead of just "it failed".
+    const stderr = (err.stderr || '').toString().trim();
+    if (stderr) err.message = `${err.message}\nffmpeg stderr: ${stderr.slice(0, 2000)}`;
+    throw err;
+  }
 }
 
 async function processVideoEditJob(job) {
