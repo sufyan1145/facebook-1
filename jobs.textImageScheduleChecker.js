@@ -130,6 +130,14 @@ async function fireSchedule(schedule) {
     const content = await captionGenService.generatePostContent(schedule.topic, recentMessages);
     message = content.caption;
     aiPrompt = content.imagePrompt;
+
+    if (content.fallbackReason) {
+      await Log.record(schedule.user_id, 'Text+Image AI Content Fallback', {
+        scheduleId: schedule.id,
+        reason: content.fallbackReason,
+        note: 'Structured caption/image-prompt generation failed - the raw topic text was posted as-is instead.',
+      }, 'error');
+    }
   }
 
   const post = await TextImagePost.create(schedule.user_id, {

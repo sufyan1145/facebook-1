@@ -162,8 +162,22 @@ Do not fabricate specific claimed facts, dates, or quotes you are not confident 
   const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini did not return post content');
 
-  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
-  const parsed = JSON.parse(cleaned);
+  // Robust JSON extraction: grab everything between the first { and the last }
+  // rather than only stripping code fences, since the model sometimes adds
+  // commentary or formatting around the JSON that fence-stripping alone misses.
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error(`Gemini response did not contain valid JSON: ${text.slice(0, 200)}`);
+  }
+  const jsonSlice = text.slice(firstBrace, lastBrace + 1);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonSlice);
+  } catch (parseErr) {
+    throw new Error(`Failed to parse Gemini JSON response: ${parseErr.message} - raw: ${jsonSlice.slice(0, 200)}`);
+  }
   if (!parsed.caption || !parsed.imagePrompt) throw new Error('Gemini response missing caption or imagePrompt');
   return { caption: parsed.caption.trim(), imagePrompt: parsed.imagePrompt.trim() };
 }
