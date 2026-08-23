@@ -8,6 +8,7 @@ const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const imageGenService = require('./services.imageGenService');
 const previewStore = require('./services.previewStore');
+const ocrService = require('./services.ocrService');
 const TextImagePost = require('./models.TextImagePost');
 const Page = require('./models.Page');
 const Log = require('./models.Log');
@@ -16,7 +17,8 @@ const credits = require('./utils.credits');
 const worker = new Worker(
   'text-image-post',
   async (job) => {
-    const { userId, postId, pageId, pageDbId, message, imageSource, driveFileId, driveFileName, aiPrompt, previewId } = job.data;
+    const { userId, postId, pageId, pageDbId, imageSource, driveFileId, driveFileName, aiPrompt, previewId } = job.data;
+    let { message } = job.data;
 
     await TextImagePost.markProcessing(postId);
 
@@ -41,6 +43,18 @@ const worker = new Worker(
         await imageGenService.generateImage(aiPrompt, tempPath);
       }
 
+      // No manual text and no AI-generated caption ended up set - fall back to
+      // whatever text is actually written inside the image itself (OCR).
+      // Never blocks posting: if OCR finds nothing or fails, the post just
+      // goes out without a caption, same as if this step didn't exist.
+      if (!message || !message.trim()) {
+        const ocrText = await ocrService.extractTextFromImage(tempPath);
+        if (ocrText) {
+          message = ocrText;
+          await Log.record(userId, 'Text+Image Post Caption From Image Text', { postId, extractedLength: ocrText.length });
+        }
+      }
+
       const page = await Page.findById(userId, pageDbId);
       if (!page) throw new Error('Facebook page not found or disconnected');
 
@@ -51,7 +65,7 @@ const worker = new Worker(
         message,
       });
 
-      await TextImagePost.markSuccess(postId, fbPostId);
+      await TextImagePost.markSuccess(postId, fbPostId, message);
       await Log.record(userId, 'Text+Image Post Published', { postId, page: page.page_name, source: imageSource });
 
       return { fbPostId };

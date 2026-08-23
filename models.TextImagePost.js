@@ -34,11 +34,18 @@ const TextImagePost = {
     await query(`UPDATE text_image_posts SET status = 'processing', updated_at = now() WHERE id = $1`, [id]);
   },
 
-  async markSuccess(id, facebookPostId) {
-    await query(
-      `UPDATE text_image_posts SET status = 'success', facebook_post_id = $2, updated_at = now() WHERE id = $1`,
-      [id, facebookPostId]
-    );
+  async markSuccess(id, facebookPostId, finalMessage) {
+    if (finalMessage !== undefined) {
+      await query(
+        `UPDATE text_image_posts SET status = 'success', facebook_post_id = $2, message = $3, updated_at = now() WHERE id = $1`,
+        [id, facebookPostId, finalMessage]
+      );
+    } else {
+      await query(
+        `UPDATE text_image_posts SET status = 'success', facebook_post_id = $2, updated_at = now() WHERE id = $1`,
+        [id, facebookPostId]
+      );
+    }
   },
 
   async markFailed(id, errorMessage) {
