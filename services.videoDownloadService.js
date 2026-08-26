@@ -89,8 +89,50 @@ async function ytdlpDownload(url, rawPath, args) {
   try {
     await execFileAsync(YTDLP_BIN, args, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
   } catch (err) {
-    logger.error(`[videodl] download failed for ${url}: ${err.stderr || err.message}`);
+    const message = err.stderr || err.message || '';
+
+    // Known open yt-dlp/YouTube bug (yt-dlp/yt-dlp#17389): passing cookies to
+    // YouTube can force a broken "tv_downgraded" player client, which fails
+    // with "The page needs to be reloaded." The maintainers' workaround is to
+    // KEEP the cookies (a Railway/datacenter IP needs them to avoid the
+    // separate "Sign in to confirm you're not a bot" block) and just add an
+    // explicit player_client. Retry once with that added, cookies intact.
+    const isReloadBug = /page needs to be reloaded/i.test(message);
+    if (isReloadBug) {
+      logger.error(`[videodl] hit known yt-dlp "page needs to be reloaded" bug for ${url}, retrying with player_client workaround`);
+      const retryArgs = [...args, '--extractor-args', 'youtube:player_client=default,web_embedded'];
+      try {
+        await execFileAsync(YTDLP_BIN, retryArgs, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
+        return;
+      } catch (retryErr) {
+        logger.error(`[videodl] retry after reload-bug workaround also failed for ${url}: ${retryErr.stderr || retryErr.message}`);
+        throw new Error('Failed to download this video.');
+      }
+    }
+
+    // Since 2024 YouTube's "web" player client requires a proof-of-origin
+    // token that only real browser JS can generate - yt-dlp can't produce
+    // one, so even valid, fresh cookies get "Sign in to confirm you're not a
+    // bot" from a datacenter IP like Railway's. The android client historically
+    // doesn't require that token, so retry once with cookies + android client
+    // before giving up.
+    const isBotCheck = /sign in to confirm/i.test(message);
+    if (isBotCheck) {
+      logger.error(`[videodl] hit YouTube bot-check for ${url}, retrying with android client workaround`);
+      const retryArgs = [...args, '--extractor-args', 'youtube:player_client=android'];
+      try {
+        await execFileAsync(YTDLP_BIN, retryArgs, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
+        return;
+      } catch (retryErr) {
+        logger.error(`[videodl] retry after android-client workaround also failed for ${url}: ${retryErr.stderr || retryErr.message}`);
+        throw new Error('Failed to download this video.');
+      }
+    }
+
+    logger.error(`[videodl] download failed for ${url}: ${message}`);
     throw new Error('Failed to download this video.');
+
+
   }
 }
 
