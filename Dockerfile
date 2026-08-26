@@ -11,8 +11,14 @@ RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu curl
 # musllinux-specific standalone binary - the generic "yt-dlp" release asset
 # is a Python script that needs python3 installed, which this image doesn't
 # have.
-RUN curl -L https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_musllinux -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+# Using ADD (not RUN curl) here is deliberate: Docker checks the remote
+# file's ETag/Last-Modified on every build and only invalidates this layer's
+# cache when the nightly binary has actually changed. A plain "RUN curl"
+# gets cached forever after the first build and silently goes stale, which
+# is why TikTok/YouTube extraction can keep failing on bugs that yt-dlp's
+# maintainers already fixed upstream days ago.
+ADD https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_musllinux /usr/local/bin/yt-dlp
+RUN chmod a+rx /usr/local/bin/yt-dlp && yt-dlp --version
 
 WORKDIR /usr/src/app
 
