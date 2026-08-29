@@ -238,7 +238,7 @@ module.exports = { writeScript, generateImage, generateCaption, generatePostCont
  * straight-repost risk; it does NOT make reposting someone else's footage
  * legal on its own.
  */
-async function generateReactionScript(sourceTitle, sourceDescription, totalDurationSeconds, { narrationLanguage = 'english', retries = 2 } = {}) {
+async function generateReactionScript(sourceTitle, sourceDescription, totalDurationSeconds, { narrationLanguage = 'english', retries = 3 } = {}) {
   const prompt = `You are building a scene-by-scene plan for a short "news reaction / explainer" video that reacts to and explains an existing news video, in the style of a commentary/analysis channel.
 
 SOURCE VIDEO TITLE: "${sourceTitle || ''}"
@@ -269,7 +269,7 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
       axios.post(
         `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
         { contents: [{ parts: [{ text: prompt }] }] },
-        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 }
       ),
     { label: 'Gemini news reaction script', retries }
   );
