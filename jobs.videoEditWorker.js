@@ -15,6 +15,7 @@ const VideoEditJob = require('./models.VideoEditJob');
 const videoDownloadService = require('./services.videoDownloadService');
 const transcribeDubService = require('./services.transcribeDubService');
 const geminiService = require('./services.geminiService');
+const { reorderTitleWords, sanitizeForFilename } = require('./utils.titleFallback');
 const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
 const autoHighlight = require('./utils.autoHighlight');
@@ -47,6 +48,7 @@ async function runFfmpeg(args) {
 async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
   const tempFiles = [];
   let current;
+  let finalTitle = null; // used for the Drive filename - see title regeneration block below
   try {
     const spec = typeof job.effects_json === 'string' ? JSON.parse(job.effects_json) : job.effects_json || {};
 
@@ -59,17 +61,30 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
 
     // Optional: regenerate the source video's original title/description (any
     // language) into a catchy English title + hashtags. Never fails the whole
-    // job - falls back to the original title if AI regeneration is off, or if
-    // it's on but fails for any reason (e.g. quota).
+    // job - falls back to the original title (reordered, see
+    // utils.titleFallback) if AI regeneration is off, or if it's on but
+    // fails for any reason (e.g. quota). Either way `finalTitle` ends up
+    // holding whatever we should actually name the Drive file after,
+    // instead of the old generic "edited_<jobId>.mp4".
     if (regenerateMetadata) {
       await VideoEditJob.setStatus(job.id, 'regenerating_metadata');
-      try {
-        const meta = await videoDownloadService.getMetadata(job.source_url);
-        const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
-        await VideoEditJob.setGeneratedMetadata(job.id, { generatedTitle: regenerated.title, generatedHashtags: regenerated.hashtags });
-      } catch (metaErr) {
-        logger.error(`[video-edit] title regeneration failed for job ${job.id}, continuing without it: ${metaErr.message}`);
-        await Log.record(job.user_id, 'Video Edit Title Regeneration Failed', { sourceUrl: job.source_url, jobId: job.id, error: metaErr.message }, 'error');
+      const meta = await videoDownloadService.getMetadata(job.source_url).catch((err) => {
+        logger.error(`[video-edit] could not fetch source metadata for job ${job.id}, skipping title regeneration: ${err.message}`);
+        return null;
+      });
+      if (meta) {
+        try {
+          const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
+          finalTitle = regenerated.title;
+          await VideoEditJob.setGeneratedMetadata(job.id, { generatedTitle: regenerated.title, generatedHashtags: regenerated.hashtags });
+        } catch (metaErr) {
+          logger.error(`[video-edit] title regeneration failed for job ${job.id}, falling back to reordered original title: ${metaErr.message}`);
+          await Log.record(job.user_id, 'Video Edit Title Regeneration Failed', { sourceUrl: job.source_url, jobId: job.id, error: metaErr.message }, 'error');
+          finalTitle = reorderTitleWords(meta.title);
+          if (finalTitle) {
+            await VideoEditJob.setGeneratedMetadata(job.id, { generatedTitle: finalTitle, generatedHashtags: null });
+          }
+        }
       }
     }
 
@@ -260,7 +275,12 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
     const finalOutput = path.join(env.upload.tempDir, `${job.id}_final.mp4`);
     fs.copyFileSync(current, finalOutput);
 
-    const fileName = `edited_${job.id.slice(0, 8)}.mp4`;
+    // Prefer the AI-generated title, or (if that failed/was skipped) the
+    // reordered-original-title fallback set above. Only drop back to the
+    // generic "edited_<jobId>.mp4" name if we truly have no title at all
+    // (e.g. regenerateMetadata was off and no fallback was ever computed).
+    const titleSlug = sanitizeForFilename(finalTitle);
+    const fileName = titleSlug ? `${titleSlug}_${job.id.slice(0, 8)}.mp4` : `edited_${job.id.slice(0, 8)}.mp4`;
     if (job.drive_folder_id) {
       const uploaded = await driveService.uploadFile(job.user_id, job.drive_folder_id, finalOutput, fileName);
       await VideoEditJob.markCompleted(job.id, { driveFileId: uploaded.id, driveFileName: uploaded.name });
