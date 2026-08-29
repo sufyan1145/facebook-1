@@ -172,6 +172,11 @@ function updateAutoHighlightFieldsVisibility() {
   document.getElementById('autoHighlightFields').style.display = on ? '' : 'none';
 }
 
+function updateNewsReactionFieldsVisibility() {
+  const on = document.getElementById('newsReactionEnabled').checked;
+  document.getElementById('newsReactionFields').style.display = on ? '' : 'none';
+}
+
 const EFFECT_LABELS = {
   flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
   whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
@@ -220,6 +225,8 @@ function renderCueList() {
   document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
   document.getElementById('autoHighlightEnabled').addEventListener('change', updateAutoHighlightFieldsVisibility);
   updateAutoHighlightFieldsVisibility();
+  document.getElementById('newsReactionEnabled').addEventListener('change', updateNewsReactionFieldsVisibility);
+  updateNewsReactionFieldsVisibility();
   document.getElementById('bulkMode').addEventListener('change', updateBulkModeVisibility);
   updateBulkModeVisibility();
   wireSingleUrlAutoClean(document.getElementById('urlInput'));
@@ -259,11 +266,13 @@ function renderCueList() {
 
     const dubEnabled = document.getElementById('dubEnabled').checked;
     const autoHighlightEnabled = document.getElementById('autoHighlightEnabled').checked;
+    const newsReactionEnabled = document.getElementById('newsReactionEnabled').checked;
 
     const baseEffects = {
       dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
+      newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value } : null,
       colorGrade: document.getElementById('colorGrade').value || null,
       effectCues,
       autoLoopEffects: Array.from(document.querySelectorAll('.loopEffect:checked')).map((el) => el.value),

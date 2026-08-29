@@ -89,6 +89,28 @@
         </div>
 
         <div class="field">
+          <label class="checkbox-row" style="margin-bottom:8px;">
+            <input id="newsReactionEnabled" type="checkbox" /> News Reaction / Explainer mode
+          </label>
+          <div id="newsReactionFields" style="display:none;">
+            <div class="field-row">
+              <div class="field">
+                <label for="newsReactionLanguage">Narration language</label>
+                <select id="newsReactionLanguage">
+                  <option value="english">English</option>
+                  <option value="hindi">Hindi</option>
+                  <option value="urdu">Urdu</option>
+                  <option value="spanish">Spanish</option>
+                  <option value="french">French</option>
+                  <option value="arabic">Arabic</option>
+                </select>
+              </div>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">AI writes a scene-by-scene script that mixes short bursts (3-5s) of the original clip with narrated still-image scenes (AI-generated or a real frame pulled from the source - the AI picks per scene), Ken-Burns animated, all voiced over in the chosen language. Original clip audio is kept only as a quiet background layer under the narration. This replaces all other effects below (they're skipped when this is on) and can take several minutes depending on how many scenes are planned. Shortening reused footage to narrated bursts like this reduces automated content-match risk - it does not make reposting someone else's video legal on its own.</div>
+          </div>
+        </div>
+
+        <div class="field">
           <label for="colorGrade">Color grading</label>
           <select id="colorGrade">
             <option value="">None</option>

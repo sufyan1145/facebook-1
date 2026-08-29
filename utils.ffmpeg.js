@@ -129,6 +129,58 @@ async function normalizeClip(inputPath, durationSeconds, outputPath, width = 108
 }
 
 
+// Extracts a single still frame from the source video at the given timestamp -
+// used as a "real photo" scene in the News Reaction builder instead of an AI
+// image (e.g. to actually show the newsmaker's face at that moment).
+async function extractFrame(sourcePath, atTimeSeconds, outputImagePath) {
+  await run(['-y', '-ss', String(Math.max(0, atTimeSeconds)), '-i', sourcePath, '-vframes', '1', '-q:v', '2', outputImagePath]);
+  return outputImagePath;
+}
+
+// Trims a short burst straight out of the source video (no looping, unlike
+// normalizeClip) starting at `startTime`, scaled/cropped to match the other
+// scenes so it concatenates cleanly. Video only (-an) - the News Reaction
+// builder handles this scene's audio (narration + quiet original) separately
+// via mixNarrationWithBackground below.
+async function trimSilentClip(sourcePath, startTime, durationSeconds, outputPath, width = 1080, height = 1920) {
+  await run([
+    '-y',
+    '-ss', String(Math.max(0, startTime)),
+    '-i', sourcePath,
+    '-t', String(durationSeconds),
+    '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p`,
+    '-r', '25',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
+    '-an',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
+// Builds a single News Reaction scene's final audio: the narration voiceover
+// on top, with a quiet ("halka") clip of the *original* source video's own
+// audio underneath for the exact same window - so an "original clip burst"
+// scene still feels like it's from the real clip, while the narration stays
+// clearly audible on top. `backgroundVolume` is linear (0.15 = original
+// audio at ~15% volume). Output is forced to 24kHz mono MP3 to exactly match
+// the TTS services' own output format (see services.googleTtsService.js /
+// utils.ffmpeg.js pcmToMp3), so it concatenates cleanly with plain-narration
+// scenes via concatAudio's `-c copy`.
+async function mixNarrationWithBackground(narrationPath, sourcePath, startTime, durationSeconds, outputPath, backgroundVolume = 0.15) {
+  await run([
+    '-y',
+    '-i', narrationPath,
+    '-ss', String(Math.max(0, startTime)), '-t', String(durationSeconds), '-i', sourcePath,
+    '-filter_complex',
+    `[1:a]volume=${backgroundVolume},atrim=0:${durationSeconds},apad=whole_dur=${durationSeconds}[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
+    '-map', '[aout]',
+    '-ar', '24000', '-ac', '1',
+    '-c:a', 'libmp3lame',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
 // Returns the duration (in seconds, float) of an audio/video file using ffprobe.
 function getMediaDuration(filePath) {
   return new Promise((resolve, reject) => {
@@ -169,4 +221,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions };
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground };

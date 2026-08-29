@@ -224,7 +224,64 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
   return { title: parsed.title.trim(), hashtags: (parsed.hashtags || '').trim() };
 }
 
-module.exports = { writeScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags };
+module.exports = { writeScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags, generateReactionScript };
+
+/**
+ * Generates a scene-by-scene plan for the Video Editor's "News Reaction"
+ * mode: alternates short bursts of the *original* source clip with narrated
+ * still-image scenes (AI-generated or a real frame pulled from the source -
+ * the model picks per scene), each with its own spoken narration line.
+ *
+ * Keeping "clip" bursts short and always narrating over them is what keeps
+ * this meaningfully different from a straight repost - see the same note in
+ * utils.autoHighlight.js. This reduces automated fingerprint-match /
+ * straight-repost risk; it does NOT make reposting someone else's footage
+ * legal on its own.
+ */
+async function generateReactionScript(sourceTitle, sourceDescription, totalDurationSeconds, { narrationLanguage = 'english', retries = 2 } = {}) {
+  const prompt = `You are building a scene-by-scene plan for a short "news reaction / explainer" video that reacts to and explains an existing news video, in the style of a commentary/analysis channel.
+
+SOURCE VIDEO TITLE: "${sourceTitle || ''}"
+SOURCE VIDEO DESCRIPTION: "${sourceDescription || ''}"
+SOURCE VIDEO LENGTH: ${Math.round(totalDurationSeconds)} seconds
+NARRATION LANGUAGE: ${narrationLanguage}
+
+Plan 5 to 10 short scenes that alternate between:
+- "clip": a 3-5 second burst of the ORIGINAL source video. Use this ONLY for the single most important/newsworthy moments. Keep the total time spent on "clip" scenes well under half of the whole video.
+- "image": a still image while the narrator explains/reacts. For each "image" scene, decide "imageSource":
+  - "ai": a generated illustration/graphic - use for reactions, context, or abstract points
+  - "real_frame": an actual still frame pulled from the source video at a given timestamp - use when a real face/moment should be shown without playing video motion
+
+Every scene needs a short spoken "narration" line (natural spoken style, 1-2 sentences, in ${narrationLanguage}) that explains or reacts to that moment. The narration is what actually plays as audio; any original clip audio is only a quiet background layer under it, never the main audio.
+
+Respond with STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
+{
+  "scenes": [
+    { "type": "clip", "startTime": 12.5, "endTime": 16.5, "narration": "..." },
+    { "type": "image", "imageSource": "ai", "imagePrompt": "<description for an AI image generator>", "narration": "..." },
+    { "type": "image", "imageSource": "real_frame", "atTime": 42.0, "narration": "..." }
+  ]
+}
+"startTime"/"endTime"/"atTime" must be within [0, ${Math.round(totalDurationSeconds)}] and in chronological order across the scene list.`;
+
+  const resp = await retryOn429(
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
+    { label: 'Gemini news reaction script', retries }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini did not return a reaction script');
+
+  const cleaned = text.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed.scenes) || parsed.scenes.length === 0) throw new Error('Gemini returned no scenes');
+  return parsed;
+}
 
 /**
  * Generates a still image from a text prompt using Gemini's own image model

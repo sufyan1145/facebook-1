@@ -14,6 +14,7 @@ const logger = require('./utils.logger');
 const VideoEditJob = require('./models.VideoEditJob');
 const videoDownloadService = require('./services.videoDownloadService');
 const transcribeDubService = require('./services.transcribeDubService');
+const newsReactionService = require('./services.newsReactionService');
 const geminiService = require('./services.geminiService');
 const { reorderTitleWords, sanitizeForFilename } = require('./utils.titleFallback');
 const driveService = require('./services.googleDriveService');
@@ -88,6 +89,28 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       }
     }
 
+    // News Reaction mode: builds an entirely new composed video (AI script,
+    // per-scene narration, clip bursts + Ken Burns image scenes - see
+    // services.newsReactionService.js) instead of running the normal
+    // effects/dub chain below, since it replaces the whole timeline rather
+    // than modifying it step by step.
+    if (spec.newsReaction && spec.newsReaction.enabled) {
+      await VideoEditJob.setStatus(job.id, 'building_reaction');
+      logger.info(`[video-edit] job ${job.id}: building news reaction video`);
+      const reactionMeta = await videoDownloadService.getMetadata(job.source_url).catch((err) => {
+        logger.error(`[video-edit] could not fetch source metadata for job ${job.id}'s reaction script, using blank title/description: ${err.message}`);
+        return null;
+      });
+      const { finalPath } = await newsReactionService.buildNewsReactionVideo(current, env.upload.tempDir, job.id, {
+        title: reactionMeta?.title,
+        description: reactionMeta?.description,
+        voiceName: spec.newsReaction.voiceName,
+        narrationLanguage: spec.newsReaction.narrationLanguage || 'english',
+      });
+      tempFiles.push(finalPath);
+      current = finalPath;
+      logger.info(`[video-edit] job ${job.id}: news reaction video built`);
+    } else {
     // 0. Transcribe & Dub (runs first, before any other effects, so later
     //    steps operate on the already-dubbed video). Uses the self-hosted
     //    transcribe-dub API: transcribes the original audio -> translates it
@@ -269,6 +292,7 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       current = out;
       tempFiles.push(out);
     }
+    } // end of else (normal effects/dub chain) - see News Reaction branch above
 
     // Final result is `current` - encode it losslessly if it's still just a
     // copy of the source container (rare edge case: no effects selected).
