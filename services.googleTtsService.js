@@ -9,11 +9,16 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 // Uses Gemini's own TTS-capable models (same simple GEMINI_API_KEY, no GCP
 // project or billing needed) instead of Google Cloud Text-to-Speech.
+// Model comes from GEMINI_TTS_MODEL (falls back to a stable default) rather
+// than being hardcoded - Google retires/renames specific model IDs over
+// time (e.g. gemini-2.5-flash -> gemini-3.6-flash for text), so this should
+// be a quick env var change, not a code deploy, if it ever needs updating.
 async function synthesizeToFile(text, destPath, voiceName) {
+  const model = env.googleAi.geminiTtsModel;
   const resp = await retryOn429(
     () =>
       axios.post(
-        `${BASE_URL}/models/gemini-2.5-flash-preview-tts:generateContent`,
+        `${BASE_URL}/models/${model}:generateContent`,
         {
           contents: [{ parts: [{ text }] }],
           generationConfig: {
