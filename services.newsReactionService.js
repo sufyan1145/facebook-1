@@ -47,10 +47,19 @@ async function synthesizeNarration(text, destPath, voiceName) {
 }
 
 async function generateSceneImage(prompt, destPath) {
-  // Free, no-API-key path - swap to geminiService.generateImage(prompt,
-  // destPath) here if higher quality (and its quota/cost) is preferred.
-  await pollinationsService.generateImage(prompt, destPath, 1080, 1920);
-  return destPath;
+  // Gemini (Nano Banana) first - better quality, still free-tier via the
+  // same GEMINI_API_KEY already used elsewhere in this app. If it fails for
+  // ANY reason (quota, 503 overload, retired model, network issue, etc.),
+  // instantly fall back to Pollinations (free, no key, no quota) instead of
+  // failing the whole scene/job.
+  try {
+    await geminiService.generateImage(prompt, destPath, { retries: 0 });
+    return destPath;
+  } catch (err) {
+    logger.info(`[news-reaction] Gemini image generation failed (${err.message}), falling back to Pollinations`);
+    await pollinationsService.generateImage(prompt, destPath, 1080, 1920);
+    return destPath;
+  }
 }
 
 /**
