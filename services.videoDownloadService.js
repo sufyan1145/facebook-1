@@ -64,7 +64,16 @@ function getImpersonateArgs() {
 // always enough from a flagged datacenter IP range (Contabo, Railway, AWS,
 // etc. are all treated the same way).
 function getProxyArgs() {
-  return env.videoDownload?.proxyUrl ? ['--proxy', env.videoDownload.proxyUrl] : [];
+  if (!env.videoDownload?.proxyUrl) return [];
+  if (!getProxyArgs._logged) {
+    getProxyArgs._logged = true;
+    // Log host:port only (never credentials) so we can confirm from Runtime
+    // Logs whether the proxy is actually wired up, without leaking the
+    // username/password into logs.
+    const masked = env.videoDownload.proxyUrl.replace(/\/\/[^@]+@/, '//***:***@');
+    logger.info(`[videodl] using proxy for yt-dlp: ${masked}`);
+  }
+  return ['--proxy', env.videoDownload.proxyUrl];
 }
 
 function isValidUrl(url) {
@@ -135,6 +144,25 @@ async function ytdlpDownload(url, rawPath, args) {
         return;
       } catch (retryErr) {
         logger.error(`[videodl] retry after android-client workaround also failed for ${url}: ${retryErr.stderr || retryErr.message}`);
+        throw new Error('Failed to download this video.');
+      }
+    }
+
+    // Occasionally (seen with residential/rotating proxies whose exit IP
+    // lands in a different region) YouTube's format list for that IP
+    // doesn't include whatever "-f" selector we asked for. Retry once with
+    // the "-f" restriction removed entirely, letting yt-dlp fall back to
+    // its own (very permissive) default format selection instead of ours.
+    const isFormatUnavailable = /Requested format is not available/i.test(message);
+    if (isFormatUnavailable) {
+      logger.error(`[videodl] requested format unavailable for ${url}, retrying with no format restriction`);
+      const fIndex = args.indexOf('-f');
+      const retryArgs = fIndex === -1 ? args : [...args.slice(0, fIndex), ...args.slice(fIndex + 2)];
+      try {
+        await execFileAsync(YTDLP_BIN, retryArgs, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
+        return;
+      } catch (retryErr) {
+        logger.error(`[videodl] retry with no format restriction also failed for ${url}: ${retryErr.stderr || retryErr.message}`);
         throw new Error('Failed to download this video.');
       }
     }
