@@ -226,13 +226,34 @@ async function downloadVideo(url, destPath) {
   const cookiesArgs = getCookiesArgs();
   const impersonateArgs = getImpersonateArgs();
   const proxyArgs = getProxyArgs();
-  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
+  // --merge-output-format mp4 is required on every attempt (not just the
+  // explicit-merge fallback below). Without it, whenever yt-dlp has to merge
+  // separately-downloaded video+audio streams (which is exactly what happens
+  // on the "format unavailable, retry with no -f restriction" path in
+  // ytdlpDownload), it names the merged file after the *source* container
+  // (e.g. .webm) instead of the .mp4 path we passed via -o - so the file we
+  // then look for at `rawPath` was never created, and ffprobe/ffmpeg fail
+  // with "No such file or directory" even though the download itself succeeded.
+  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'b/best', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url]);
+
+  if (!fs.existsSync(rawPath)) {
+    logger.error(`[videodl] rawPath missing after reported-successful download for ${url}, searching for a mismatched-extension output`);
+    const dir = path.dirname(rawPath);
+    const base = path.basename(rawPath, '.mp4');
+    const match = fs.readdirSync(dir).find((f) => f.startsWith(base) && f !== path.basename(rawPath));
+    if (match) {
+      fs.renameSync(path.join(dir, match), rawPath);
+      logger.error(`[videodl] recovered mismatched-extension file (${match}) by renaming to expected rawPath`);
+    } else {
+      throw new Error('Downloaded the video but the output file could not be found.');
+    }
+  }
 
   let hasAudio = await hasAudioStream(rawPath);
   if (!hasAudio) {
     const explicitFormatId = await findAudioVideoFormatId(url);
     if (explicitFormatId) {
-      await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
+      await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', explicitFormatId, '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url]);
       hasAudio = await hasAudioStream(rawPath);
     }
   }
