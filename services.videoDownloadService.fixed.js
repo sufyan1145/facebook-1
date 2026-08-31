@@ -57,6 +57,25 @@ function getImpersonateArgs() {
   return ['--impersonate', 'chrome'];
 }
 
+// Optional residential/rotating proxy for yt-dlp requests (YTDLP_PROXY env
+// var, e.g. "http://user:pass@host:port"). Routes YouTube/etc. traffic
+// through a residential IP instead of this server's datacenter IP, which is
+// what YouTube's bot-detection actually keys off of - cookies alone aren't
+// always enough from a flagged datacenter IP range (Contabo, Railway, AWS,
+// etc. are all treated the same way).
+function getProxyArgs() {
+  if (!env.videoDownload?.proxyUrl) return [];
+  if (!getProxyArgs._logged) {
+    getProxyArgs._logged = true;
+    // Log host:port only (never credentials) so we can confirm from Runtime
+    // Logs whether the proxy is actually wired up, without leaking the
+    // username/password into logs.
+    const masked = env.videoDownload.proxyUrl.replace(/\/\/[^@]+@/, '//***:***@');
+    logger.info(`[videodl] using proxy for yt-dlp: ${masked}`);
+  }
+  return ['--proxy', env.videoDownload.proxyUrl];
+}
+
 function isValidUrl(url) {
   try {
     const u = new URL(url);
@@ -70,7 +89,7 @@ async function getMetadata(url) {
   try {
     const { stdout } = await execFileAsync(
       YTDLP_BIN,
-      [...getCookiesArgs(), ...getImpersonateArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
+      [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
       { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
     );
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -90,16 +109,17 @@ async function ytdlpDownload(url, rawPath, args) {
     await execFileAsync(YTDLP_BIN, args, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
   } catch (err) {
     const message = err.stderr || err.message || '';
+
     // Known open yt-dlp/YouTube bug (yt-dlp/yt-dlp#17389): passing cookies to
     // YouTube can force a broken "tv_downgraded" player client, which fails
-    // with "The page needs to be reloaded." Retrying once without cookies and
-    // with an explicit player_client works around it until upstream patches it.
+    // with "The page needs to be reloaded." The maintainers' workaround is to
+    // KEEP the cookies (a Railway/datacenter IP needs them to avoid the
+    // separate "Sign in to confirm you're not a bot" block) and just add an
+    // explicit player_client. Retry once with that added, cookies intact.
     const isReloadBug = /page needs to be reloaded/i.test(message);
     if (isReloadBug) {
       logger.error(`[videodl] hit known yt-dlp "page needs to be reloaded" bug for ${url}, retrying with player_client workaround`);
-      const retryArgs = args
-        .filter((a, i) => a !== '--cookies' && args[i - 1] !== '--cookies')
-        .concat(['--extractor-args', 'youtube:player_client=default,web_embedded']);
+      const retryArgs = [...args, '--extractor-args', 'youtube:player_client=default,web_embedded'];
       try {
         await execFileAsync(YTDLP_BIN, retryArgs, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
         return;
@@ -108,8 +128,49 @@ async function ytdlpDownload(url, rawPath, args) {
         throw new Error('Failed to download this video.');
       }
     }
+
+    // Since 2024 YouTube's "web" player client requires a proof-of-origin
+    // token that only real browser JS can generate - yt-dlp can't produce
+    // one, so even valid, fresh cookies get "Sign in to confirm you're not a
+    // bot" from a datacenter IP like Railway's. The android client historically
+    // doesn't require that token, so retry once with cookies + android client
+    // before giving up.
+    const isBotCheck = /sign in to confirm/i.test(message);
+    if (isBotCheck) {
+      logger.error(`[videodl] hit YouTube bot-check for ${url}, retrying with android client workaround`);
+      const retryArgs = [...args, '--extractor-args', 'youtube:player_client=android'];
+      try {
+        await execFileAsync(YTDLP_BIN, retryArgs, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
+        return;
+      } catch (retryErr) {
+        logger.error(`[videodl] retry after android-client workaround also failed for ${url}: ${retryErr.stderr || retryErr.message}`);
+        throw new Error('Failed to download this video.');
+      }
+    }
+
+    // Occasionally (seen with residential/rotating proxies whose exit IP
+    // lands in a different region) YouTube's format list for that IP
+    // doesn't include whatever "-f" selector we asked for. Retry once with
+    // the "-f" restriction removed entirely, letting yt-dlp fall back to
+    // its own (very permissive) default format selection instead of ours.
+    const isFormatUnavailable = /Requested format is not available/i.test(message);
+    if (isFormatUnavailable) {
+      logger.error(`[videodl] requested format unavailable for ${url}, retrying with no format restriction`);
+      const fIndex = args.indexOf('-f');
+      const retryArgs = fIndex === -1 ? args : [...args.slice(0, fIndex), ...args.slice(fIndex + 2)];
+      try {
+        await execFileAsync(YTDLP_BIN, retryArgs, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
+        return;
+      } catch (retryErr) {
+        logger.error(`[videodl] retry with no format restriction also failed for ${url}: ${retryErr.stderr || retryErr.message}`);
+        throw new Error('Failed to download this video.');
+      }
+    }
+
     logger.error(`[videodl] download failed for ${url}: ${message}`);
     throw new Error('Failed to download this video.');
+
+
   }
 }
 
@@ -145,7 +206,7 @@ async function getCodecs(filePath) {
 
 async function findAudioVideoFormatId(url) {
   try {
-    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
+    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
       timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20,
     });
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -164,20 +225,42 @@ async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
   const cookiesArgs = getCookiesArgs();
   const impersonateArgs = getImpersonateArgs();
-  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, '-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
+  const proxyArgs = getProxyArgs();
+  // --merge-output-format mp4 is required on every attempt (not just the
+  // explicit-merge fallback below). Without it, whenever yt-dlp has to merge
+  // separately-downloaded video+audio streams (which is exactly what happens
+  // on the "format unavailable, retry with no -f restriction" path in
+  // ytdlpDownload), it names the merged file after the *source* container
+  // (e.g. .webm) instead of the .mp4 path we passed via -o - so the file we
+  // then look for at `rawPath` was never created, and ffprobe/ffmpeg fail
+  // with "No such file or directory" even though the download itself succeeded.
+  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'b/best', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url]);
+
+  if (!fs.existsSync(rawPath)) {
+    logger.error(`[videodl] rawPath missing after reported-successful download for ${url}, searching for a mismatched-extension output`);
+    const dir = path.dirname(rawPath);
+    const base = path.basename(rawPath, '.mp4');
+    const match = fs.readdirSync(dir).find((f) => f.startsWith(base) && f !== path.basename(rawPath));
+    if (match) {
+      fs.renameSync(path.join(dir, match), rawPath);
+      logger.error(`[videodl] recovered mismatched-extension file (${match}) by renaming to expected rawPath`);
+    } else {
+      throw new Error('Downloaded the video but the output file could not be found.');
+    }
+  }
 
   let hasAudio = await hasAudioStream(rawPath);
   if (!hasAudio) {
     const explicitFormatId = await findAudioVideoFormatId(url);
     if (explicitFormatId) {
-      await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, '-f', explicitFormatId, '--no-warnings', '-o', rawPath, url]);
+      await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', explicitFormatId, '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url]);
       hasAudio = await hasAudioStream(rawPath);
     }
   }
   if (!hasAudio) {
     try {
       await ytdlpDownload(url, rawPath, [
-        ...cookiesArgs, ...impersonateArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
+        ...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
       ]);
       hasAudio = await hasAudioStream(rawPath);
     } catch (mergeErr) {
