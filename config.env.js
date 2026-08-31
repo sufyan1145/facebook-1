@@ -128,6 +128,11 @@ module.exports = {
     // Leave unset to skip this (downloads still work for sites that don't
     // need it).
     cookiesBase64: process.env.YTDLP_COOKIES_BASE64,
+    // Optional: route yt-dlp traffic through a residential/rotating proxy
+    // instead of this server's own (datacenter) IP - format:
+    // "http://user:pass@host:port". Combine with cookiesBase64 above for
+    // best results; a proxy alone doesn't replace needing valid cookies.
+    proxyUrl: process.env.YTDLP_PROXY,
   },
 
   vertexAi: {
@@ -136,9 +141,9 @@ module.exports = {
     // Full service-account JSON, base64-encoded, in one env var (safe for Railway).
     credentialsBase64: process.env.VERTEX_CREDENTIALS_BASE64,
     veoModel: (process.env.VERTEX_VEO_MODEL || 'veo-3.0-generate-preview').trim(),
-    imageModel: (process.env.VERTEX_IMAGE_MODEL || 'gemini-2.5-flash-image').trim(),
+    imageModel: (process.env.VERTEX_IMAGE_MODEL || 'gemini-3.1-flash-image').trim(), // Nano Banana 2
     ttsModel: (process.env.VERTEX_TTS_MODEL || 'gemini-2.5-flash-preview-tts').trim(),
-    scriptModel: (process.env.VERTEX_SCRIPT_MODEL || 'gemini-2.5-flash').trim(),
+    scriptModel: (process.env.VERTEX_SCRIPT_MODEL || 'gemini-3.6-flash').trim(),
   },
 
   grok: {
