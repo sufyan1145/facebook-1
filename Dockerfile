@@ -32,4 +32,10 @@ RUN mkdir -p logs uploads
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "node migrate-runner.js && node server.js"]
+# In addition to the build-time nightly pull above, self-update yt-dlp once
+# more at every container START (not just build) - TikTok/YouTube extractor
+# breaks and their upstream fixes both happen fast enough that this can
+# matter between deploys, e.g. after a container restart with no rebuild.
+# "|| true" so a failed update (offline registry, rate limit, etc.) never
+# blocks the app from starting.
+CMD ["sh", "-c", "yt-dlp -U || true && node migrate-runner.js && node server.js"]
