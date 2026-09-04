@@ -106,6 +106,7 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
         description: reactionMeta?.description,
         voiceName: spec.newsReaction.voiceName,
         narrationLanguage: spec.newsReaction.narrationLanguage || 'english',
+        orientation: spec.newsReaction.orientation === 'landscape' ? 'landscape' : 'portrait',
       });
       tempFiles.push(finalPath);
       current = finalPath;

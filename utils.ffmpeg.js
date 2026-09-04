@@ -198,6 +198,38 @@ function getMediaDuration(filePath) {
 }
 
 // Concatenates per-scene voiceover audio files (same codec expected) into one track.
+// Extracts just the original audio for a clip-burst block, at normal volume
+// (no narration mixed in) - used when a clip block has no voiceover of its
+// own and should just play as itself. Output format matches the TTS
+// services' own output (24kHz mono mp3) so it concatenates cleanly with
+// narration-only scenes via concatAudio's `-c copy`.
+async function extractAudioSegment(sourcePath, startTime, durationSeconds, outputPath) {
+  await run([
+    '-y',
+    '-ss', String(Math.max(0, startTime)), '-i', sourcePath,
+    '-t', String(durationSeconds),
+    '-ar', '24000', '-ac', '1',
+    '-c:a', 'libmp3lame',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
+// Generates a silent audio track of the given length, matching the TTS
+// services' own format (24kHz mono mp3) - used as a safety net when a
+// clip-burst's source segment has no audio track at all (rare, but some
+// downloaded clips have silent stretches with no audio stream present).
+async function generateSilentAudio(durationSeconds, outputPath) {
+  await run([
+    '-y',
+    '-f', 'lavfi', '-i', 'anullsrc=r=24000:cl=mono',
+    '-t', String(durationSeconds),
+    '-c:a', 'libmp3lame',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
 async function concatAudio(audioPaths, outputPath) {
   const listPath = outputPath.replace(/\.mp3$/, '.txt');
   const listContent = audioPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
@@ -221,4 +253,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground };
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, generateSilentAudio };

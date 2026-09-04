@@ -224,45 +224,36 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
   return { title: parsed.title.trim(), hashtags: (parsed.hashtags || '').trim() };
 }
 
-module.exports = { writeScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags, generateReactionScript };
+module.exports = { writeScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags, generateReactionNarrationLines };
 
 /**
- * Generates a scene-by-scene plan for the Video Editor's "News Reaction"
- * mode: alternates short bursts of the *original* source clip with narrated
- * still-image scenes (AI-generated or a real frame pulled from the source -
- * the model picks per scene), each with its own spoken narration line.
+ * Generates a sequence of spoken narration lines for the Video Editor's
+ * "News Reaction" mode. The video's actual timing/rhythm (fixed 10s image
+ * beat + 4s original-clip beat, repeating for the whole video - see
+ * services.newsReactionService.js) is decided in code, not by the model;
+ * this call's only job is writing `lineCount` narration lines that read as
+ * one continuous reaction/explainer moving through the story in order.
  *
- * Keeping "clip" bursts short and always narrating over them is what keeps
- * this meaningfully different from a straight repost - see the same note in
- * utils.autoHighlight.js. This reduces automated fingerprint-match /
- * straight-repost risk; it does NOT make reposting someone else's footage
- * legal on its own.
+ * Reacting with narration over short original-clip bursts (rather than
+ * reposting the source outright) is what keeps this meaningfully different
+ * from a straight repost - see the same note in utils.autoHighlight.js.
+ * This reduces automated fingerprint-match / straight-repost risk; it does
+ * NOT make reposting someone else's footage legal on its own.
  */
-async function generateReactionScript(sourceTitle, sourceDescription, totalDurationSeconds, { narrationLanguage = 'english', retries = 3 } = {}) {
-  const prompt = `You are building a scene-by-scene plan for a short "news reaction / explainer" video that reacts to and explains an existing news video, in the style of a commentary/analysis channel.
+async function generateReactionNarrationLines(sourceTitle, sourceDescription, lineCount, { narrationLanguage = 'english', retries = 3 } = {}) {
+  const prompt = `You are writing the narration script for a short "news reaction / explainer" video that reacts to and explains an existing news video, in the style of a commentary/analysis channel.
 
 SOURCE VIDEO TITLE: "${sourceTitle || ''}"
 SOURCE VIDEO DESCRIPTION: "${sourceDescription || ''}"
-SOURCE VIDEO LENGTH: ${Math.round(totalDurationSeconds)} seconds
 NARRATION LANGUAGE: ${narrationLanguage}
 
-Plan 5 to 10 short scenes that alternate between:
-- "clip": a 3-5 second burst of the ORIGINAL source video. Use this ONLY for the single most important/newsworthy moments. Keep the total time spent on "clip" scenes well under half of the whole video.
-- "image": a still image while the narrator explains/reacts. For each "image" scene, decide "imageSource":
-  - "ai": a generated illustration/graphic - use for reactions, context, or abstract points
-  - "real_frame": an actual still frame pulled from the source video at a given timestamp - use when a real face/moment should be shown without playing video motion
+Write exactly ${lineCount} narration lines, in order, that together form one continuous reaction moving through the story from start to finish (setup -> key moments -> reaction/context -> closing thought). Each line plays while the viewer sees a still image of that moment, so write it like a narrator/commentator talking OVER a still, reacting to and explaining what's happening - not describing an image.
 
-Every scene needs a short spoken "narration" line (natural spoken style, 1-2 sentences, in ${narrationLanguage}) that explains or reacts to that moment. The narration is what actually plays as audio; any original clip audio is only a quiet background layer under it, never the main audio.
+Each line should take roughly 8-10 seconds to speak aloud at a natural pace (about 20-28 words), in ${narrationLanguage}, 1-2 sentences, natural spoken style (not written/formal).
 
 Respond with STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
-{
-  "scenes": [
-    { "type": "clip", "startTime": 12.5, "endTime": 16.5, "narration": "..." },
-    { "type": "image", "imageSource": "ai", "imagePrompt": "<description for an AI image generator>", "narration": "..." },
-    { "type": "image", "imageSource": "real_frame", "atTime": 42.0, "narration": "..." }
-  ]
-}
-"startTime"/"endTime"/"atTime" must be within [0, ${Math.round(totalDurationSeconds)}] and in chronological order across the scene list.`;
+{ "lines": ["...", "...", "..."] }
+The "lines" array must contain exactly ${lineCount} strings, in order.`;
 
   const resp = await retryOn429(
     () =>
@@ -271,16 +262,20 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
         { contents: [{ parts: [{ text: prompt }] }] },
         { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 }
       ),
-    { label: 'Gemini news reaction script', retries }
+    { label: 'Gemini news reaction narration', retries }
   );
 
   const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Gemini did not return a reaction script');
+  if (!text) throw new Error('Gemini did not return narration lines');
 
   const cleaned = text.replace(/```json|```/g, '').trim();
   const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed.scenes) || parsed.scenes.length === 0) throw new Error('Gemini returned no scenes');
-  return parsed;
+  if (!Array.isArray(parsed.lines) || parsed.lines.length === 0) throw new Error('Gemini returned no narration lines');
+  // Be tolerant of the model returning a slightly different count than asked -
+  // pad by repeating the last line, or trim extras, rather than failing the job.
+  const lines = parsed.lines.map((l) => String(l).trim()).filter(Boolean);
+  while (lines.length < lineCount) lines.push(lines[lines.length - 1] || sourceTitle || 'And that brings us to the end of this story.');
+  return { lines: lines.slice(0, lineCount) };
 }
 
 /**
