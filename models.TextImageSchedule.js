@@ -21,6 +21,27 @@ const TextImageSchedule = {
     return res.rows[0];
   },
 
+  async update(userId, id, data) {
+    const res = await query(
+      `UPDATE text_image_schedules SET
+         page_id = $3, message = $4, image_source = $5, folder_id = $6, ai_prompt = $7, topic = $8,
+         upload_time = $9, timezone = $10, repeat_type = $11, specific_days = $12, interval_hours = $13, times = $14,
+         updated_at = now()
+       WHERE user_id = $1 AND id = $2
+       RETURNING *`,
+      [
+        userId, id, data.pageId, data.message || null, data.imageSource,
+        data.imageSource === 'drive' ? data.folderId : null,
+        data.imageSource === 'ai' ? data.aiPrompt || null : null,
+        data.imageSource === 'ai' ? data.topic || null : null,
+        data.uploadTime, data.timezone, data.repeat,
+        data.specificDays || null, data.intervalHours || null,
+        data.times && data.times.length ? JSON.stringify(data.times) : null,
+      ]
+    );
+    return res.rows[0];
+  },
+
   async listByUser(userId) {
     const res = await query(
       `SELECT s.*, p.page_name, df.folder_name

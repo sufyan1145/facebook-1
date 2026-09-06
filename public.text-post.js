@@ -80,6 +80,8 @@ async function loadHistory() {
 
 // ---- Scheduling ----
 let schedSelectedDays = new Set();
+let cachedSchedules = [];
+let editingScheduleId = null;
 
 async function loadSchedPageOptions() {
   const select = document.getElementById('schedPageId');
@@ -123,12 +125,20 @@ function renderScheduleRows(schedules) {
         <td style="text-transform:capitalize;">${s.repeat_type === 'interval_hours' ? `Every ${s.interval_hours || '?'}h` : s.repeat_type === 'multiple_times' ? (Array.isArray(s.times) ? s.times.join(', ') : 'multiple times') : s.repeat_type.replace('_', ' ')}</td>
         <td><span class="badge ${s.is_active ? 'success' : 'failed'}">${s.is_active ? 'Active' : 'Paused'}</span></td>
         <td style="display:flex; gap:6px;">
+          <button class="btn sm" data-sched-edit="${s.id}">Edit</button>
           <button class="btn sm" data-sched-toggle="${s.id}" data-active="${s.is_active}">${s.is_active ? 'Pause' : 'Resume'}</button>
           <button class="btn sm danger" data-sched-delete="${s.id}">Delete</button>
         </td>
       </tr>`
     )
     .join('');
+
+  body.querySelectorAll('button[data-sched-edit]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const schedule = cachedSchedules.find((s) => s.id === btn.dataset.schedEdit);
+      if (schedule) enterScheduleEditMode(schedule);
+    });
+  });
 
   body.querySelectorAll('button[data-sched-toggle]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -152,10 +162,79 @@ function renderScheduleRows(schedules) {
 async function loadSchedules() {
   try {
     const { data } = await apiFetch('/text-image-schedules');
+    cachedSchedules = data;
     renderScheduleRows(data);
   } catch (err) {
     document.getElementById('scheduleBody').innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+function exitScheduleEditMode() {
+  editingScheduleId = null;
+  document.getElementById('schedSubmitBtn').textContent = 'Create Schedule';
+  document.getElementById('schedCancelEditBtn').style.display = 'none';
+  document.getElementById('scheduleForm').reset();
+  schedSelectedDays.clear();
+  document.querySelectorAll('.sched-day-chip.selected').forEach((c) => c.classList.remove('selected'));
+  // Collapse back to a single blank time row for "multiple_times" mode.
+  const list = document.getElementById('schedMultipleTimesList');
+  list.innerHTML = `<div style="display:flex; gap:8px;">
+    <input type="time" class="sched-multi-time-input" style="flex:1;" />
+    <button type="button" class="btn sm danger sched-remove-time-btn">Remove</button>
+  </div>`;
+  list.querySelectorAll('.sched-remove-time-btn').forEach((btn) => {
+    btn.addEventListener('click', () => { if (list.children.length > 1) btn.closest('div').remove(); });
+  });
+  document.getElementById('schedSpecificDaysField').style.display = 'none';
+  document.getElementById('schedIntervalHoursField').style.display = 'none';
+  document.getElementById('schedMultipleTimesField').style.display = 'none';
+  document.getElementById('schedTimezone').value = currentUser && currentUser.timezone ? currentUser.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+function enterScheduleEditMode(schedule) {
+  editingScheduleId = schedule.id;
+  document.getElementById('schedSubmitBtn').textContent = 'Update Schedule';
+  document.getElementById('schedCancelEditBtn').style.display = '';
+
+  document.getElementById('schedPageId').value = schedule.page_id;
+
+  const sourceRadio = document.querySelector(`input[name="schedImageSource"][value="${schedule.image_source}"]`);
+  if (sourceRadio) {
+    sourceRadio.checked = true;
+    sourceRadio.dispatchEvent(new Event('change'));
+  }
+  document.getElementById('schedFolderId').value = schedule.folder_id || '';
+  document.getElementById('schedMessage').value = schedule.message || '';
+  document.getElementById('schedTopic').value = schedule.topic || '';
+
+  document.getElementById('schedUploadTime').value = (schedule.upload_time || '').slice(0, 5);
+  document.getElementById('schedTimezone').value = schedule.timezone;
+
+  document.getElementById('schedRepeat').value = schedule.repeat_type;
+  document.getElementById('schedRepeat').dispatchEvent(new Event('change'));
+
+  schedSelectedDays.clear();
+  document.querySelectorAll('.sched-day-chip.selected').forEach((c) => c.classList.remove('selected'));
+  (schedule.specific_days || []).forEach((day) => {
+    schedSelectedDays.add(day);
+    const chip = document.querySelector(`.sched-day-chip[data-day="${day}"]`);
+    if (chip) chip.classList.add('selected');
+  });
+
+  document.getElementById('schedIntervalHours').value = schedule.interval_hours || '';
+
+  const times = Array.isArray(schedule.times) ? schedule.times : [];
+  const list = document.getElementById('schedMultipleTimesList');
+  list.innerHTML = (times.length ? times : ['']).map(() => `<div style="display:flex; gap:8px;">
+    <input type="time" class="sched-multi-time-input" style="flex:1;" />
+    <button type="button" class="btn sm danger sched-remove-time-btn">Remove</button>
+  </div>`).join('');
+  list.querySelectorAll('.sched-multi-time-input').forEach((input, i) => { input.value = times[i] || ''; });
+  list.querySelectorAll('.sched-remove-time-btn').forEach((btn) => {
+    btn.addEventListener('click', () => { if (list.children.length > 1) btn.closest('div').remove(); });
+  });
+
+  document.getElementById('scheduleForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function initScheduleForm() {
@@ -209,32 +288,35 @@ function initScheduleForm() {
     });
   });
 
+  document.getElementById('schedCancelEditBtn').addEventListener('click', exitScheduleEditMode);
+
   document.getElementById('scheduleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorText = document.getElementById('schedErrorText');
     errorText.textContent = '';
     const imageSource = document.querySelector('input[name="schedImageSource"]:checked').value;
 
+    const payload = {
+      pageId: document.getElementById('schedPageId').value,
+      message: imageSource === 'drive' ? document.getElementById('schedMessage').value : null,
+      imageSource,
+      folderId: imageSource === 'drive' ? document.getElementById('schedFolderId').value : null,
+      topic: imageSource === 'ai' ? document.getElementById('schedTopic').value : null,
+      uploadTime: document.getElementById('schedUploadTime').value,
+      timezone: document.getElementById('schedTimezone').value,
+      repeat: document.getElementById('schedRepeat').value,
+      specificDays: Array.from(schedSelectedDays),
+      intervalHours: document.getElementById('schedIntervalHours').value || null,
+      times: Array.from(document.querySelectorAll('.sched-multi-time-input')).map((el) => el.value).filter(Boolean),
+    };
+
     try {
-      await apiFetch('/text-image-schedules', {
-        method: 'POST',
-        body: JSON.stringify({
-          pageId: document.getElementById('schedPageId').value,
-          message: imageSource === 'drive' ? document.getElementById('schedMessage').value : null,
-          imageSource,
-          folderId: imageSource === 'drive' ? document.getElementById('schedFolderId').value : null,
-          topic: imageSource === 'ai' ? document.getElementById('schedTopic').value : null,
-          uploadTime: document.getElementById('schedUploadTime').value,
-          timezone: document.getElementById('schedTimezone').value,
-          repeat: document.getElementById('schedRepeat').value,
-          specificDays: Array.from(schedSelectedDays),
-          intervalHours: document.getElementById('schedIntervalHours').value || null,
-          times: Array.from(document.querySelectorAll('.sched-multi-time-input')).map((el) => el.value).filter(Boolean),
-        }),
-      });
-      e.target.reset();
-      schedSelectedDays.clear();
-      document.querySelectorAll('.sched-day-chip.selected').forEach((c) => c.classList.remove('selected'));
+      if (editingScheduleId) {
+        await apiFetch(`/text-image-schedules/${editingScheduleId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await apiFetch('/text-image-schedules', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      exitScheduleEditMode();
       loadSchedules();
     } catch (err) {
       errorText.textContent = err.message;
