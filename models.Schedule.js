@@ -23,6 +23,11 @@ const Schedule = {
   },
 
   async update(userId, id, data) {
+    // Resetting last_run_slots/last_run_at is important here: without it, a
+    // schedule that already fired earlier today (before being edited) would
+    // silently look "already claimed" for today's slot and just never fire
+    // again post-edit, with no error anywhere - exactly the "update ke baad
+    // trigger nahi hota" symptom this was fixing.
     const res = await query(
       `UPDATE schedules SET
          page_id = $3, folder_id = $4, upload_time = $5, timezone = $6, repeat_type = $7, specific_days = $8,
@@ -30,6 +35,7 @@ const Schedule = {
          publish_immediately = $14, interval_hours = $15, times = $16,
          post_to_facebook = $17, youtube_token_id = $18, youtube_video_type = $19,
          auto_background_music = $20, music_folder_id = $21,
+         last_run_slots = '{}'::jsonb, last_run_at = NULL,
          updated_at = now()
        WHERE user_id = $1 AND id = $2
        RETURNING *`,

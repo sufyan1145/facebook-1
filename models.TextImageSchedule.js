@@ -26,6 +26,7 @@ const TextImageSchedule = {
       `UPDATE text_image_schedules SET
          page_id = $3, message = $4, image_source = $5, folder_id = $6, ai_prompt = $7, topic = $8,
          upload_time = $9, timezone = $10, repeat_type = $11, specific_days = $12, interval_hours = $13, times = $14,
+         last_run_slots = '{}'::jsonb, last_run_at = NULL,
          updated_at = now()
        WHERE user_id = $1 AND id = $2
        RETURNING *`,

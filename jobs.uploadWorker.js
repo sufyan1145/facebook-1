@@ -72,8 +72,9 @@ const worker = new Worker(
       // (no tracks in the folder, download hiccup, ffmpeg error, etc.) should
       // never block the actual post - falls back to the original file with
       // its own audio untouched, same as if the option were off.
-      if (autoBackgroundMusic && musicFolderId) {
+      if (autoBackgroundMusic && musicFolderId && musicFolderId.trim()) {
         try {
+          logger.info(`Auto background music: looking for audio in Drive folder "${musicFolderId}" for ${file.name}`);
           const tracks = await driveService.listAudioInFolder(userId, musicFolderId);
           if (tracks.length > 0) {
             const track = tracks[Math.floor(Math.random() * tracks.length)];
@@ -86,9 +87,12 @@ const worker = new Worker(
             logger.info(`Auto background music enabled for ${file.name} but the chosen Drive folder has no audio files - posting original audio instead`);
           }
         } catch (musicErr) {
-          logger.error(`Background music step failed for ${file.name}, posting original audio instead: ${musicErr.message}`);
-          await Log.record(userId, 'Background Music Failed', { file: file.name, error: musicErr.message }, 'error');
+          logger.error(`Background music step failed for ${file.name} (musicFolderId="${musicFolderId}"), posting original audio instead: ${musicErr.message}`);
+          await Log.record(userId, 'Background Music Failed', { file: file.name, musicFolderId, error: musicErr.message }, 'error');
         }
+      } else if (autoBackgroundMusic && (!musicFolderId || !musicFolderId.trim())) {
+        logger.error(`Auto background music enabled for ${file.name} but no music folder is set on this schedule - posting original audio instead`);
+        await Log.record(userId, 'Background Music Failed', { file: file.name, error: 'No music folder selected on the schedule' }, 'error');
       }
 
       let fbVideoId = historyRow.facebook_video_id || null;
