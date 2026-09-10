@@ -5,6 +5,7 @@ const { requireAuth } = require('./middleware.auth');
 const { scheduleRules, idParamRule, handleValidation } = require('./utils.validators');
 
 router.post('/', requireAuth, scheduleRules, handleValidation, scheduleController.createSchedule);
+router.put('/:id', requireAuth, idParamRule, scheduleRules, handleValidation, scheduleController.updateSchedule);
 router.get('/', requireAuth, scheduleController.listSchedules);
 router.patch('/:id/toggle', requireAuth, idParamRule, handleValidation, scheduleController.toggleSchedule);
 router.delete('/:id', requireAuth, idParamRule, handleValidation, scheduleController.deleteSchedule);

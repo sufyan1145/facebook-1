@@ -11,6 +11,17 @@ async function createSchedule(req, res, next) {
   }
 }
 
+async function updateSchedule(req, res, next) {
+  try {
+    const schedule = await Schedule.update(req.user.id, req.params.id, req.body);
+    if (!schedule) return res.status(404).json({ success: false, message: 'Schedule not found' });
+    await Log.record(req.user.id, 'Schedule Updated', { scheduleId: schedule.id });
+    res.json({ success: true, data: schedule });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function listSchedules(req, res, next) {
   try {
     const schedules = await Schedule.listByUser(req.user.id);
@@ -41,4 +52,4 @@ async function deleteSchedule(req, res, next) {
   }
 }
 
-module.exports = { createSchedule, listSchedules, toggleSchedule, deleteSchedule };
+module.exports = { createSchedule, listSchedules, updateSchedule, toggleSchedule, deleteSchedule };

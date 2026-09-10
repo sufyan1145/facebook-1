@@ -22,6 +22,30 @@ const Schedule = {
     return res.rows[0];
   },
 
+  async update(userId, id, data) {
+    const res = await query(
+      `UPDATE schedules SET
+         page_id = $3, folder_id = $4, upload_time = $5, timezone = $6, repeat_type = $7, specific_days = $8,
+         max_uploads = $9, random_delay_seconds = $10, caption = $11, hashtags = $12, privacy = $13,
+         publish_immediately = $14, interval_hours = $15, times = $16,
+         post_to_facebook = $17, youtube_token_id = $18, youtube_video_type = $19,
+         auto_background_music = $20, music_folder_id = $21,
+         updated_at = now()
+       WHERE user_id = $1 AND id = $2
+       RETURNING *`,
+      [
+        userId, id, data.pageId || null, data.folderId, data.uploadTime, data.timezone, data.repeat,
+        data.specificDays || null, data.maxUploads || 1, data.randomDelaySeconds || 0,
+        data.caption || null, data.hashtags || null, data.privacy || 'PUBLISHED',
+        data.publishImmediately !== false, data.intervalHours || null,
+        data.times && data.times.length ? JSON.stringify(data.times) : null,
+        data.postToFacebook !== false, data.youtubeTokenId || null, data.youtubeVideoType || 'auto',
+        data.autoBackgroundMusic || false, data.autoBackgroundMusic ? (data.musicFolderId || null) : null,
+      ]
+    );
+    return res.rows[0];
+  },
+
   async listByUser(userId) {
     const res = await query(
       `SELECT s.*, p.page_name, df.folder_name
