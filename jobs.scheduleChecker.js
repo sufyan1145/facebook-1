@@ -129,6 +129,8 @@ async function fireSchedule(schedule) {
         postToFacebook: schedule.post_to_facebook,
         youtubeTokenId: schedule.youtube_token_id,
         youtubeVideoType: schedule.youtube_video_type,
+        autoBackgroundMusic: schedule.auto_background_music,
+        musicFolderId: schedule.music_folder_id,
       },
       { delay }
     );

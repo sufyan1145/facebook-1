@@ -10,6 +10,8 @@ const QueueJob = require('./models.QueueJob');
 const { notifyUploadEvent } = require('./services.notificationService');
 const Page = require('./models.Page');
 const TikTokJob = require('./models.TikTokJob');
+const ffmpeg = require('./utils.ffmpeg');
+const path = require('path');
 
 const worker = new Worker(
   'video-upload',
@@ -17,6 +19,7 @@ const worker = new Worker(
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
       publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
+      autoBackgroundMusic, musicFolderId,
     } = job.data;
 
     // If this exact file was downloaded via the TikTok Downloader, use its
@@ -58,8 +61,35 @@ const worker = new Worker(
     }
 
     let tempPath;
+    let downloadedPath;
+    let musicTempPath;
+    let processedTempPath;
     try {
-      tempPath = await driveService.downloadFile(userId, file.id, file.name);
+      tempPath = downloadedPath = await driveService.downloadFile(userId, file.id, file.name);
+
+      // Optional: mute the original audio and swap in a background track
+      // picked at random from the user's chosen Drive folder. Failure here
+      // (no tracks in the folder, download hiccup, ffmpeg error, etc.) should
+      // never block the actual post - falls back to the original file with
+      // its own audio untouched, same as if the option were off.
+      if (autoBackgroundMusic && musicFolderId) {
+        try {
+          const tracks = await driveService.listAudioInFolder(userId, musicFolderId);
+          if (tracks.length > 0) {
+            const track = tracks[Math.floor(Math.random() * tracks.length)];
+            musicTempPath = await driveService.downloadFile(userId, track.id, track.name);
+            processedTempPath = path.join(path.dirname(tempPath), `music_${path.basename(tempPath)}`);
+            await ffmpeg.muteAndAddMusic(tempPath, musicTempPath, processedTempPath);
+            tempPath = processedTempPath;
+            logger.info(`Applied background music "${track.name}" to ${file.name}`);
+          } else {
+            logger.info(`Auto background music enabled for ${file.name} but the chosen Drive folder has no audio files - posting original audio instead`);
+          }
+        } catch (musicErr) {
+          logger.error(`Background music step failed for ${file.name}, posting original audio instead: ${musicErr.message}`);
+          await Log.record(userId, 'Background Music Failed', { file: file.name, error: musicErr.message }, 'error');
+        }
+      }
 
       let fbVideoId = historyRow.facebook_video_id || null;
       if (postToFacebook !== false && pageDbId && !fbVideoId) {
@@ -117,6 +147,8 @@ const worker = new Worker(
       throw err; // let BullMQ retry with exponential backoff
     } finally {
       if (tempPath) driveService.deleteTempFile(tempPath);
+      if (downloadedPath && downloadedPath !== tempPath) driveService.deleteTempFile(downloadedPath);
+      if (musicTempPath) driveService.deleteTempFile(musicTempPath);
     }
   },
   // Configurable so it can be tuned without a code change - e.g. lowered if

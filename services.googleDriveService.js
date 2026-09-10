@@ -95,6 +95,21 @@ async function listImagesInFolder(userId, folderId) {
   return res.data.files || [];
 }
 
+async function listAudioInFolder(userId, folderId) {
+  const auth = await getValidGoogleClient(userId);
+  const drive = google.drive({ version: 'v3', auth });
+
+  const AUDIO_MIME_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/x-m4a', 'audio/mp4', 'audio/aac', 'audio/ogg'];
+  const mimeQuery = AUDIO_MIME_TYPES.map((m) => `mimeType='${m}'`).join(' or ');
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed = false and (${mimeQuery})`,
+    fields: 'files(id, name, size, mimeType, createdTime)',
+    pageSize: 200,
+  });
+
+  return res.data.files || [];
+}
+
 async function downloadFile(userId, fileId, fileName) {
   const auth = await getValidGoogleClient(userId);
   const drive = google.drive({ version: 'v3', auth });
@@ -170,4 +185,4 @@ function deleteTempFile(filePath) {
   }
 }
 
-module.exports = { listFolders, listUnpublishedVideos, listImagesInFolder, downloadFile, uploadFile, streamFile, deleteTempFile, VIDEO_MIME_TYPES };
+module.exports = { listFolders, listUnpublishedVideos, listImagesInFolder, listAudioInFolder, downloadFile, uploadFile, streamFile, deleteTempFile, VIDEO_MIME_TYPES };

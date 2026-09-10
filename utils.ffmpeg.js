@@ -230,6 +230,26 @@ async function generateSilentAudio(durationSeconds, outputPath) {
   return outputPath;
 }
 
+// Mutes a video's own audio entirely and replaces it with a background music
+// track, looped if the track is shorter than the video and trimmed to the
+// video's exact length either way (`-shortest` against the looped audio).
+// Video stream is copied untouched (`-c:v copy`) - fast, and no quality loss
+// since we're not touching the picture at all, only swapping the audio.
+async function muteAndAddMusic(videoPath, musicPath, outputPath) {
+  await run([
+    '-y',
+    '-i', videoPath,
+    '-stream_loop', '-1', '-i', musicPath,
+    '-map', '0:v:0', '-map', '1:a:0',
+    '-c:v', 'copy',
+    '-c:a', 'aac', '-b:a', '128k',
+    '-shortest',
+    '-movflags', '+faststart',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
 async function concatAudio(audioPaths, outputPath) {
   const listPath = outputPath.replace(/\.mp3$/, '.txt');
   const listContent = audioPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
@@ -253,4 +273,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, generateSilentAudio };
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, generateSilentAudio, muteAndAddMusic };

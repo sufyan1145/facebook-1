@@ -6,8 +6,8 @@ const Schedule = {
       `INSERT INTO schedules
         (user_id, page_id, folder_id, upload_time, timezone, repeat_type, specific_days,
          max_uploads, random_delay_seconds, caption, hashtags, privacy, publish_immediately, interval_hours, times,
-         post_to_facebook, youtube_token_id, youtube_video_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         post_to_facebook, youtube_token_id, youtube_video_type, auto_background_music, music_folder_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
       [
         userId, data.pageId || null, data.folderId, data.uploadTime, data.timezone, data.repeat,
@@ -16,6 +16,7 @@ const Schedule = {
         data.publishImmediately !== false, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
         data.postToFacebook !== false, data.youtubeTokenId || null, data.youtubeVideoType || 'auto',
+        data.autoBackgroundMusic || false, data.autoBackgroundMusic ? (data.musicFolderId || null) : null,
       ]
     );
     return res.rows[0];

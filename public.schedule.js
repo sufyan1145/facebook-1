@@ -62,6 +62,7 @@ async function loadOptions() {
     ]);
     pageSelect.innerHTML = pages.filter((p) => p.is_connected).map((p) => `<option value="${p.id}">${escapeHtml(p.page_name)}${p.fb_user_name ? ' — ' + escapeHtml(p.fb_user_name) : ''}</option>`).join('') || '<option value="">No pages connected</option>';
     folderSelect.innerHTML = folders.map((f) => `<option value="${f.id}">${escapeHtml(f.folder_name)}</option>`).join('') || '<option value="">No folders scanned</option>';
+    document.getElementById('musicFolderId').innerHTML = folders.map((f) => `<option value="${f.id}">${escapeHtml(f.folder_name)}</option>`).join('') || '<option value="">No folders scanned</option>';
     youtubeSelect.innerHTML =
       '<option value="">Don\'t post to YouTube</option>' +
       youtubeAccounts.map((a) => `<option value="${a.id}">${escapeHtml(a.channel_title || a.google_user_email || a.google_user_id)}</option>`).join('');
@@ -81,6 +82,10 @@ async function loadOptions() {
 
   document.getElementById('postToFacebook').addEventListener('change', (e) => {
     document.getElementById('pageIdField').style.display = e.target.checked ? 'block' : 'none';
+  });
+
+  document.getElementById('autoBackgroundMusic').addEventListener('change', (e) => {
+    document.getElementById('musicFolderField').style.display = e.target.checked ? 'block' : 'none';
   });
 
   document.getElementById('repeat').addEventListener('change', (e) => {
@@ -154,6 +159,8 @@ async function loadOptions() {
           publishImmediately: document.getElementById('publishImmediately').checked,
           youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
           youtubeVideoType: document.getElementById('youtubeVideoType').value,
+          autoBackgroundMusic: document.getElementById('autoBackgroundMusic').checked,
+          musicFolderId: document.getElementById('autoBackgroundMusic').checked ? document.getElementById('musicFolderId').value : null,
         }),
       });
       e.target.reset();
