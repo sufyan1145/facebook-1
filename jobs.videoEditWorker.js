@@ -15,6 +15,7 @@ const VideoEditJob = require('./models.VideoEditJob');
 const videoDownloadService = require('./services.videoDownloadService');
 const transcribeDubService = require('./services.transcribeDubService');
 const newsReactionService = require('./services.newsReactionService');
+const productExplainerService = require('./services.productExplainerService');
 const geminiService = require('./services.geminiService');
 const { reorderTitleWords, sanitizeForFilename } = require('./utils.titleFallback');
 const driveService = require('./services.googleDriveService');
@@ -111,6 +112,28 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       tempFiles.push(finalPath);
       current = finalPath;
       logger.info(`[video-edit] job ${job.id}: news reaction video built`);
+    } else if (spec.productExplainer && spec.productExplainer.enabled) {
+      // Product Explainer mode: separate feature from News Reaction above -
+      // see services.productExplainerService.js. Also replaces the whole
+      // timeline rather than running the normal effects/dub chain below.
+      await VideoEditJob.setStatus(job.id, 'building_product_explainer');
+      logger.info(`[video-edit] job ${job.id}: building product explainer video`);
+      const peMeta = await videoDownloadService.getMetadata(job.source_url).catch((err) => {
+        logger.error(`[video-edit] could not fetch source metadata for job ${job.id}'s product explainer script, using blank title/description: ${err.message}`);
+        return null;
+      });
+      const { finalPath: pePath } = await productExplainerService.buildProductExplainerVideo(current, env.upload.tempDir, job.id, {
+        title: peMeta?.title,
+        description: peMeta?.description,
+        customScript: spec.productExplainer.customScript || null,
+        voiceName: spec.productExplainer.voiceName,
+        narrationLanguage: spec.productExplainer.narrationLanguage || 'english',
+        targetMinutes: spec.productExplainer.targetMinutes || 12,
+        orientation: spec.productExplainer.orientation === 'landscape' ? 'landscape' : 'portrait',
+      });
+      tempFiles.push(pePath);
+      current = pePath;
+      logger.info(`[video-edit] job ${job.id}: product explainer video built`);
     } else {
     // 0. Transcribe & Dub (runs first, before any other effects, so later
     //    steps operate on the already-dubbed video). Uses the self-hosted

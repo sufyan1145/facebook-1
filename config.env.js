@@ -135,6 +135,20 @@ module.exports = {
     proxyUrl: process.env.YTDLP_PROXY,
   },
 
+  productExplainer: {
+    // Simple API key (not OAuth) for YouTube Data API's public search.list -
+    // separate from the OAuth-based youtubeService.js used for uploading.
+    youtubeSearchApiKey: process.env.YOUTUBE_SEARCH_API_KEY,
+    // How many consecutive narration lines share one YouTube search + a small
+    // pool of downloaded candidate videos, instead of searching per line.
+    // YouTube Data API's free quota is ~100 search.list calls/day (100 units
+    // each out of a 10,000 unit daily budget) - a 12-minute video can have
+    // 150+ narration lines, so grouping keeps one video's searches well
+    // under quota instead of exhausting it in a single run.
+    linesPerSearchGroup: parseInt(process.env.PRODUCT_EXPLAINER_LINES_PER_GROUP || '8', 10),
+    candidatesPerGroup: parseInt(process.env.PRODUCT_EXPLAINER_CANDIDATES_PER_GROUP || '2', 10),
+  },
+
   vertexAi: {
     projectId: process.env.VERTEX_PROJECT_ID,
     location: (process.env.VERTEX_LOCATION || 'us-central1').trim(),

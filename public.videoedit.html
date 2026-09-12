@@ -118,6 +118,43 @@
         </div>
 
         <div class="field">
+          <label class="checkbox-row" style="margin-bottom:8px;">
+            <input id="productExplainerEnabled" type="checkbox" /> Product Explainer mode
+          </label>
+          <div id="productExplainerFields" style="display:none;">
+            <div class="field-row">
+              <div class="field">
+                <label for="productExplainerLanguage">Narration language</label>
+                <select id="productExplainerLanguage">
+                  <option value="english">English</option>
+                  <option value="hindi">Hindi</option>
+                  <option value="urdu">Urdu</option>
+                  <option value="spanish">Spanish</option>
+                  <option value="french">French</option>
+                  <option value="arabic">Arabic</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="productExplainerOrientation">Orientation</label>
+                <select id="productExplainerOrientation">
+                  <option value="portrait">Portrait (Reels / Shorts / TikTok)</option>
+                  <option value="landscape">Landscape (YouTube long-form)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="productExplainerMinutes">Target length (minutes)</label>
+                <input id="productExplainerMinutes" type="number" min="1" max="30" value="12" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="productExplainerScript">Your own script (optional, one line per beat)</label>
+              <textarea id="productExplainerScript" rows="6" placeholder="Leave blank to auto-generate from the source video's title/description. If you paste your own real-information script here (one narration line per line of text), it's used exactly as written and visuals are matched to what each of your lines describes."></textarea>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Builds a real-footage product explainer/ad-style video: narration (yours, or AI-written from the source video's own real title/description - never invented facts) is broken into ~4-5s beats, and REAL clips of the product are found on YouTube (not AI-generated visuals) and cut in to match. A short transition sound plays at each beat. This is a separate mode from News Reaction above and does not affect it. Because this pulls footage from OTHER creators' videos (not just the one source video), copyright/platform-policy exposure is meaningfully higher than News Reaction's single-source approach - this is a deliberate tradeoff, not a guarantee of legality. This replaces all other effects below and can take a long time for longer target lengths. If News Reaction above is also checked, News Reaction runs instead of this (only one runs per job) - uncheck it to use Product Explainer.</div>
+          </div>
+        </div>
+
+        <div class="field">
           <label for="colorGrade">Color grading</label>
           <select id="colorGrade">
             <option value="">None</option>

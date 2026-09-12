@@ -250,6 +250,40 @@ async function muteAndAddMusic(videoPath, musicPath, outputPath) {
   return outputPath;
 }
 
+// Generates a short synthetic "whoosh" transition sound (bandpassed noise
+// burst with a fade in/out envelope) - fully self-contained, no external
+// sound-effect files/library needed. Used at the start of each Product
+// Explainer beat for a professional-ad-style transition feel.
+async function generateWhooshSfx(outputPath) {
+  await run([
+    '-y',
+    '-f', 'lavfi', '-i', 'anoisesrc=d=0.4:c=white:r=24000:a=0.6',
+    '-af', 'bandpass=f=1500:width_type=h:w=2000,afade=t=in:d=0.05,afade=t=out:st=0.3:d=0.1',
+    '-ac', '1',
+    '-c:a', 'libmp3lame',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
+// Overlays a short SFX burst at the start of a narration track - the SFX
+// naturally ends within the first fraction of a second, narration continues
+// normally after. Output matches the narration's own length (`duration=first`).
+async function mixNarrationWithSfx(narrationPath, sfxPath, outputPath, sfxVolume = 0.6) {
+  await run([
+    '-y',
+    '-i', narrationPath,
+    '-i', sfxPath,
+    '-filter_complex',
+    `[1:a]volume=${sfxVolume}[sfx];[0:a][sfx]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
+    '-map', '[aout]',
+    '-ar', '24000', '-ac', '1',
+    '-c:a', 'libmp3lame',
+    outputPath,
+  ]);
+  return outputPath;
+}
+
 async function concatAudio(audioPaths, outputPath) {
   const listPath = outputPath.replace(/\.mp3$/, '.txt');
   const listContent = audioPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
@@ -273,4 +307,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, generateSilentAudio, muteAndAddMusic };
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };

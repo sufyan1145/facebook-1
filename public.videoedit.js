@@ -177,6 +177,11 @@ function updateNewsReactionFieldsVisibility() {
   document.getElementById('newsReactionFields').style.display = on ? '' : 'none';
 }
 
+function updateProductExplainerFieldsVisibility() {
+  const on = document.getElementById('productExplainerEnabled').checked;
+  document.getElementById('productExplainerFields').style.display = on ? '' : 'none';
+}
+
 const EFFECT_LABELS = {
   flash: 'Flash', blur_transition: 'Blur', spin: 'Spin', glitch: 'Glitch', shake: 'Shake',
   whip_pan: 'Whip Pan', light_leak: 'Light Leak', zoom_punch: 'Zoom Punch',
@@ -227,6 +232,8 @@ function renderCueList() {
   updateAutoHighlightFieldsVisibility();
   document.getElementById('newsReactionEnabled').addEventListener('change', updateNewsReactionFieldsVisibility);
   updateNewsReactionFieldsVisibility();
+  document.getElementById('productExplainerEnabled').addEventListener('change', updateProductExplainerFieldsVisibility);
+  updateProductExplainerFieldsVisibility();
   document.getElementById('bulkMode').addEventListener('change', updateBulkModeVisibility);
   updateBulkModeVisibility();
   wireSingleUrlAutoClean(document.getElementById('urlInput'));
@@ -267,12 +274,20 @@ function renderCueList() {
     const dubEnabled = document.getElementById('dubEnabled').checked;
     const autoHighlightEnabled = document.getElementById('autoHighlightEnabled').checked;
     const newsReactionEnabled = document.getElementById('newsReactionEnabled').checked;
+    const productExplainerEnabled = document.getElementById('productExplainerEnabled').checked;
 
     const baseEffects = {
       dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
+      productExplainer: productExplainerEnabled ? {
+        enabled: true,
+        narrationLanguage: document.getElementById('productExplainerLanguage').value,
+        orientation: document.getElementById('productExplainerOrientation').value,
+        targetMinutes: Number(document.getElementById('productExplainerMinutes').value) || 12,
+        customScript: document.getElementById('productExplainerScript').value || null,
+      } : null,
       colorGrade: document.getElementById('colorGrade').value || null,
       effectCues,
       autoLoopEffects: Array.from(document.querySelectorAll('.loopEffect:checked')).map((el) => el.value),
