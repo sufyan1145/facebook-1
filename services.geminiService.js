@@ -1,9 +1,46 @@
 const axios = require('axios');
+const { GoogleAuth } = require('google-auth-library');
 const env = require('./config.env');
 const logger = require('./utils.logger');
 const { retryOn429 } = require('./utils.retry');
 
-const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+// --- Switched to Vertex AI (billing-account) transport instead of the AI
+// Studio free-tier API key. Every exported function below keeps its exact
+// same name/signature/prompt/fallback behavior - only how the request is
+// sent (auth + endpoint) has changed, so no caller (imageGenService,
+// captionGenService, newsReactionService, etc.) needs any changes. ---
+let authClient = null;
+function getAuth() {
+  if (!authClient) {
+    if (!env.vertexAi.credentialsBase64) {
+      throw new Error('VERTEX_CREDENTIALS_BASE64 is not set');
+    }
+    const credentials = JSON.parse(Buffer.from(env.vertexAi.credentialsBase64, 'base64').toString('utf8'));
+    authClient = new GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+  }
+  return authClient;
+}
+async function getAccessToken() {
+  const client = await getAuth().getClient();
+  const token = await client.getAccessToken();
+  return typeof token === 'string' ? token : token.token;
+}
+function baseUrl() {
+  return `https://${env.vertexAi.location}-aiplatform.googleapis.com/v1/projects/${env.vertexAi.projectId}/locations/${env.vertexAi.location}/publishers/google/models`;
+}
+// Vertex-side model IDs (env.vertexAi.scriptModel / imageModel) replace the
+// old env.googleAi.geminiModel / imageModel (AI Studio-specific) below.
+async function vertexGenerateContent(body, { timeout } = {}) {
+  const token = await getAccessToken();
+  const model = env.vertexAi.scriptModel;
+  return axios.post(`${baseUrl()}/${model}:generateContent`, body, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    timeout,
+  });
+}
 
 /**
  * Turns a keyword into a fresh video topic + a scene-by-scene script.
@@ -11,7 +48,7 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
  * (what the video clip for that scene should show).
  */
 async function writeScript(keyword, { sceneCount, sceneSeconds, language, masterPrompt, contentFormat }) {
-  logger.info(`[Gemini] Using model value: ${JSON.stringify(env.googleAi.geminiModel)} (length: ${env.googleAi.geminiModel.length})`);
+  logger.info(`[Gemini] Using Vertex model: ${JSON.stringify(env.vertexAi.scriptModel)}`);
   const isRomanUrdu = language === 'roman_urdu';
   const narrationInstruction = isRomanUrdu
     ? 'what the voiceover says. MUST be written ENTIRELY in Roman Urdu (the Urdu language, spelled phonetically using English/Latin letters — NOT Urdu script, NOT English). Example of the required style: "Yeh jungle hazaron saal purana hai aur iski kahani bohot dilchasp hai." Do not write the narration in English.'
@@ -53,12 +90,7 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
   let resp;
   try {
     resp = await retryOn429(
-      () =>
-        axios.post(
-          `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-          { contents: [{ parts: [{ text: prompt }] }] },
-          { params: { key: env.googleAi.geminiApiKey } }
-        ),
+      () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }),
       { label: 'Gemini script' }
     );
   } catch (err) {
@@ -98,12 +130,7 @@ Respond in the exact same language and script the topic is written in - if the t
 Reply with ONLY the caption text itself - no quotes, no labels, no extra commentary.`;
 
   const resp = await retryOn429(
-    () =>
-      axios.post(
-        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-        { contents: [{ parts: [{ text: prompt }] }] },
-        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
-      ),
+    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 60000 }),
     { label: 'Gemini caption', retries }
   );
 
@@ -150,12 +177,7 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 Do not fabricate specific claimed facts, dates, or quotes you are not confident are accurate - if the topic implies needing today's exact news and you are not certain of current details, keep the caption general/evergreen instead of inventing specifics.`;
 
   const resp = await retryOn429(
-    () =>
-      axios.post(
-        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-        { contents: [{ parts: [{ text: prompt }] }] },
-        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
-      ),
+    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 60000 }),
     { label: 'Gemini post content', retries }
   );
 
@@ -202,12 +224,7 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 }`;
 
   const resp = await retryOn429(
-    () =>
-      axios.post(
-        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-        { contents: [{ parts: [{ text: prompt }] }] },
-        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
-      ),
+    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 60000 }),
     { label: 'Gemini title/hashtags', retries }
   );
 
@@ -256,12 +273,7 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 The "lines" array must contain exactly ${lineCount} strings, in order.`;
 
   const resp = await retryOn429(
-    () =>
-      axios.post(
-        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
-        { contents: [{ parts: [{ text: prompt }] }] },
-        { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 }
-      ),
+    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 120000 }),
     { label: 'Gemini news reaction narration', retries }
   );
 
@@ -285,21 +297,23 @@ The "lines" array must contain exactly ${lineCount} strings, in order.`;
  */
 async function generateImage(prompt, destPath, { retries } = {}) {
   const fs = require('fs');
-  const model = env.googleAi.imageModel;
+  const model = env.vertexAi.imageModel;
   logger.info(`[Gemini] generateImage using model: ${JSON.stringify(model)}`);
 
   let resp;
   try {
     resp = await retryOn429(
-      () =>
-        axios.post(
-          `${BASE_URL}/models/${model}:generateContent`,
+      async () => {
+        const token = await getAccessToken();
+        return axios.post(
+          `${baseUrl()}/${model}:generateContent`,
           {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseModalities: ['IMAGE'] },
           },
-          { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 } // 2 min cap - fails+retries instead of hanging forever if Google's side stalls
-        ),
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 120000 } // 2 min cap - fails+retries instead of hanging forever if Google's side stalls
+        );
+      },
       { label: 'Gemini image', retries } // retries undefined -> retryOn429's own default (4) applies unchanged
     );
   } catch (err) {
