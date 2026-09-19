@@ -27,8 +27,23 @@ async function getAccessToken() {
   return typeof token === 'string' ? token : token.token;
 }
 
+// Vertex ke endpoint hostname ki 3 alag shapes hain - location ke hisaab se:
+//   global          -> aiplatform.googleapis.com              (koi prefix nahi)
+//   us / eu         -> aiplatform.<loc>.rep.googleapis.com    (multi-region REP host)
+//   koi bhi region  -> <loc>-aiplatform.googleapis.com        (single region)
+// "global-aiplatform.googleapis.com" jaisa koi host exist hi nahi karta, isliye
+// wahan Google ka generic 404 HTML page wapas aata tha.
+const MULTI_REGION_LOCATIONS = new Set(['us', 'eu']);
+
+function vertexHost(location) {
+  if (location === 'global') return 'aiplatform.googleapis.com';
+  if (MULTI_REGION_LOCATIONS.has(location)) return `aiplatform.${location}.rep.googleapis.com`;
+  return `${location}-aiplatform.googleapis.com`;
+}
+
 function baseUrl() {
-  return `https://${env.vertexAi.location}-aiplatform.googleapis.com/v1/projects/${env.vertexAi.projectId}/locations/${env.vertexAi.location}/publishers/google/models`;
+  const location = (env.vertexAi.location || 'us-central1').trim().toLowerCase();
+  return `https://${vertexHost(location)}/v1/projects/${env.vertexAi.projectId}/locations/${location}/publishers/google/models`;
 }
 
 // ---- Veo3 video generation ----
