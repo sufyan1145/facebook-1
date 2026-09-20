@@ -28,7 +28,7 @@ async function concatClips(clipPaths, outputPath) {
   const listContent = clipPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
   fs.writeFileSync(listPath, listContent);
 
-  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2', '-an', outputPath]);
+  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '3', '-an', outputPath]);
   fs.unlinkSync(listPath);
   return outputPath;
 }
@@ -110,7 +110,7 @@ async function imageToKenBurnsClip(imagePath, durationSeconds, outputPath, width
     '-vf', vf,
     '-t', String(durationSeconds),
     '-r', String(fps),
-    '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-threads', '2',
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-threads', '3',
     '-an',
     outputPath,
   ]);
@@ -126,7 +126,7 @@ async function normalizeClip(inputPath, durationSeconds, outputPath, width = 108
     '-i', inputPath,
     '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p`,
     '-r', '25',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '3',
     '-an',
     '-t', String(durationSeconds),
     outputPath,
@@ -156,7 +156,7 @@ async function trimSilentClip(sourcePath, startTime, durationSeconds, outputPath
     '-t', String(durationSeconds),
     '-vf', `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},format=yuv420p`,
     '-r', '25',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '3',
     '-an',
     outputPath,
   ]);
@@ -306,7 +306,7 @@ async function burnCaptions(inputPath, assPath, outputPath) {
     '-y',
     '-i', inputPath,
     '-vf', `subtitles=${assPath.replace(/:/g, '\\:')}`,
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '3',
     '-an',
     outputPath,
   ], 900000); // 15 minutes - subtitle burn-in re-encodes the whole video and can run below 1x realtime speed
