@@ -1,6 +1,9 @@
 FROM node:18-alpine
 
-RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu curl
+# font-noto-arabic: DejaVu (below) has no Perso-Arabic glyphs at all, so Urdu-
+# script captions would render as blank boxes without this - needed for the
+# 'urdu' script-language option's burned-in captions to actually show text.
+RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu font-noto-arabic curl
 
 # yt-dlp: Alpine's apk package lags behind - YouTube/TikTok change their
 # extraction schemes often enough that an old yt-dlp starts failing until

@@ -1,46 +1,9 @@
 const axios = require('axios');
-const { GoogleAuth } = require('google-auth-library');
 const env = require('./config.env');
 const logger = require('./utils.logger');
 const { retryOn429 } = require('./utils.retry');
 
-// --- Switched to Vertex AI (billing-account) transport instead of the AI
-// Studio free-tier API key. Every exported function below keeps its exact
-// same name/signature/prompt/fallback behavior - only how the request is
-// sent (auth + endpoint) has changed, so no caller (imageGenService,
-// captionGenService, newsReactionService, etc.) needs any changes. ---
-let authClient = null;
-function getAuth() {
-  if (!authClient) {
-    if (!env.vertexAi.credentialsBase64) {
-      throw new Error('VERTEX_CREDENTIALS_BASE64 is not set');
-    }
-    const credentials = JSON.parse(Buffer.from(env.vertexAi.credentialsBase64, 'base64').toString('utf8'));
-    authClient = new GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-    });
-  }
-  return authClient;
-}
-async function getAccessToken() {
-  const client = await getAuth().getClient();
-  const token = await client.getAccessToken();
-  return typeof token === 'string' ? token : token.token;
-}
-function baseUrl() {
-  return `https://${env.vertexAi.location}-aiplatform.googleapis.com/v1/projects/${env.vertexAi.projectId}/locations/${env.vertexAi.location}/publishers/google/models`;
-}
-// Vertex-side model IDs (env.vertexAi.scriptModel / imageModel) replace the
-// old env.googleAi.geminiModel / imageModel (AI Studio-specific) below.
-async function vertexGenerateContent(body, { timeout } = {}) {
-  const token = await getAccessToken();
-  const model = env.vertexAi.scriptModel;
-  return axios.post(`${baseUrl()}/${model}:generateContent`, body, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    timeout,
-  });
-}
+const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
 /**
  * Turns a keyword into a fresh video topic + a scene-by-scene script.
@@ -48,14 +11,23 @@ async function vertexGenerateContent(body, { timeout } = {}) {
  * (what the video clip for that scene should show).
  */
 async function writeScript(keyword, { sceneCount, sceneSeconds, language, masterPrompt, contentFormat }) {
-  logger.info(`[Gemini] Using Vertex model: ${JSON.stringify(env.vertexAi.scriptModel)}`);
+  logger.info(`[Gemini] Using model value: ${JSON.stringify(env.googleAi.geminiModel)} (length: ${env.googleAi.geminiModel.length})`);
   const isRomanUrdu = language === 'roman_urdu';
+  // Real Urdu script (not transliterated) - required for the ur-IN Chirp3-HD TTS
+  // voice to pronounce it correctly. Roman Urdu (Latin letters) gets read with
+  // English phonetics by any TTS engine, which is why it sounds "English-accented"
+  // even though the words are Urdu - the voice model needs actual Urdu script input.
+  const isUrduScript = language === 'urdu';
   const narrationInstruction = isRomanUrdu
     ? 'what the voiceover says. MUST be written ENTIRELY in Roman Urdu (the Urdu language, spelled phonetically using English/Latin letters — NOT Urdu script, NOT English). Example of the required style: "Yeh jungle hazaron saal purana hai aur iski kahani bohot dilchasp hai." Do not write the narration in English.'
+    : isUrduScript
+    ? 'what the voiceover says. MUST be written ENTIRELY in proper Urdu script (Perso-Arabic/Nastaliq, right-to-left) — NOT Roman/Latin letters, NOT English. Example of the required style: "یہ جنگل ہزاروں سال پرانا ہے اور اس کی کہانی بہت دلچسپ ہے۔" Do not romanize the narration.'
     : 'what the voiceover says (plain spoken English, no stage directions)';
 
   const languageReminder = isRomanUrdu
     ? `\n\nIMPORTANT: Every single "narration" field MUST be in Roman Urdu, not English. This is a strict requirement — only "topic" and "visual_prompt" stay in English.`
+    : isUrduScript
+    ? `\n\nIMPORTANT: Every single "narration" field MUST be written in real Urdu script (Perso-Arabic letters), not Roman/Latin letters and not English. This is a strict requirement — only "topic" and "visual_prompt" stay in English.`
     : '';
 
   const masterPromptBlock = masterPrompt && masterPrompt.trim()
@@ -90,7 +62,12 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
   let resp;
   try {
     resp = await retryOn429(
-      () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }),
+      () =>
+        axios.post(
+          `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+          { contents: [{ parts: [{ text: prompt }] }] },
+          { params: { key: env.googleAi.geminiApiKey } }
+        ),
       { label: 'Gemini script' }
     );
   } catch (err) {
@@ -130,7 +107,12 @@ Respond in the exact same language and script the topic is written in - if the t
 Reply with ONLY the caption text itself - no quotes, no labels, no extra commentary.`;
 
   const resp = await retryOn429(
-    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 60000 }),
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
     { label: 'Gemini caption', retries }
   );
 
@@ -177,7 +159,12 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 Do not fabricate specific claimed facts, dates, or quotes you are not confident are accurate - if the topic implies needing today's exact news and you are not certain of current details, keep the caption general/evergreen instead of inventing specifics.`;
 
   const resp = await retryOn429(
-    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 60000 }),
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
     { label: 'Gemini post content', retries }
   );
 
@@ -224,7 +211,12 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 }`;
 
   const resp = await retryOn429(
-    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 60000 }),
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 60000 }
+      ),
     { label: 'Gemini title/hashtags', retries }
   );
 
@@ -273,7 +265,12 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 The "lines" array must contain exactly ${lineCount} strings, in order.`;
 
   const resp = await retryOn429(
-    () => vertexGenerateContent({ contents: [{ parts: [{ text: prompt }] }] }, { timeout: 120000 }),
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 }
+      ),
     { label: 'Gemini news reaction narration', retries }
   );
 
@@ -297,23 +294,21 @@ The "lines" array must contain exactly ${lineCount} strings, in order.`;
  */
 async function generateImage(prompt, destPath, { retries } = {}) {
   const fs = require('fs');
-  const model = env.vertexAi.imageModel;
+  const model = env.googleAi.imageModel;
   logger.info(`[Gemini] generateImage using model: ${JSON.stringify(model)}`);
 
   let resp;
   try {
     resp = await retryOn429(
-      async () => {
-        const token = await getAccessToken();
-        return axios.post(
-          `${baseUrl()}/${model}:generateContent`,
+      () =>
+        axios.post(
+          `${BASE_URL}/models/${model}:generateContent`,
           {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: { responseModalities: ['IMAGE'] },
           },
-          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 120000 } // 2 min cap - fails+retries instead of hanging forever if Google's side stalls
-        );
-      },
+          { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 } // 2 min cap - fails+retries instead of hanging forever if Google's side stalls
+        ),
       { label: 'Gemini image', retries } // retries undefined -> retryOn429's own default (4) applies unchanged
     );
   } catch (err) {

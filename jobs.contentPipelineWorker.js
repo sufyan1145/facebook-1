@@ -243,9 +243,13 @@ function assTimestamp(seconds) {
 // an even split of its own narration across its own time window (cumulative offset
 // from all prior scenes) - not perfectly word-accurate (no per-word speech
 // timestamps are available from the TTS), but close enough to look natural.
-function buildFullCaptionAss(scenes, sceneDurations, format) {
+function buildFullCaptionAss(scenes, sceneDurations, format, language) {
   const fontSize = format.orientation === 'landscape' ? 64 : 72;
   const marginV = format.orientation === 'landscape' ? 80 : 220;
+  // DejaVu Sans has no Perso-Arabic glyphs - Urdu-script captions would burn in
+  // as blank boxes with it. font-noto-arabic (installed in the Dockerfile) covers
+  // Urdu's character set; libass's HarfBuzz shaper handles the RTL/joining shaping.
+  const fontName = language === 'urdu' ? 'Noto Sans Arabic' : 'DejaVu Sans';
 
   const header = `[Script Info]
 ScriptType: v4.00+
@@ -255,7 +259,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,DejaVu Sans,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,40,40,${marginV},1
+Style: Caption,${fontName},${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,2,40,40,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -444,7 +448,7 @@ async function runPipeline(schedule) {
     for (let i = 0; i < script.scenes.length; i++) {
       const sceneAudioPath = path.join(env.upload.tempDir, `${run.id}_voice${i}.mp3`);
       if (env.contentPipeline.ttsProvider === 'vertex') {
-        await vertexAiService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
+        await vertexAiService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name, schedule.language);
       } else if (env.contentPipeline.ttsProvider === 'custom') {
         await customTtsService.synthesizeSpeech(script.scenes[i].narration, sceneAudioPath, schedule.voice_name);
       } else {
@@ -493,7 +497,7 @@ async function runPipeline(schedule) {
       // One caption pass for the whole video (instead of one per clip) - much
       // faster, since each ffmpeg re-encode is the expensive part.
       const assPath = path.join(env.upload.tempDir, `${run.id}_captions.ass`);
-      fs.writeFileSync(assPath, buildFullCaptionAss(script.scenes, sceneDurations, format));
+      fs.writeFileSync(assPath, buildFullCaptionAss(script.scenes, sceneDurations, format, schedule.language));
       tempFiles.push(assPath);
 
       captionedPath = path.join(env.upload.tempDir, `${run.id}_captioned.mp4`);

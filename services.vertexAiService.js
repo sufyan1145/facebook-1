@@ -129,9 +129,20 @@ async function generateImage(prompt, destPath) {
 
 // ---- Cloud Text-to-Speech (separate, simpler Google Cloud API) ----
 
-async function synthesizeSpeech(text, destPath, voiceName) {
+// Chirp3-HD voice character names (Charon, Iapetus, Kore, etc.) are shared
+// across languages - only the locale prefix changes. Hardcoding "en-US-" here
+// meant every voiceover was read by an ENGLISH voice, so Urdu narration (even
+// correctly-written Urdu-script text) came out sounding English-accented.
+const TTS_LANGUAGE_CODES = {
+  english: 'en-US',
+  roman_urdu: 'en-US', // Latin-letter transliteration - only an English voice can read the letters at all
+  urdu: 'ur-IN', // proper Urdu script - needs the real Urdu voice to pronounce correctly
+};
+
+async function synthesizeSpeech(text, destPath, voiceName, language) {
   const token = await getAccessToken();
-  const chirpVoiceName = `en-US-Chirp3-HD-${voiceName || 'Charon'}`;
+  const languageCode = TTS_LANGUAGE_CODES[language] || 'en-US';
+  const chirpVoiceName = `${languageCode}-Chirp3-HD-${voiceName || 'Charon'}`;
   let resp;
   try {
     resp = await retryOn429(
@@ -140,7 +151,7 @@ async function synthesizeSpeech(text, destPath, voiceName) {
           'https://texttospeech.googleapis.com/v1/text:synthesize',
           {
             input: { text },
-            voice: { languageCode: 'en-US', name: chirpVoiceName },
+            voice: { languageCode, name: chirpVoiceName },
             audioConfig: { audioEncoding: 'MP3' },
           },
           { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
@@ -164,12 +175,21 @@ async function synthesizeSpeech(text, destPath, voiceName) {
 
 async function writeScript(keyword, { sceneCount, sceneSeconds, language, masterPrompt, contentFormat }) {
   const isRomanUrdu = language === 'roman_urdu';
+  // Real Urdu script (not transliterated) - required for the ur-IN Chirp3-HD TTS
+  // voice to pronounce it correctly. Roman Urdu (Latin letters) gets read with
+  // English phonetics by any TTS engine, which is why it sounds "English-accented"
+  // even though the words are Urdu - the voice model needs actual Urdu script input.
+  const isUrduScript = language === 'urdu';
   const narrationInstruction = isRomanUrdu
     ? 'what the voiceover says. MUST be written ENTIRELY in Roman Urdu (the Urdu language, spelled phonetically using English/Latin letters — NOT Urdu script, NOT English). Example of the required style: "Yeh jungle hazaron saal purana hai aur iski kahani bohot dilchasp hai." Do not write the narration in English.'
+    : isUrduScript
+    ? 'what the voiceover says. MUST be written ENTIRELY in proper Urdu script (Perso-Arabic/Nastaliq, right-to-left) — NOT Roman/Latin letters, NOT English. Example of the required style: "یہ جنگل ہزاروں سال پرانا ہے اور اس کی کہانی بہت دلچسپ ہے۔" Do not romanize the narration.'
     : 'what the voiceover says (plain spoken English, no stage directions)';
 
   const languageReminder = isRomanUrdu
     ? `\n\nIMPORTANT: Every single "narration" field MUST be in Roman Urdu, not English. This is a strict requirement — only "topic" and "visual_prompt" stay in English.`
+    : isUrduScript
+    ? `\n\nIMPORTANT: Every single "narration" field MUST be written in real Urdu script (Perso-Arabic letters), not Roman/Latin letters and not English. This is a strict requirement — only "topic" and "visual_prompt" stay in English.`
     : '';
 
   const masterPromptBlock = masterPrompt && masterPrompt.trim()
