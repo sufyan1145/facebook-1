@@ -3,9 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('./utils.logger');
 
-function run(args) {
+// Default timeout is fine for fast steps (concat/copy/trim), but subtitle
+// burn-in re-encodes every frame through libx264 + the subtitles filter and
+// can run well under 1x realtime speed on modest hardware. A fixed 120s cap
+// was killing ffmpeg mid-encode (Node sends SIGTERM on timeout, which ffmpeg
+// then exits from with code 255) on videos that were only a few seconds too
+// slow to finish in time - so callers can now opt into a longer timeout.
+function run(args, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
-    execFile('ffmpeg', args, { maxBuffer: 1024 * 1024 * 50, timeout: 120000 }, (err, stdout, stderr) => {
+    execFile('ffmpeg', args, { maxBuffer: 1024 * 1024 * 50, timeout: timeoutMs }, (err, stdout, stderr) => {
       if (err) {
         const detail = stderr?.slice(-2000) || '(no stderr output)';
         logger.error(`[ffmpeg] failed: code=${err.code} signal=${err.signal} message=${err.message} | stderr tail: ${detail}`);
@@ -303,7 +309,7 @@ async function burnCaptions(inputPath, assPath, outputPath) {
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '2',
     '-an',
     outputPath,
-  ]);
+  ], 900000); // 15 minutes - subtitle burn-in re-encodes the whole video and can run below 1x realtime speed
   return outputPath;
 }
 
