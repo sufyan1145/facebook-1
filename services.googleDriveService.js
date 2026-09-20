@@ -150,6 +150,12 @@ async function uploadFile(userId, folderId, localFilePath, fileName, mimeType = 
     requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType, body: fs.createReadStream(localFilePath) },
     fields: 'id, name',
+    // Without this, uploading into a folder that lives inside a Shared Drive
+    // (Team Drive) - as opposed to a regular "My Drive" folder - fails with
+    // "Insufficient permissions for the specified parent" even when the
+    // account genuinely has write access, because the API call doesn't even
+    // acknowledge Shared Drive items by default.
+    supportsAllDrives: true,
   });
 
   logger.info(`Uploaded ${fileName} to Drive folder ${folderId}, file id ${res.data.id}`);
