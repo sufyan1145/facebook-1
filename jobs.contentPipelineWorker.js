@@ -416,11 +416,17 @@ async function runPipeline(schedule) {
     if (schedule.custom_script && schedule.custom_script.trim()) {
       // User supplied their own narration - use it word-for-word. We only ask
       // Gemini to split it into scenes and describe an image for each one.
-      script = await geminiService.writeVisualPromptsForScript(schedule.custom_script, {
-        clipSeconds: env.contentPipeline.clipSeconds,
-        masterPrompt: schedule.master_prompt,
-        contentFormat: schedule.content_format,
-      });
+      script = env.contentPipeline.scriptProvider === 'vertex'
+        ? await vertexAiService.writeVisualPromptsForScript(schedule.custom_script, {
+            clipSeconds: env.contentPipeline.clipSeconds,
+            masterPrompt: schedule.master_prompt,
+            contentFormat: schedule.content_format,
+          })
+        : await geminiService.writeVisualPromptsForScript(schedule.custom_script, {
+            clipSeconds: env.contentPipeline.clipSeconds,
+            masterPrompt: schedule.master_prompt,
+            contentFormat: schedule.content_format,
+          });
     } else {
       // Keep scene count manageable even for long-form videos (10 min at a fixed
       // 10s/scene would mean 60 scenes - too many for one Gemini script call and

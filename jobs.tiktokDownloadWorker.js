@@ -11,6 +11,7 @@ const logger = require('./utils.logger');
 const TikTokJob = require('./models.TikTokJob');
 const tiktokService = require('./services.tiktokService');
 const geminiService = require('./services.geminiService');
+const vertexAiService = require('./services.vertexAiService');
 const driveService = require('./services.googleDriveService');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
@@ -35,7 +36,9 @@ async function processTikTokJob(job, { regenerateMetadata = true } = {}) {
     if (regenerateMetadata) {
       await TikTokJob.setStatus(job.id, 'regenerating_metadata');
       try {
-        const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
+        const regenerated = env.contentPipeline.scriptProvider === 'vertex'
+          ? await vertexAiService.regenerateTitleAndHashtags(meta.title, meta.description)
+          : await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
         finalTitle = regenerated.title;
         finalHashtags = regenerated.hashtags;
       } catch (aiErr) {

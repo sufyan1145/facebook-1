@@ -254,6 +254,168 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
 }
 
 /**
+ * Takes a user-SUPPLIED narration script word-for-word (never rewritten -
+ * the user's exact wording is preserved) and only asks the model to (a)
+ * split it into scenes of roughly `clipSeconds` seconds each and (b) write
+ * a visual_prompt for each scene. This was previously called as
+ * geminiService.writeVisualPromptsForScript(...) in
+ * jobs.contentPipelineWorker.js, but that function was never actually
+ * defined anywhere in the codebase - every custom-script schedule crashed
+ * immediately with "writeVisualPromptsForScript is not a function". This is
+ * the first real implementation, on Vertex so it shares the same billing
+ * account as everything else instead of needing a separate AI Studio key.
+ */
+async function writeVisualPromptsForScript(customScript, { clipSeconds = 10, masterPrompt, contentFormat } = {}) {
+  const masterPromptBlock = masterPrompt && masterPrompt.trim()
+    ? `\n\nCREATOR'S CUSTOM INSTRUCTIONS (follow these closely for the visual_prompt's look/style only - the narration wording below is fixed and must not be changed):\n"""\n${masterPrompt.trim()}\n"""`
+    : '';
+
+  const prompt = `Below is a complete, word-for-word narration script that a person has already written for a short video. Do NOT rewrite, translate, paraphrase, or correct it in any way - copy each piece of it into the "narration" fields EXACTLY as given, preserving the original language/script.
+
+NARRATION SCRIPT (verbatim, in order):
+"""
+${customScript.trim()}
+"""
+
+Your only two jobs:
+1. Split the script above into consecutive scenes, each roughly ${clipSeconds} seconds of spoken narration (about ${Math.round(clipSeconds * 2.5)} words), breaking at natural sentence/clause boundaries. Every word of the original script must appear in exactly one scene, in order, with nothing added, removed, or reworded.
+2. For each scene, write a "visual_prompt": a detailed, specific still-image description IN ENGLISH (regardless of the narration's language) of exactly what should be shown for that part of the narration - the specific subject/action tied directly to what that scene's narration says, the setting/background, camera framing (e.g. "close-up", "wide establishing shot", "aerial view"), lighting mood, and visual style ("photorealistic, cinematic, highly detailed"). Each scene's visual_prompt must be visually distinct from the others.
+${masterPromptBlock}
+
+Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
+{
+  "topic": "<a short 3-8 word title summarizing what this script is about, in English>",
+  "scenes": [
+    { "narration": "...", "visual_prompt": "..." }
+  ]
+}`;
+
+  const token = await getAccessToken();
+  let resp;
+  try {
+    resp = await axios.post(
+      `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] writeVisualPromptsForScript FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
+
+  const text = resp.data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Vertex AI returned no script text');
+
+  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    logger.error(`[content-pipeline] failed to parse Vertex custom-script JSON: ${cleaned.slice(0, 300)}`);
+    throw new Error('Vertex AI did not return valid JSON for the custom script');
+  }
+
+  if (!Array.isArray(parsed.scenes) || !parsed.scenes.length) {
+    throw new Error('Vertex custom-script response was missing scenes');
+  }
+  if (!parsed.topic) parsed.topic = contentFormat || 'Custom script video';
+  return parsed;
+}
+
+/**
+ * Vertex-billed counterpart to geminiService.generatePostContent - used by
+ * services.captionGenService.js (Text+Image posts) so that flow doesn't
+ * depend on the separate AI Studio (Gemini API key) project having billing.
+ */
+async function generatePostContent(topic, { avoidList } = {}) {
+  const avoidSection =
+    avoidList && avoidList.length
+      ? `\n\nIMPORTANT - AVOID REPEATING: these are the captions from the most recent posts on this same schedule. Do NOT feature the same person, the same quote, or the same specific angle as any of these - pick someone/something clearly different this time:\n${avoidList.map((m, i) => `${i + 1}. ${m}`).join('\n')}`
+      : '';
+
+  const prompt = `You are generating ONE social media post from the topic/instructions below. The topic may be a single word, a short phrase, or a detailed multi-part instruction - follow it as closely as you reasonably can, for any subject (a public figure, a general theme, a quote/wisdom style, current events framing, anything).
+
+TOPIC/INSTRUCTIONS:
+"""
+${topic}
+"""
+${avoidSection}
+
+Respond with STRICT JSON only (no markdown fences, no commentary before or after), with exactly these two keys:
+{
+  "caption": "<the ready-to-publish post text - respond in the exact same language/script the topic above is written in>",
+  "imagePrompt": "<one detailed, realistic image-generation prompt matching the caption - no text, watermark, or logo inside the image, always describe the image in English regardless of the caption's language>"
+}
+
+Do not fabricate specific claimed facts, dates, or quotes you are not confident are accurate - if the topic implies needing today's exact news and you are not certain of current details, keep the caption general/evergreen instead of inventing specifics.`;
+
+  const token = await getAccessToken();
+  const resp = await axios.post(
+    `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+    { contents: [{ parts: [{ text: prompt }] }] },
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Vertex did not return post content');
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error(`Vertex response did not contain valid JSON: ${text.slice(0, 200)}`);
+  }
+  const jsonSlice = text.slice(firstBrace, lastBrace + 1);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonSlice);
+  } catch (parseErr) {
+    throw new Error(`Failed to parse Vertex JSON response: ${parseErr.message} - raw: ${jsonSlice.slice(0, 200)}`);
+  }
+  if (!parsed.caption || !parsed.imagePrompt) throw new Error('Vertex response missing caption or imagePrompt');
+  return { caption: parsed.caption.trim(), imagePrompt: parsed.imagePrompt.trim() };
+}
+
+/**
+ * Vertex-billed counterpart to geminiService.regenerateTitleAndHashtags -
+ * used by the TikTok Downloader and Video Editor's "Regenerate title".
+ */
+async function regenerateTitleAndHashtags(originalTitle, originalDescription) {
+  const prompt = `You are rewriting a short video's title and hashtags for social media reposting.
+
+ORIGINAL TITLE: "${originalTitle || ''}"
+ORIGINAL DESCRIPTION: "${originalDescription || ''}"
+
+The original may be in ANY language or script. Write a catchy, engaging title IN ENGLISH that captures the same meaning/topic (translate/adapt it, don't just transliterate), and matching relevant English hashtags.
+
+Respond with STRICT JSON only (no markdown fences, no commentary before or after), with exactly these two keys:
+{
+  "title": "<catchy English title, under 100 characters>",
+  "hashtags": "<5-8 relevant English hashtags, space separated, each starting with #>"
+}`;
+
+  const token = await getAccessToken();
+  const resp = await axios.post(
+    `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+    { contents: [{ parts: [{ text: prompt }] }] },
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Vertex did not return title/hashtags');
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error(`Vertex response did not contain valid JSON: ${text.slice(0, 200)}`);
+  }
+  const parsed = JSON.parse(text.slice(firstBrace, lastBrace + 1));
+  if (!parsed.title) throw new Error('Vertex response missing title');
+  return { title: parsed.title.trim(), hashtags: (parsed.hashtags || '').trim() };
+}
+
+/**
  * Generates narration lines for the Product Explainer feature: a real,
  * product-focused explainer script (unboxing/features/specs/usage/pricing
  * angles), grounded in the ACTUAL source video's own title/description
@@ -290,6 +452,43 @@ The "lines" array must contain exactly ${lineCount} strings, in order.`;
   const lines = (parsed.lines || []).map((l) => String(l).trim()).filter(Boolean);
   if (!lines.length) throw new Error('Vertex returned no narration lines');
   while (lines.length < lineCount) lines.push(lines[lines.length - 1]);
+  return { lines: lines.slice(0, lineCount) };
+}
+
+/**
+ * Vertex-billed counterpart to geminiService.generateReactionNarrationLines -
+ * used so the News Reaction video builder doesn't depend on the AI Studio
+ * (Gemini API key) project having its own separate billing enabled.
+ */
+async function generateReactionNarrationLines(sourceTitle, sourceDescription, lineCount, { narrationLanguage = 'english' } = {}) {
+  const prompt = `You are writing the narration script for a short "news reaction / explainer" video that reacts to and explains an existing news video, in the style of a commentary/analysis channel.
+
+SOURCE VIDEO TITLE: "${sourceTitle || ''}"
+SOURCE VIDEO DESCRIPTION: "${sourceDescription || ''}"
+NARRATION LANGUAGE: ${narrationLanguage}
+
+Write exactly ${lineCount} narration lines, in order, that together form one continuous reaction moving through the story from start to finish (setup -> key moments -> reaction/context -> closing thought). Each line plays while the viewer sees a still image of that moment, so write it like a narrator/commentator talking OVER a still, reacting to and explaining what's happening - not describing an image.
+
+Each line should take roughly 8-10 seconds to speak aloud at a natural pace (about 20-28 words), in ${narrationLanguage}, 1-2 sentences, natural spoken style (not written/formal).
+
+Respond with STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
+{ "lines": ["...", "...", "..."] }
+The "lines" array must contain exactly ${lineCount} strings, in order.`;
+
+  const token = await getAccessToken();
+  const resp = await axios.post(
+    `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+    { contents: [{ parts: [{ text: prompt }] }] },
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 120000 }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Vertex did not return narration lines');
+  const cleaned = text.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed.lines) || parsed.lines.length === 0) throw new Error('Vertex returned no narration lines');
+  const lines = parsed.lines.map((l) => String(l).trim()).filter(Boolean);
+  while (lines.length < lineCount) lines.push(lines[lines.length - 1] || sourceTitle || 'And that brings us to the end of this story.');
   return { lines: lines.slice(0, lineCount) };
 }
 
@@ -345,6 +544,10 @@ module.exports = {
   generateImage,
   synthesizeSpeech,
   writeScript,
+  writeVisualPromptsForScript,
   generateProductExplainerScript,
+  generateReactionNarrationLines,
   generateVisualSearchQueries,
+  generatePostContent,
+  regenerateTitleAndHashtags,
 };

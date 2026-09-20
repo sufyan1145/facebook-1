@@ -95,6 +95,69 @@ Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
 }
 
 /**
+ * Takes a user-SUPPLIED narration script word-for-word (never rewritten -
+ * the user's exact wording is preserved) and only asks the model to (a)
+ * split it into scenes of roughly `clipSeconds` seconds each and (b) write
+ * a visual_prompt for each scene. AI-Studio counterpart to
+ * vertexAiService.writeVisualPromptsForScript - see that function's comment
+ * for why this exists (it was previously called but never defined, so every
+ * custom-script schedule crashed).
+ */
+async function writeVisualPromptsForScript(customScript, { clipSeconds = 10, masterPrompt, contentFormat, retries = 2 } = {}) {
+  const masterPromptBlock = masterPrompt && masterPrompt.trim()
+    ? `\n\nCREATOR'S CUSTOM INSTRUCTIONS (follow these closely for the visual_prompt's look/style only - the narration wording below is fixed and must not be changed):\n"""\n${masterPrompt.trim()}\n"""`
+    : '';
+
+  const prompt = `Below is a complete, word-for-word narration script that a person has already written for a short video. Do NOT rewrite, translate, paraphrase, or correct it in any way - copy each piece of it into the "narration" fields EXACTLY as given, preserving the original language/script.
+
+NARRATION SCRIPT (verbatim, in order):
+"""
+${customScript.trim()}
+"""
+
+Your only two jobs:
+1. Split the script above into consecutive scenes, each roughly ${clipSeconds} seconds of spoken narration (about ${Math.round(clipSeconds * 2.5)} words), breaking at natural sentence/clause boundaries. Every word of the original script must appear in exactly one scene, in order, with nothing added, removed, or reworded.
+2. For each scene, write a "visual_prompt": a detailed, specific still-image description IN ENGLISH (regardless of the narration's language) of exactly what should be shown for that part of the narration - the specific subject/action tied directly to what that scene's narration says, the setting/background, camera framing (e.g. "close-up", "wide establishing shot", "aerial view"), lighting mood, and visual style ("photorealistic, cinematic, highly detailed"). Each scene's visual_prompt must be visually distinct from the others.
+${masterPromptBlock}
+
+Respond with ONLY valid JSON, no markdown, no code fences, in this exact shape:
+{
+  "topic": "<a short 3-8 word title summarizing what this script is about, in English>",
+  "scenes": [
+    { "narration": "...", "visual_prompt": "..." }
+  ]
+}`;
+
+  const resp = await retryOn429(
+    () =>
+      axios.post(
+        `${BASE_URL}/models/${env.googleAi.geminiModel}:generateContent`,
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { params: { key: env.googleAi.geminiApiKey }, timeout: 120000 }
+      ),
+    { label: 'Gemini custom-script visual prompts', retries }
+  );
+
+  const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini did not return script text');
+
+  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    logger.error(`[content-pipeline] failed to parse Gemini custom-script JSON: ${cleaned.slice(0, 300)}`);
+    throw new Error('Gemini did not return valid JSON for the custom script');
+  }
+
+  if (!Array.isArray(parsed.scenes) || !parsed.scenes.length) {
+    throw new Error('Gemini custom-script response was missing scenes');
+  }
+  if (!parsed.topic) parsed.topic = contentFormat || 'Custom script video';
+  return parsed;
+}
+
+/**
  * Generates a short, fresh social media caption about a topic, in whatever
  * language the topic itself is written in (e.g. a Roman Urdu or Urdu-script
  * topic gets a caption in that same language back). Used by Text+Image Post
@@ -233,7 +296,7 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
   return { title: parsed.title.trim(), hashtags: (parsed.hashtags || '').trim() };
 }
 
-module.exports = { writeScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags, generateReactionNarrationLines };
+module.exports = { writeScript, writeVisualPromptsForScript, generateImage, generateCaption, generatePostContent, regenerateTitleAndHashtags, generateReactionNarrationLines };
 
 /**
  * Generates a sequence of spoken narration lines for the Video Editor's

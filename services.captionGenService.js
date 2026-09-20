@@ -4,10 +4,13 @@
  * so it can't affect the Content Pipeline's own writeScript usage.
  */
 const geminiService = require('./services.geminiService');
+const vertexAiService = require('./services.vertexAiService');
+const env = require('./config.env');
 const logger = require('./utils.logger');
 
-// Tries Gemini with 2 retries (short backoff) since transient 503s ("model
-// overloaded") are common and usually resolve within seconds - unlike image
+// Tries Gemini/Vertex (whichever env.contentPipeline.scriptProvider picks)
+// with 2 retries (short backoff) since transient 503s ("model overloaded")
+// are common and usually resolve within seconds - unlike image
 // generation, there's no equivalent second provider to fall back to for text,
 // so it's worth waiting briefly before giving up. If it still fails after
 // retries, falls back to using the raw topic text as both the caption and
@@ -18,7 +21,9 @@ const logger = require('./utils.logger');
 // AI knows what's already been covered and picks something different.
 async function generatePostContent(topic, avoidList) {
   try {
-    const result = await geminiService.generatePostContent(topic, { retries: 2, avoidList });
+    const result = env.contentPipeline.scriptProvider === 'vertex'
+      ? await vertexAiService.generatePostContent(topic, { avoidList })
+      : await geminiService.generatePostContent(topic, { retries: 2, avoidList });
     return { ...result, fallbackReason: null };
   } catch (err) {
     logger.warn(`[captionGenService] Structured content generation failed after retries (${err.message}) - falling back to using the topic text directly for both caption and image`);

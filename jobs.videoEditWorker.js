@@ -17,6 +17,7 @@ const transcribeDubService = require('./services.transcribeDubService');
 const newsReactionService = require('./services.newsReactionService');
 const productExplainerService = require('./services.productExplainerService');
 const geminiService = require('./services.geminiService');
+const vertexAiService = require('./services.vertexAiService');
 const { reorderTitleWords, sanitizeForFilename } = require('./utils.titleFallback');
 const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
@@ -76,7 +77,9 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       });
       if (meta) {
         try {
-          const regenerated = await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
+          const regenerated = env.contentPipeline.scriptProvider === 'vertex'
+            ? await vertexAiService.regenerateTitleAndHashtags(meta.title, meta.description)
+            : await geminiService.regenerateTitleAndHashtags(meta.title, meta.description);
           finalTitle = regenerated.title;
           await VideoEditJob.setGeneratedMetadata(job.id, { generatedTitle: regenerated.title, generatedHashtags: regenerated.hashtags });
         } catch (metaErr) {
