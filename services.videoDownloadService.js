@@ -16,7 +16,15 @@ const env = require('./config.env');
 
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const TIMEOUT_MS = 8 * 60 * 1000;
-const TRANSCODE_TIMEOUT_MS = 15 * 60 * 1000;
+// Video Editor can be pointed at long YouTube videos (not just short clips),
+// and a software libx264 encode at only 2 threads can run well under 1x
+// realtime on a long source - a 15-minute cap was killing the transcode of
+// slower/longer videos mid-encode (Node sends SIGTERM on timeout, which
+// often leaves err.stderr empty since ffmpeg gets cut off before flushing
+// its buffered output, making the resulting error unhelpful to debug from).
+// Same root cause as the burnCaptions/concatClips timeout fix in
+// utils.ffmpeg.js - see that file's comments for the full explanation.
+const TRANSCODE_TIMEOUT_MS = 30 * 60 * 1000;
 
 // Lazily decode YTDLP_COOKIES_BASE64 (if set) to a cookies.txt file once,
 // and reuse that same file for every yt-dlp call. This is the standard
@@ -277,14 +285,15 @@ async function downloadVideo(url, destPath) {
       '-y', '-hide_banner', '-loglevel', 'error', '-nostats',
       '-i', rawPath,
       ...(videoNeedsEncode
-        ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-x264-params', 'rc-lookahead=20:ref=2']
+        ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '3', '-x264-params', 'rc-lookahead=20:ref=2']
         : ['-c:v', 'copy']),
       ...(!hasAudio ? ['-an'] : audioNeedsEncode ? ['-c:a', 'aac', '-b:a', '128k'] : ['-c:a', 'copy']),
       '-movflags', '+faststart',
       destPath,
     ], { timeout: videoNeedsEncode ? TRANSCODE_TIMEOUT_MS : TIMEOUT_MS, maxBuffer: 1024 * 1024 * 50 });
   } catch (err) {
-    logger.error(`[videodl] transcode failed for ${url}: ${err.stderr || err.message}`);
+    const timedOut = err.killed && !err.stderr;
+    logger.error(`[videodl] transcode failed for ${url}: ${err.stderr || err.message}${timedOut ? ` (killed=${err.killed} signal=${err.signal} - likely hit the ${videoNeedsEncode ? TRANSCODE_TIMEOUT_MS / 60000 : TIMEOUT_MS / 60000}-minute timeout)` : ''}`);
     throw new Error('Downloaded the video but failed to convert it to a playable format.');
   } finally {
     fs.unlink(rawPath, () => {});
