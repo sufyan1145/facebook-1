@@ -4,6 +4,14 @@ const Log = require('./models.Log');
 
 async function create(req, res, next) {
   try {
+    const { folderId, pageId, postToFacebook, youtubeTokenId } = req.body;
+    const savesToDrive = !!folderId;
+    const postsToFacebook = postToFacebook !== false && !!pageId;
+    const postsToYoutube = !!youtubeTokenId;
+    if (!savesToDrive && !postsToFacebook && !postsToYoutube) {
+      return res.status(400).json({ success: false, message: 'Pick at least one destination: save to Google Drive, post to Facebook, or post to YouTube.' });
+    }
+
     const schedule = await ContentSchedule.create(req.user.id, req.body);
     await Log.record(req.user.id, 'Content Schedule Created', { keyword: schedule.keyword });
     res.json({ success: true, data: schedule });

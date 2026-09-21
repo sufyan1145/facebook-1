@@ -35,9 +35,12 @@
               <label for="pageId">Facebook Page</label>
               <select id="pageId"></select>
             </div>
-            <div class="field">
+            <label class="checkbox-row">
+              <input id="saveToDrive" type="checkbox" checked /> Save to Google Drive
+            </label>
+            <div class="field" id="folderIdField">
               <label for="folderId">Save into Drive folder</label>
-              <select id="folderId" required></select>
+              <select id="folderId"></select>
             </div>
             <div class="field-row">
               <div class="field">
@@ -141,6 +144,14 @@
                 <option value="tips">Tips &amp; tricks (listicle)</option>
                 <option value="vlog">Personal vlog / talking-head</option>
                 <option value="news">News / commentary</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="clipMode">Visual style</label>
+              <select id="clipMode">
+                <option value="" selected>Default (whatever this app is currently configured for)</option>
+                <option value="veo_intro_kenburns">Mix — short AI video intro + AI images (cheaper, recommended)</option>
+                <option value="vertex_veo">Full AI video — every scene is real Veo video (more expensive, most cinematic)</option>
               </select>
             </div>
             <div class="field">

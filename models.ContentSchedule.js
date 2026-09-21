@@ -7,11 +7,11 @@ const ContentSchedule = {
         (user_id, page_id, folder_id, keyword, target_duration_seconds, voice_name,
          upload_time, timezone, repeat_type, specific_days, interval_hours, times,
          caption, hashtags, publish_immediately, language, youtube_token_id,
-         post_to_facebook, youtube_video_type, master_prompt, content_format)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+         post_to_facebook, youtube_video_type, master_prompt, content_format, clip_mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
        RETURNING *`,
       [
-        userId, data.pageId || null, data.folderId, data.keyword, data.targetDurationSeconds || 60,
+        userId, data.pageId || null, data.folderId || null, data.keyword, data.targetDurationSeconds || 60,
         data.voiceName || 'Kore', data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
@@ -19,6 +19,7 @@ const ContentSchedule = {
         data.language || 'english', data.youtubeTokenId || null,
         data.postToFacebook !== false, data.youtubeVideoType || 'auto',
         data.masterPrompt || null, data.contentFormat || 'documentary',
+        data.clipMode || null,
       ]
     );
     return res.rows[0];
@@ -29,7 +30,7 @@ const ContentSchedule = {
       `SELECT cs.*, p.page_name, df.folder_name
        FROM content_schedules cs
        LEFT JOIN pages p ON p.id = cs.page_id
-       JOIN drive_folders df ON df.id = cs.folder_id
+       LEFT JOIN drive_folders df ON df.id = cs.folder_id
        WHERE cs.user_id = $1 ORDER BY cs.created_at DESC`,
       [userId]
     );
@@ -42,7 +43,7 @@ const ContentSchedule = {
               df.folder_id as drive_folder_id, df.folder_name
        FROM content_schedules cs
        LEFT JOIN pages p ON p.id = cs.page_id
-       JOIN drive_folders df ON df.id = cs.folder_id
+       LEFT JOIN drive_folders df ON df.id = cs.folder_id
        WHERE cs.is_active = TRUE AND (cs.page_id IS NULL OR p.is_connected = TRUE)`
     );
     return res.rows;

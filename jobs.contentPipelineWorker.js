@@ -96,8 +96,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function generateClip(prompt, durationSeconds, destPath, format, sceneIndex = 0) {
-  if (env.contentPipeline.clipMode === 'veo_intro_kenburns') {
+async function generateClip(prompt, durationSeconds, destPath, format, sceneIndex = 0, clipMode = env.contentPipeline.clipMode) {
+  if (clipMode === 'veo_intro_kenburns') {
     if (sceneIndex < env.contentPipeline.veoIntroScenes) {
       // First N scenes: short Veo3 render (cheap/fast), then normalized/looped
       // to this scene's real voiceover length so timing stays exact. If Veo3
@@ -113,10 +113,10 @@ async function generateClip(prompt, durationSeconds, destPath, format, sceneInde
     }
     return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
   }
-  if (env.contentPipeline.clipMode === 'image_kenburns') {
+  if (clipMode === 'image_kenburns') {
     return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
   }
-  if (env.contentPipeline.clipMode === 'hybrid') {
+  if (clipMode === 'hybrid') {
     try {
       return await generateClipFromStock(prompt, durationSeconds, destPath, format);
     } catch (err) {
@@ -124,16 +124,16 @@ async function generateClip(prompt, durationSeconds, destPath, format, sceneInde
       return generateClipFromImage(prompt, durationSeconds, destPath, format, sceneIndex);
     }
   }
-  if (env.contentPipeline.clipMode === 'stock_video') {
+  if (clipMode === 'stock_video') {
     return generateClipFromStock(prompt, durationSeconds, destPath, format);
   }
-  if (env.contentPipeline.clipMode === 'veo') {
+  if (clipMode === 'veo') {
     return generateClipFromVeo(prompt, durationSeconds, destPath, format);
   }
-  if (env.contentPipeline.clipMode === 'grok') {
+  if (clipMode === 'grok') {
     return generateClipFromGrok(prompt, durationSeconds, destPath, format);
   }
-  if (env.contentPipeline.clipMode === 'vertex_veo') {
+  if (clipMode === 'vertex_veo') {
     return generateClipFromVertexVeo(prompt, durationSeconds, destPath, format);
   }
   const taskId = await kieVideoService.createVideoTask({ prompt, duration: durationSeconds, aspectRatio: format.aspectRatio });
@@ -484,7 +484,7 @@ async function runPipeline(schedule) {
     const clipPaths = [];
     for (let i = 0; i < script.scenes.length; i++) {
       const clipPath = path.join(env.upload.tempDir, `${run.id}_clip${i}.mp4`);
-      await generateClip(script.scenes[i].visual_prompt, sceneDurations[i], clipPath, format, i);
+      await generateClip(script.scenes[i].visual_prompt, sceneDurations[i], clipPath, format, i, schedule.clip_mode || env.contentPipeline.clipMode);
       clipPaths.push(clipPath);
       tempFiles.push(clipPath);
       // Small pause between scenes so back-to-back Vertex API calls (image/TTS)
@@ -515,10 +515,13 @@ async function runPipeline(schedule) {
     await ffmpeg.mergeAudioVideo(captionedPath, voiceoverPath, finalPath);
     tempFiles.push(finalPath);
 
-    stage = 'uploading_drive';
-    await ContentScheduleRun.setStatus(run.id, 'uploading_drive');
     const fileName = `${script.topic.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)}.mp4`;
-    const uploaded = await driveService.uploadFile(schedule.user_id, schedule.drive_folder_id, finalPath, fileName);
+    let uploaded = null;
+    if (schedule.drive_folder_id) {
+      stage = 'uploading_drive';
+      await ContentScheduleRun.setStatus(run.id, 'uploading_drive');
+      uploaded = await driveService.uploadFile(schedule.user_id, schedule.drive_folder_id, finalPath, fileName);
+    }
 
     let fbVideoId = null;
     if (schedule.post_to_facebook !== false && schedule.page_db_id) {
@@ -541,7 +544,7 @@ async function runPipeline(schedule) {
       logger.info(`[content-pipeline] completed for schedule ${schedule.id} (Facebook posting skipped)`);
     }
 
-    await ContentScheduleRun.markCompleted(run.id, { driveFileId: uploaded.id, fbVideoId });
+    await ContentScheduleRun.markCompleted(run.id, { driveFileId: uploaded?.id || null, fbVideoId });
     await ContentSchedule.updateLastRun(schedule.id);
 
     // YouTube is optional and best-effort: a failure here should NOT mark an

@@ -126,6 +126,10 @@ async function loadOptions() {
     document.getElementById('pageIdField').style.display = e.target.checked ? 'block' : 'none';
   });
 
+  document.getElementById('saveToDrive').addEventListener('change', (e) => {
+    document.getElementById('folderIdField').style.display = e.target.checked ? 'block' : 'none';
+  });
+
   function syncDurationOptions() {
     const isLongForm = document.getElementById('youtubeVideoType').value === 'long';
     const durationSelect = document.getElementById('duration');
@@ -175,6 +179,13 @@ async function loadOptions() {
     e.preventDefault();
     const errorText = document.getElementById('errorText');
     errorText.textContent = '';
+    const savesToDrive = document.getElementById('saveToDrive').checked;
+    const postsToFacebook = document.getElementById('postToFacebook').checked;
+    const postsToYoutube = !!document.getElementById('youtubeTokenId').value;
+    if (!savesToDrive && !postsToFacebook && !postsToYoutube) {
+      errorText.textContent = 'Pick at least one destination: save to Google Drive, post to Facebook, or post to YouTube.';
+      return;
+    }
     try {
       await apiFetch('/content-schedules', {
         method: 'POST',
@@ -182,7 +193,7 @@ async function loadOptions() {
           keyword: document.getElementById('keyword').value,
           pageId: document.getElementById('postToFacebook').checked ? document.getElementById('pageId').value : null,
           postToFacebook: document.getElementById('postToFacebook').checked,
-          folderId: document.getElementById('folderId').value,
+          folderId: document.getElementById('saveToDrive').checked ? document.getElementById('folderId').value : null,
           targetDurationSeconds: Number(document.getElementById('duration').value),
           voiceName: document.getElementById('voiceName').value,
           language: document.getElementById('language').value,
@@ -199,6 +210,7 @@ async function loadOptions() {
           publishImmediately: document.getElementById('publishImmediately').checked,
           youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
           youtubeVideoType: document.getElementById('youtubeVideoType').value,
+          clipMode: document.getElementById('clipMode').value || null,
         }),
       });
       e.target.reset();
