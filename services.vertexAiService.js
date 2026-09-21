@@ -119,9 +119,21 @@ async function generateImage(prompt, destPath) {
     throw new Error(detail?.error?.message || err.message);
   }
 
-  const parts = resp.data.candidates?.[0]?.content?.parts || [];
+  const candidate = resp.data.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
   const imagePart = parts.find((p) => p.inlineData?.data);
-  if (!imagePart) throw new Error('Vertex AI returned no image data');
+  if (!imagePart) {
+    // A 200 response with no image part usually means Google's safety
+    // filter blocked the prompt/output (finishReason: "IMAGE_SAFETY" /
+    // "PROHIBITED_CONTENT" / "SAFETY" is the most common cause - scary,
+    // violent, or otherwise sensitive visual_prompts can trip this even
+    // when the request itself looks harmless) rather than a real failure,
+    // but the old code threw a generic error with zero detail about why.
+    // Logging the full candidate here makes the actual reason visible.
+    logger.error(`[vertex] image generate returned no image part. finishReason=${candidate?.finishReason} safetyRatings=${JSON.stringify(candidate?.safetyRatings)} promptFeedback=${JSON.stringify(resp.data.promptFeedback)} textReturned=${JSON.stringify(parts.map((p) => p.text).filter(Boolean))}`);
+    const blockReason = candidate?.finishReason || resp.data.promptFeedback?.blockReason;
+    throw new Error(blockReason ? `Vertex AI returned no image (${blockReason} - likely blocked by the safety filter)` : 'Vertex AI returned no image data');
+  }
 
   fs.writeFileSync(destPath, Buffer.from(imagePart.inlineData.data, 'base64'));
   return destPath;
