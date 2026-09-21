@@ -6,7 +6,7 @@ const logger = require('./utils.logger');
 
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const TIMEOUT_MS = 5 * 60 * 1000; // downloads can take a while on slow connections
-const TRANSCODE_TIMEOUT_MS = 15 * 60 * 1000; // re-encoding a long video takes longer than just downloading it
+const TRANSCODE_TIMEOUT_MS = 45 * 60 * 1000; // re-encoding a long video takes longer than just downloading it - see services.videoDownloadService.js for the full reasoning on this value
 
 function isTikTokUrl(url) {
   try {
@@ -48,7 +48,7 @@ async function getMetadata(url) {
 // upload) instead of depending on whatever codec TikTok happened to serve.
 async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
-  await ytdlpDownload(url, rawPath, ['-f', 'b/best', '--no-warnings', '-o', rawPath, url]);
+  await ytdlpDownload(url, rawPath, ['-f', 'bv*[height<=1080]+ba/b[height<=1080]/b', '--no-warnings', '-o', rawPath, url]);
 
   let hasAudio = await hasAudioStream(rawPath);
   if (!hasAudio) {
@@ -68,7 +68,7 @@ async function downloadVideo(url, destPath) {
     logger.error(`[tiktok] no combined format available, trying an explicit bestvideo+bestaudio merge: ${url}`);
     try {
       await ytdlpDownload(url, rawPath, [
-        '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio',
+        '-f', 'bestvideo*[height<=1080]+bestaudio/bestvideo[height<=1080]+bestaudio/bestvideo*+bestaudio/bestvideo+bestaudio',
         '--merge-output-format', 'mp4',
         '--no-warnings', '-o', rawPath, url,
       ]);
@@ -96,7 +96,7 @@ async function downloadVideo(url, destPath) {
       '-y', '-hide_banner', '-loglevel', 'error', '-nostats',
       '-i', rawPath,
       ...(videoNeedsEncode
-        ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-x264-params', 'rc-lookahead=20:ref=2']
+        ? ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20', '-threads', '3', '-x264-params', 'rc-lookahead=20:ref=2']
         : ['-c:v', 'copy']),
       ...(!hasAudio ? ['-an'] : audioNeedsEncode ? ['-c:a', 'aac', '-b:a', '128k'] : ['-c:a', 'copy']),
       '-movflags', '+faststart',
@@ -160,8 +160,10 @@ async function findAudioVideoFormatId(url) {
       (f) => f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none'
     );
     if (!combined.length) return null;
-    combined.sort((a, b) => (b.tbr || 0) - (a.tbr || 0));
-    return combined[0].format_id || null;
+    const capped = combined.filter((f) => !f.height || f.height <= 1080);
+    const pool = capped.length ? capped : combined;
+    pool.sort((a, b) => (b.tbr || 0) - (a.tbr || 0));
+    return pool[0].format_id || null;
   } catch (err) {
     logger.error(`[tiktok] could not inspect format list for ${url}: ${err.stderr || err.message}`);
     return null;

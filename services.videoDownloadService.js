@@ -218,8 +218,13 @@ async function findAudioVideoFormatId(url) {
     const formats = Array.isArray(data.formats) ? data.formats : [];
     const combined = formats.filter((f) => f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none');
     if (!combined.length) return null;
-    combined.sort((a, b) => (b.tbr || 0) - (a.tbr || 0));
-    return combined[0].format_id || null;
+    // Prefer <=1080p options (highest bitrate among those) - same 1080p cap
+    // reasoning as the main download format selector above. Falls back to
+    // the highest-bitrate option overall if nothing at/under 1080p exists.
+    const capped = combined.filter((f) => !f.height || f.height <= 1080);
+    const pool = capped.length ? capped : combined;
+    pool.sort((a, b) => (b.tbr || 0) - (a.tbr || 0));
+    return pool[0].format_id || null;
   } catch (err) {
     logger.error(`[videodl] could not inspect format list for ${url}: ${err.stderr || err.message}`);
     return null;
@@ -239,7 +244,16 @@ async function downloadVideo(url, destPath) {
   // (e.g. .webm) instead of the .mp4 path we passed via -o - so the file we
   // then look for at `rawPath` was never created, and ffprobe/ffmpeg fail
   // with "No such file or directory" even though the download itself succeeded.
-  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'b/best', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url]);
+  // Capped at 1080p: some source videos are 4K+ and a full-resolution
+  // download makes the later ffmpeg transcode step (services.videoDownloadService.js
+  // -> downloadVideo's transcode call) dramatically slower - a 17-minute 4K
+  // source was still hitting a 30+ minute transcode timeout even with a
+  // faster preset. 1080p is plenty for Facebook/YouTube/TikTok reposting and
+  // for editing (captions, trimming, background music) in this app, so
+  // there's no real quality reason to fetch more. The 3-way fallback chain
+  // below means this never causes a download to fail outright: if no
+  // <=1080p stream exists, it falls through to unrestricted best.
+  await ytdlpDownload(url, rawPath, [...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'bv*[height<=1080]+ba/b[height<=1080]/b', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url]);
 
   if (!fs.existsSync(rawPath)) {
     logger.error(`[videodl] rawPath missing after reported-successful download for ${url}, searching for a mismatched-extension output`);
@@ -265,7 +279,7 @@ async function downloadVideo(url, destPath) {
   if (!hasAudio) {
     try {
       await ytdlpDownload(url, rawPath, [
-        ...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
+        ...cookiesArgs, ...impersonateArgs, ...proxyArgs, '-f', 'bestvideo*[height<=1080]+bestaudio/bestvideo[height<=1080]+bestaudio/bestvideo*+bestaudio/bestvideo+bestaudio', '--merge-output-format', 'mp4', '--no-warnings', '-o', rawPath, url,
       ]);
       hasAudio = await hasAudioStream(rawPath);
     } catch (mergeErr) {
