@@ -62,13 +62,20 @@ async function synthesizeNarration(text, destPath, voiceName, narrationLanguage)
 }
 
 async function generateBlockImage(prompt, destPath, { sourcePath, fallbackTimestamp, width, height }) {
-  // 1st choice: Gemini (Nano Banana) - better quality, still free-tier via
-  // the same GEMINI_API_KEY already used elsewhere in this app.
+  // 1st choice: whichever image provider the rest of the app is configured
+  // to use (IMAGE_PROVIDER env var) - was previously hardcoded to always
+  // try AI-Studio Gemini first regardless of this setting, which silently
+  // ignored a Vertex-wide setup and burned a failed request on every single
+  // block once the separate AI-Studio credits ran out.
   try {
-    await geminiService.generateImage(prompt, destPath, { retries: 0 });
+    if (env.contentPipeline.imageProvider === 'vertex') {
+      await vertexAiService.generateImage(prompt, destPath);
+    } else {
+      await geminiService.generateImage(prompt, destPath, { retries: 0 });
+    }
     return destPath;
   } catch (err) {
-    logger.info(`[news-reaction] Gemini image generation failed (${err.message}), falling back to a real frame from the source video`);
+    logger.info(`[news-reaction] AI image generation failed (${err.message}), falling back to a real frame from the source video`);
   }
 
   // 2nd choice: a real frame from THIS video at this block's position in the
