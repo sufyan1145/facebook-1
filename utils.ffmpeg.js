@@ -28,7 +28,10 @@ async function concatClips(clipPaths, outputPath) {
   const listContent = clipPaths.map((p) => `file '${path.resolve(p).replace(/'/g, "'\\''")}'`).join('\n');
   fs.writeFileSync(listPath, listContent);
 
-  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '3', '-an', outputPath]);
+  // Re-encodes the whole video (not a stream copy), same as burnCaptions below -
+  // needs the same generous timeout so longer/multi-scene videos don't get
+  // killed mid-encode (see burnCaptions comment for the full explanation).
+  await run(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', '3', '-an', outputPath], 900000);
   fs.unlinkSync(listPath);
   return outputPath;
 }

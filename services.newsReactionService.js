@@ -49,11 +49,11 @@ const ORIENTATIONS = {
 // zoom on every image beat (same idea as jobs.contentPipelineWorker.js).
 const KEN_BURNS_EFFECTS = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'pan_up', 'pan_down', 'popup'];
 
-async function synthesizeNarration(text, destPath, voiceName) {
+async function synthesizeNarration(text, destPath, voiceName, narrationLanguage) {
   // Same provider selection as jobs.contentPipelineWorker.js, so this
   // respects whichever TTS provider is already configured for the app.
   if (env.contentPipeline.ttsProvider === 'vertex') {
-    return vertexAiService.synthesizeSpeech(text, destPath, voiceName);
+    return vertexAiService.synthesizeSpeech(text, destPath, voiceName, narrationLanguage);
   }
   if (env.contentPipeline.ttsProvider === 'custom') {
     return customTtsService.synthesizeSpeech(text, destPath, voiceName);
@@ -101,7 +101,7 @@ async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, descr
   const numBlocks = Math.max(1, Math.round(totalDuration / BLOCK_SECONDS));
   logger.info(`[news-reaction] job ${jobId}: source is ${totalDuration.toFixed(1)}s (${orientation}), planning ${numBlocks} blocks (${IMAGE_SECONDS}s image + ${CLIP_SECONDS}s clip each), requesting narration`);
 
-  const { lines } = await geminiService.generateReactionNarrationLines(title, description, numBlocks, { narrationLanguage });
+  const { lines } = await vertexAiService.generateReactionNarrationLines(title, description, numBlocks, { narrationLanguage });
   logger.info(`[news-reaction] job ${jobId}: got ${lines.length} narration lines`);
 
   const clipPaths = [];
@@ -116,7 +116,7 @@ async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, descr
 
     // --- Image beat (~10s target; exact length follows this line's actual spoken duration) ---
     const narrationPath = path.join(tempDir, `${jobId}_reaction_narration_${i}.mp3`);
-    await synthesizeNarration(lines[i], narrationPath, voiceName);
+    await synthesizeNarration(lines[i], narrationPath, voiceName, narrationLanguage);
     tempFiles.push(narrationPath);
     const narrationDuration = await ffmpeg.getMediaDuration(narrationPath);
 
