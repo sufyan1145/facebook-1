@@ -363,11 +363,18 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 Do not fabricate specific claimed facts, dates, or quotes you are not confident are accurate - if the topic implies needing today's exact news and you are not certain of current details, keep the caption general/evergreen instead of inventing specifics.`;
 
   const token = await getAccessToken();
-  const resp = await axios.post(
-    `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
-    { contents: [{ parts: [{ text: prompt }] }] },
-    { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
-  );
+  let resp;
+  try {
+    resp = await axios.post(
+      `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 60000 }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] generatePostContent FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
 
   const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Vertex did not return post content');
@@ -408,11 +415,18 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 }`;
 
   const token = await getAccessToken();
-  const resp = await axios.post(
-    `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
-    { contents: [{ parts: [{ text: prompt }] }] },
-    { headers: { Authorization: `Bearer ${token}` }, timeout: 60000 }
-  );
+  let resp;
+  try {
+    resp = await axios.post(
+      `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 60000 }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] regenerateTitleAndHashtags FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
 
   const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Vertex did not return title/hashtags');
@@ -488,11 +502,18 @@ Respond with STRICT JSON only (no markdown fences, no commentary before or after
 The "lines" array must contain exactly ${lineCount} strings, in order.`;
 
   const token = await getAccessToken();
-  const resp = await axios.post(
-    `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
-    { contents: [{ parts: [{ text: prompt }] }] },
-    { headers: { Authorization: `Bearer ${token}` }, timeout: 120000 }
-  );
+  let resp;
+  try {
+    resp = await axios.post(
+      `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 120000 }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] generateReactionNarrationLines FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
 
   const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Vertex did not return narration lines');
