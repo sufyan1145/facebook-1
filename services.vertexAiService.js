@@ -395,6 +395,94 @@ async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLan
   }
 }
 
+// ---- Explain Video (Gemini, via Vertex - "what exactly happens in this video") ----
+//
+// Works on ANY video (not just movies/long content) - samples frames across
+// the whole video plus the full audio, and asks Gemini for an exact,
+// chronological, specific account of what happens (not a vague one-line
+// summary), so a content creator can tell at a glance what's actually in a
+// video without having to sit and watch it themselves.
+
+// Cloud/network video downloads of typical social videos are usually well
+// under an hour; for a video this well-sampled range, ~45 frames gives
+// Gemini a scene every few seconds for a short clip and one every couple of
+// minutes for a long video - enough visual coverage to describe it
+// accurately without the frame batch itself becoming huge.
+const EXPLAIN_MAX_FRAMES = 45;
+const EXPLAIN_MIN_INTERVAL_SECONDS = 2; // don't sample faster than this even for very short videos
+
+/**
+ * @param {string} sourceFilePath - path to the downloaded source video
+ * @returns {Promise<string>} an exact, chronological description of what happens in the video
+ */
+async function explainVideo(sourceFilePath) {
+  const tmpDir = path.join(path.dirname(sourceFilePath), `${path.basename(sourceFilePath, path.extname(sourceFilePath))}_explain_frames`);
+  const extractedAudioPath = `${sourceFilePath}.explain_audio.mp3`;
+  let framePaths = [];
+
+  try {
+    const duration = await ffmpeg.getMediaDuration(sourceFilePath).catch(() => 0);
+    const interval = duration > 0
+      ? Math.max(EXPLAIN_MIN_INTERVAL_SECONDS, Math.ceil(duration / EXPLAIN_MAX_FRAMES))
+      : EXPLAIN_MIN_INTERVAL_SECONDS;
+
+    logger.info(`[vertex] explainVideo: sampling frames every ${interval}s (duration ${duration.toFixed ? duration.toFixed(1) : duration}s)`);
+    framePaths = await ffmpeg.extractSampledFrames(sourceFilePath, tmpDir, interval, EXPLAIN_MAX_FRAMES);
+
+    let hasAudio = true;
+    try {
+      await ffmpeg.extractAudio(sourceFilePath, extractedAudioPath);
+    } catch (audioErr) {
+      hasAudio = false;
+      logger.error(`[vertex] explainVideo: audio extraction failed, continuing with frames only: ${audioErr.message}`);
+    }
+
+    const prompt = `You are watching a video frame-by-frame (attached as ${framePaths.length} still frames, sampled evenly across the whole video, in chronological order)${hasAudio ? ', with its full audio also attached' : ''}.
+
+Describe EXACTLY and CHRONOLOGICALLY what happens in this video, from start to finish - not a vague one-line summary. Be specific: what actually happens, what changes from one moment to the next, any key actions, any text/captions visible on screen, and (if audio is attached) what is said or important sounds heard. If there's a twist, reveal, or punchline, describe it clearly - don't be coy about it. Mention roughly where in the video (early/middle/end, or approximate timing) major things happen.
+
+The goal is for someone who has NOT seen the video to know precisely what's in it well enough to write about it, react to it, or caption it accurately - so avoid generic filler like "an interesting video happens" - describe the real content. Write it as clear prose (a few short paragraphs, not bullet points unless the video has genuinely distinct chapters/steps).`;
+
+    const imageParts = framePaths.map((p) => ({
+      inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(p).toString('base64') },
+    }));
+    const audioPart = hasAudio
+      ? [{ inlineData: { mimeType: 'audio/mp3', data: fs.readFileSync(extractedAudioPath).toString('base64') } }]
+      : [];
+
+    let resp;
+    try {
+      resp = await retryOn429(
+        async () => {
+          const token = await getAccessToken();
+          return axios.post(
+            `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+            { contents: [{ role: 'user', parts: [{ text: prompt }, ...imageParts, ...audioPart] }] },
+            { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 300000 }
+          );
+        },
+        { label: 'Vertex explain video', retries: 3 }
+      );
+    } catch (err) {
+      const detail = err.response?.data;
+      logger.error(`[vertex] explainVideo FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+      throw new Error(detail?.error?.message || err.message);
+    }
+
+    const candidate = resp.data.candidates?.[0];
+    const text = candidate?.content?.parts?.map((p) => p.text).filter(Boolean).join(' ').trim();
+    if (!text) {
+      const blockReason = candidate?.finishReason || resp.data.promptFeedback?.blockReason;
+      throw new Error(blockReason ? `Vertex returned no explanation (${blockReason})` : 'Vertex returned no explanation text');
+    }
+    return text;
+  } finally {
+    framePaths.forEach((p) => { try { fs.unlinkSync(p); } catch (_) {} });
+    try { if (fs.existsSync(tmpDir)) fs.rmdirSync(tmpDir); } catch (_) {}
+    try { if (fs.existsSync(extractedAudioPath)) fs.unlinkSync(extractedAudioPath); } catch (_) {}
+  }
+}
+
 // ---- Script writing (same prompt/response contract as services.geminiService.js's
 // writeScript, but via Vertex AI's billing account instead of the AI Studio free-tier
 // key - avoids the Gemini API's free-tier daily request quota entirely) ----
@@ -792,6 +880,7 @@ module.exports = {
   synthesizeSpeech,
   transcribeAndTranslate,
   dubVideo,
+  explainVideo,
   writeScript,
   writeVisualPromptsForScript,
   generateProductExplainerScript,

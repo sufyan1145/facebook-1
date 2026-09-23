@@ -62,6 +62,23 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
     tempFiles.push(current);
     logger.info(`[video-edit] job ${job.id}: source downloaded`);
 
+    // Explain Video mode: a standalone analysis action, not an edit - paste
+    // any video's link and get back an exact, chronological account of what
+    // happens in it (see services.vertexAiService.js explainVideo). Works on
+    // any video (not just movies/long content), skips every editing/dub/
+    // Drive-upload step below entirely, and the job "completes" with just a
+    // text result attached (no output video file).
+    if (spec.explainOnly) {
+      await VideoEditJob.setStatus(job.id, 'analyzing_video');
+      logger.info(`[video-edit] job ${job.id}: analyzing video content`);
+      const explanation = await vertexAiService.explainVideo(current);
+      await VideoEditJob.setGeneratedExplanation(job.id, explanation);
+      await VideoEditJob.markCompleted(job.id, {});
+      await Log.record(job.user_id, 'Video Explained', { sourceUrl: job.source_url, jobId: job.id });
+      logger.info(`[video-edit] job ${job.id}: video explanation ready`);
+      return;
+    }
+
     // Optional: regenerate the source video's original title/description (any
     // language) into a catchy English title + hashtags. Never fails the whole
     // job - falls back to the original title (reordered, see

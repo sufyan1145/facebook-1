@@ -22,6 +22,13 @@ const VideoEditJob = {
     );
   },
 
+  async setGeneratedExplanation(id, explanation) {
+    await query(
+      'UPDATE video_edit_jobs SET generated_explanation = $2, updated_at = now() WHERE id = $1',
+      [id, explanation || null]
+    );
+  },
+
   async markCompleted(id, { driveFileId = null, driveFileName = null, localFilePath = null }) {
     await query(
       `UPDATE video_edit_jobs SET status = 'completed', drive_file_id = $2, drive_file_name = $3, local_file_path = $4, updated_at = now() WHERE id = $1`,

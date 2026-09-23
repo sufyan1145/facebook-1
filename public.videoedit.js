@@ -1,6 +1,7 @@
 const STATUS_LABEL = {
   pending: 'Pending',
   downloading: 'Downloading…',
+  analyzing_video: 'Watching & analyzing video…',
   regenerating_metadata: 'Rewriting title/hashtags…',
   dubbing: 'Transcribing & dubbing…',
   editing: 'Applying effects…',
@@ -68,6 +69,8 @@ function renderJobs(jobs) {
       const resultCell =
         j.status === 'failed'
           ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>`
+          : j.status === 'completed' && j.generated_explanation
+          ? `<button class="btn xs" data-explanation="${j.id}">View explanation</button>`
           : j.status === 'completed'
           ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button>`
           : '—';
@@ -97,6 +100,12 @@ function renderJobs(jobs) {
   body.querySelectorAll('button[data-preview]').forEach((btn) => {
     btn.addEventListener('click', () => showPreview(btn.dataset.preview, btn.dataset.name));
   });
+  body.querySelectorAll('button[data-explanation]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const job = jobs.find((j) => j.id === btn.dataset.explanation);
+      if (job) showExplanation(job.generated_explanation);
+    });
+  });
   body.querySelectorAll('button[data-delete]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (!confirm('Delete this entry from the edit history? (The Drive file itself, if saved, is not deleted.)')) return;
@@ -113,7 +122,7 @@ function renderJobs(jobs) {
     document.getElementById('previewCard').style.display = 'block';
   }
 
-  const stillActive = jobs.some((j) => ['pending', 'downloading', 'dubbing', 'editing'].includes(j.status));
+  const stillActive = jobs.some((j) => ['pending', 'downloading', 'analyzing_video', 'dubbing', 'editing'].includes(j.status));
   clearTimeout(jobsPollTimer);
   if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
 }
@@ -129,6 +138,17 @@ function showPreview(jobId, fileName) {
   card.style.display = 'block';
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   player.play().catch(() => {});
+}
+
+function showExplanation(text) {
+  document.getElementById('previewCard').style.display = 'none';
+  const card = document.getElementById('explanationCard');
+  document.getElementById('explanationText').textContent = text || '';
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  document.getElementById('copyExplanationBtn').onclick = () => {
+    navigator.clipboard.writeText(text || '').catch(() => {});
+  };
 }
 
 async function loadJobs() {
@@ -238,6 +258,7 @@ function renderCueList() {
   updateBulkModeVisibility();
   wireSingleUrlAutoClean(document.getElementById('urlInput'));
   wireSingleUrlAutoClean(document.getElementById('secondaryUrlInput'));
+  wireSingleUrlAutoClean(document.getElementById('explainUrlInput'));
   wireBulkUrlsAutoClean(document.getElementById('bulkUrlsTextarea'));
   document.getElementById('addCueBtn').addEventListener('click', () => {
     const at = Number(document.getElementById('cueAtInput').value) || 0;
@@ -258,6 +279,27 @@ function renderCueList() {
       loadJobs();
     } catch (err) {
       alert(err.message);
+    }
+  });
+
+  document.getElementById('explainBtn').addEventListener('click', async () => {
+    const url = document.getElementById('explainUrlInput').value.trim();
+    if (!url) { alert('Please paste a video URL.'); return; }
+    const btn = document.getElementById('explainBtn');
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    try {
+      await apiFetch('/videoedit/create', {
+        method: 'POST',
+        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
+      });
+      document.getElementById('explainUrlInput').value = '';
+      loadJobs();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Explain this video';
     }
   });
 
@@ -298,7 +340,7 @@ function renderCueList() {
       freezeFrameAt: document.getElementById('freezeFrameAt').value ? Number(document.getElementById('freezeFrameAt').value) : null,
       freezeFrameDuration: Number(document.getElementById('freezeFrameDuration').value) || 1,
       blackAndWhite: document.getElementById('blackAndWhite').checked,
-      verticalConvert: document.getElementById('verticalConvert').checked,
+      verticalConvert: document.getElementById('outputRatio').value === 'vertical',
       vineBoomAt: document.getElementById('vineBoomAt').value ? Number(document.getElementById('vineBoomAt').value) : null,
       splitScreen: null, // not available in bulk mode; single-video path below sets its own value
     };

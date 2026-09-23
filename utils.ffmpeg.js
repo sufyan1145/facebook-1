@@ -206,6 +206,28 @@ function getMediaDuration(filePath) {
   });
 }
 
+// Samples evenly-spaced frames across the whole video in a single ffmpeg
+// pass (much cheaper than calling extractFrame in a loop, which reopens/
+// reseeks the source file once per frame). Frames are scaled down small
+// (480px wide) since they're only meant to be read by Gemini for scene
+// understanding, not shown to a human - keeps the base64 payload for
+// services.vertexAiService.js's explainVideo() small even for a video with
+// many sampled frames. Returns the sorted list of frame file paths written.
+async function extractSampledFrames(sourcePath, outputDir, intervalSeconds, maxFrames) {
+  fs.mkdirSync(outputDir, { recursive: true });
+  await run([
+    '-y', '-i', sourcePath,
+    '-vf', `fps=1/${intervalSeconds},scale=480:-2`,
+    '-frames:v', String(maxFrames),
+    '-q:v', '4',
+    path.join(outputDir, 'frame_%04d.jpg'),
+  ], 180000);
+  return fs.readdirSync(outputDir)
+    .filter((f) => f.startsWith('frame_'))
+    .sort()
+    .map((f) => path.join(outputDir, f));
+}
+
 // Concatenates per-scene voiceover audio files (same codec expected) into one track.
 // Extracts just the original audio for a clip-burst block, at normal volume
 // (no narration mixed in) - used when a clip block has no voiceover of its
@@ -346,4 +368,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
