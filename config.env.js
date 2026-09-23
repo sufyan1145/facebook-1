@@ -173,9 +173,15 @@ module.exports = {
   },
 
   transcribeDub: {
-    // Your self-hosted Transcribe-Dub API (Whisper + NLLB + Kokoro), used by
-    // the Video Editor's "Transcribe & Dub" feature. Same Cloudflare Tunnel
-    // caveat as customTts.apiUrl above - update in Railway on every restart.
+    // 'vertex' (default) = Gemini transcribes+translates and Chirp3-HD speaks
+    // it, all via your Vertex AI billing account - no PC/tunnel needed, works
+    // for any language Gemini understands. 'self_hosted' = the old
+    // Whisper+NLLB+Kokoro API running on your own PC via a Cloudflare Tunnel
+    // (kept as a fallback option only - fragile, see apiUrl note below).
+    provider: (process.env.TRANSCRIBE_DUB_PROVIDER || 'vertex').trim(),
+    // Only used when provider = 'self_hosted'. Update this in Railway every
+    // time the Cloudflare Quick Tunnel restarts (its URL changes every time)
+    // or once it's permanently hosted, point it there instead.
     apiUrl: (process.env.TRANSCRIBE_DUB_API_URL || '').trim().replace(/\/$/, ''),
   },
 

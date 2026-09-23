@@ -139,15 +139,17 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       logger.info(`[video-edit] job ${job.id}: product explainer video built`);
     } else {
     // 0. Transcribe & Dub (runs first, before any other effects, so later
-    //    steps operate on the already-dubbed video). Uses the self-hosted
-    //    transcribe-dub API: transcribes the original audio -> translates it
-    //    -> generates new speech in the target language via Kokoro -> we mux
-    //    that new audio onto the video here, replacing the original track.
+    //    steps operate on the already-dubbed video). Dispatches to whichever
+    //    provider is configured (config.env.js transcribeDub.provider) -
+    //    'vertex' (default): Gemini transcribes+translates, Chirp3-HD speaks
+    //    it - or 'self_hosted': the original Whisper+NLLB+Kokoro API on the
+    //    user's own PC. Either way we mux the new audio onto the video here,
+    //    replacing the original track.
     if (spec.dubTargetLanguage) {
       logger.info(`[video-edit] job ${job.id}: transcribing + dubbing into ${spec.dubTargetLanguage}`);
       await VideoEditJob.setStatus(job.id, 'dubbing');
       const dubbedAudioPath = path.join(env.upload.tempDir, `${job.id}_dubbed_audio.wav`);
-      await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null);
+      await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null, spec.dubVoiceName || undefined);
       tempFiles.push(dubbedAudioPath);
 
       const out = path.join(env.upload.tempDir, `${job.id}_0_dubbed.mp4`);

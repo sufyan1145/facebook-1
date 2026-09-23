@@ -224,6 +224,36 @@ async function extractAudioSegment(sourcePath, startTime, durationSeconds, outpu
   return outputPath;
 }
 
+// Pulls just the audio track out of any video/audio file, downmixed to mono
+// 16kHz MP3 at a modest bitrate. Used by the Vertex-based Transcribe & Dub
+// flow (services.vertexAiService.js dubVideo) to shrink a full video down to
+// a small audio-only file before it's base64-inlined into a Gemini
+// generateContent request - a 10-minute video can be 100+ MB, but its
+// speech-only audio at this rate is only a few MB, which keeps requests
+// comfortably under Vertex's inline-request size ceiling. 16kHz mono is also
+// exactly what speech-recognition models expect, so this doesn't cost any
+// transcription accuracy versus shipping the original high-quality audio.
+async function extractAudio(sourcePath, outputPath) {
+  await run([
+    '-y',
+    '-i', sourcePath,
+    '-vn',
+    '-ar', '16000', '-ac', '1',
+    '-c:a', 'libmp3lame', '-b:a', '48k',
+    outputPath,
+  ], 300000); // 5 min - just a stream extract/transcode, but give slow disks/long videos room
+  return outputPath;
+}
+
+// Transcodes/copies an audio file into whatever container/codec its output
+// extension implies (e.g. .mp3 -> .wav gets a real PCM transcode, not just a
+// byte copy) - a small generic wrapper used where a caller needs "make this
+// audio file into that exact output path" without caring about the specifics.
+async function transcodeAudio(inputPath, outputPath) {
+  await run(['-y', '-i', inputPath, outputPath]);
+  return outputPath;
+}
+
 // Generates a silent audio track of the given length, matching the TTS
 // services' own format (24kHz mono mp3) - used as a safety net when a
 // clip-burst's source segment has no audio track at all (rare, but some
@@ -316,4 +346,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
+module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };

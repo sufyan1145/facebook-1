@@ -280,6 +280,7 @@ function renderCueList() {
       dubTargetLanguage: dubEnabled ? document.getElementById('dubTargetLanguage').value : null,
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
+      dubVoiceName: dubEnabled ? (document.getElementById('dubVoiceName').value || null) : null,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,

@@ -60,12 +60,24 @@
                 <select id="dubTargetLanguage">
                   <option value="english">English</option>
                   <option value="hindi">Hindi</option>
+                  <option value="urdu">Urdu (اردو)</option>
                   <option value="chinese">Chinese</option>
                   <option value="spanish">Spanish</option>
                   <option value="french">French</option>
                   <option value="italian">Italian</option>
                   <option value="portuguese">Portuguese</option>
                   <option value="japanese">Japanese</option>
+                  <option value="german">German</option>
+                  <option value="arabic">Arabic</option>
+                  <option value="russian">Russian</option>
+                  <option value="korean">Korean</option>
+                  <option value="turkish">Turkish</option>
+                  <option value="vietnamese">Vietnamese</option>
+                  <option value="indonesian">Indonesian</option>
+                  <option value="dutch">Dutch</option>
+                  <option value="polish">Polish</option>
+                  <option value="thai">Thai</option>
+                  <option value="bengali">Bengali</option>
                 </select>
               </div>
               <div class="field">
@@ -74,6 +86,7 @@
                   <option value="">Auto-detect</option>
                   <option value="english">English</option>
                   <option value="hindi">Hindi</option>
+                  <option value="urdu">Urdu</option>
                   <option value="chinese">Chinese</option>
                   <option value="spanish">Spanish</option>
                   <option value="french">French</option>
@@ -81,10 +94,26 @@
                   <option value="portuguese">Portuguese</option>
                   <option value="japanese">Japanese</option>
                   <option value="german">German</option>
+                  <option value="arabic">Arabic</option>
+                  <option value="russian">Russian</option>
+                  <option value="korean">Korean</option>
+                  <option value="turkish">Turkish</option>
                 </select>
               </div>
             </div>
-            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Replaces the video's original audio with an AI-generated voice speaking the target language. This runs first, before any effects below, and can take several minutes depending on the video's length.</div>
+            <div class="field-row">
+              <div class="field">
+                <label for="dubVoiceName">Dub voice</label>
+                <select id="dubVoiceName">
+                  <option value="Iapetus">Male, calm</option>
+                  <option value="Puck">Male, upbeat</option>
+                  <option value="Charon" selected>Male, deep</option>
+                  <option value="Zephyr">Female, bright</option>
+                  <option value="Kore">Female, firm</option>
+                </select>
+              </div>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Replaces the video's original audio with an AI-generated voice speaking the target language (transcribed, translated, and spoken automatically via Google's Vertex AI - runs entirely in the cloud, no separate PC needed). This runs first, before any effects below, and can take a few minutes depending on the video's length.</div>
           </div>
         </div>
 

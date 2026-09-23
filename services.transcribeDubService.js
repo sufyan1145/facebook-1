@@ -1,17 +1,28 @@
 /**
- * Client for the user's own self-hosted Transcribe-Dub API (Whisper
- * transcription + NLLB translation + Kokoro TTS dubbing), currently reached
- * through a Cloudflare Tunnel while it runs on their PC.
+ * Transcribe & Dub dispatcher for the Video Editor - routes to whichever
+ * provider is configured (config.env.js transcribeDub.provider), so
+ * jobs.videoEditWorker.js always just calls dubVideo(...) the same way
+ * regardless of which one is active:
  *
- * Uses an async start-then-poll flow rather than one long request, because
- * Cloudflare's free Quick Tunnels cut off any single request/response after
- * roughly ~120 seconds regardless of what timeout is configured on either
- * end - and a real dub job (transcribe + translate + TTS on a CPU-only
- * machine) routinely takes several minutes. Each individual call here
- * (start, each status poll, the final result fetch) stays well under that
- * limit; only the overall wait (spread across many short polls) is long.
+ *  - 'vertex' (default): services.vertexAiService.js dubVideo() - Gemini
+ *    transcribes+translates and Chirp3-HD speaks it, all through your Vertex
+ *    AI billing account. No PC/tunnel dependency, works for any language
+ *    Gemini understands.
+ *  - 'self_hosted': the ORIGINAL client for the user's own self-hosted
+ *    Transcribe-Dub API (Whisper transcription + NLLB translation + Kokoro
+ *    TTS dubbing), reached through a Cloudflare Tunnel while it runs on
+ *    their PC - kept below exactly as before, as a fallback option.
  *
- * Flow: POST /api/v1/dub-start (multipart: file, target_language,
+ * Uses an async start-then-poll flow (for the self_hosted path) rather than
+ * one long request, because Cloudflare's free Quick Tunnels cut off any
+ * single request/response after roughly ~120 seconds regardless of what
+ * timeout is configured on either end - and a real dub job (transcribe +
+ * translate + TTS on a CPU-only machine) routinely takes several minutes.
+ * Each individual call here (start, each status poll, the final result
+ * fetch) stays well under that limit; only the overall wait (spread across
+ * many short polls) is long.
+ *
+ * self_hosted flow: POST /api/v1/dub-start (multipart: file, target_language,
  *       source_language) -> {job_id}
  *       GET  /api/v1/dub-status/{job_id} -> {status, error} - poll this
  *       GET  /api/v1/dub-result/{job_id} -> the dubbed audio (.wav) once
@@ -19,13 +30,14 @@
  *
  * NOTE: TRANSCRIBE_DUB_API_URL must be updated in Railway whenever the
  * Cloudflare Quick Tunnel restarts (its URL changes every time) or when this
- * moves to a permanently-hosted machine.
+ * moves to a permanently-hosted machine. Only matters if provider=self_hosted.
  */
 const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
 const env = require('./config.env');
 const logger = require('./utils.logger');
+const vertexAiService = require('./services.vertexAiService');
 
 const POLL_INTERVAL_MS = 5 * 1000;
 const MAX_WAIT_MS = 20 * 60 * 1000; // covers even a long video on a slow CPU
@@ -65,7 +77,7 @@ function extractErrorDetail(err) {
  * @param {string|null} sourceLanguage - optional hint, e.g. "chinese".
  *   Leave null/empty to auto-detect.
  */
-async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage = null) {
+async function dubVideoSelfHosted(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage = null) {
   const baseUrl = env.transcribeDub.apiUrl;
   if (!baseUrl) throw new Error('TRANSCRIBE_DUB_API_URL is not set');
   if (!targetLanguage) throw new Error('A target language is required for dubbing');
@@ -137,6 +149,22 @@ async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLan
   }
 
   throw new Error(`Dubbing job ${jobId} did not finish within ${MAX_WAIT_MS / 60000} minutes`);
+}
+
+/**
+ * Public entry point used by jobs.videoEditWorker.js - dispatches to
+ * whichever provider is configured. Same signature either way, plus an
+ * optional trailing voiceName (only meaningful for the 'vertex' provider;
+ * the self_hosted API picks its own Kokoro voice and ignores it).
+ */
+async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage = null, voiceName) {
+  const provider = env.transcribeDub.provider || 'vertex';
+  logger.info(`[transcribe-dub] dispatching to provider=${provider}`);
+
+  if (provider === 'self_hosted') {
+    return dubVideoSelfHosted(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage);
+  }
+  return vertexAiService.dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage, voiceName);
 }
 
 module.exports = { dubVideo };

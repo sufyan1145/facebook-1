@@ -1,9 +1,11 @@
 const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
 const { GoogleAuth } = require('google-auth-library');
 const env = require('./config.env');
 const logger = require('./utils.logger');
 const { retryOn429 } = require('./utils.retry');
+const ffmpeg = require('./utils.ffmpeg');
 
 let authClient = null;
 
@@ -149,6 +151,29 @@ const TTS_LANGUAGE_CODES = {
   english: 'en-US',
   roman_urdu: 'en-US', // Latin-letter transliteration - only an English voice can read the letters at all
   urdu: 'ur-IN', // proper Urdu script - needs the real Urdu voice to pronounce correctly
+  // Below: the Transcribe & Dub feature's target-language list
+  // (services.transcribeDubService.js / public.videoedit.html). All of these
+  // are real Chirp3-HD locales - the same "<locale>-Chirp3-HD-<voice>" voice
+  // names (Charon, Kore, Iapetus, Puck, Zephyr) work across every one of
+  // them, only the locale prefix changes.
+  hindi: 'hi-IN',
+  chinese: 'cmn-CN',
+  spanish: 'es-ES',
+  french: 'fr-FR',
+  italian: 'it-IT',
+  portuguese: 'pt-BR',
+  japanese: 'ja-JP',
+  german: 'de-DE',
+  arabic: 'ar-XA',
+  russian: 'ru-RU',
+  korean: 'ko-KR',
+  turkish: 'tr-TR',
+  vietnamese: 'vi-VN',
+  indonesian: 'id-ID',
+  dutch: 'nl-NL',
+  polish: 'pl-PL',
+  thai: 'th-TH',
+  bengali: 'bn-IN',
 };
 
 async function synthesizeSpeech(text, destPath, voiceName, language) {
@@ -179,6 +204,195 @@ async function synthesizeSpeech(text, destPath, voiceName, language) {
   if (!resp.data.audioContent) throw new Error('Cloud Text-to-Speech returned no audio');
   fs.writeFileSync(destPath, Buffer.from(resp.data.audioContent, 'base64'));
   return destPath;
+}
+
+// ---- Transcribe & Translate (Gemini, via Vertex) + Dub (Chirp3-HD) ----
+//
+// Vertex-billed replacement for the old self-hosted Whisper+NLLB+Kokoro
+// pipeline (services.transcribeDubService.js used to always reach out to a
+// Cloudflare Tunnel into the user's own PC - fragile, and dead whenever that
+// PC/tunnel was off). This does the same job - transcribe a video's speech,
+// translate it into a target language, and speak the translation - but
+// entirely through Google Cloud, so it works as long as the server is up.
+//
+// Gemini takes the audio (transcription) AND the translation in ONE call
+// instead of two separate steps, since a multimodal Gemini model can listen
+// to audio directly and it understands the target language just as well -
+// no need for a separate NLLB translation step or intermediate transcript
+// round-trip.
+
+// Vertex/Gemini's inline (base64-in-request) media limit is well above this,
+// but staying well under it keeps requests fast and avoids edge-case 413s -
+// a video far longer than this should be trimmed/shortened first. At the
+// ~48kbps mono extractAudio() produces, this is roughly a 90-120 minute video.
+const MAX_INLINE_AUDIO_BYTES = 20 * 1024 * 1024;
+
+const AUDIO_MIME_TYPES = { mp3: 'audio/mp3', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg' };
+
+/**
+ * Sends an audio file to Gemini (via Vertex) and gets back a plain-text
+ * translation of everything spoken in it, in `targetLanguage`. One call does
+ * both transcription and translation - see the block comment above.
+ *
+ * @param {string} audioPath - path to an audio file (see utils.ffmpeg.extractAudio)
+ * @param {string} targetLanguage - human language name, e.g. "Hindi", "Spanish" (any language name Gemini understands - not limited to the TTS_LANGUAGE_CODES list above; that list only limits which languages can be SPOKEN back via Chirp3-HD)
+ * @param {string|null} sourceLanguage - optional hint, e.g. "Chinese". Leave null/empty to auto-detect.
+ */
+async function transcribeAndTranslate(audioPath, targetLanguage, sourceLanguage = null) {
+  const stats = fs.statSync(audioPath);
+  if (stats.size > MAX_INLINE_AUDIO_BYTES) {
+    throw new Error(`Audio is too large to transcribe (${(stats.size / (1024 * 1024)).toFixed(1)}MB) - this only works for videos up to roughly 90-120 minutes long. Try a shorter source video.`);
+  }
+  const ext = (audioPath.split('.').pop() || 'mp3').toLowerCase();
+  const mimeType = AUDIO_MIME_TYPES[ext] || 'audio/mp3';
+  const audioBase64 = fs.readFileSync(audioPath).toString('base64');
+
+  const sourceHint = sourceLanguage && sourceLanguage.trim()
+    ? `The audio is spoken in ${sourceLanguage.trim()}.`
+    : 'Auto-detect whatever language(s) are spoken in the audio.';
+
+  const prompt = `Listen to the attached audio and do two things:
+1. Transcribe everything that is spoken, in order. ${sourceHint}
+2. Translate that transcript into ${targetLanguage} - a natural, fluent, spoken-style translation (not a stiff word-for-word one), as if a native ${targetLanguage} speaker were saying the same thing.
+
+Respond with ONLY the final ${targetLanguage} translation as plain spoken text - no timestamps, no speaker labels, no scene/stage directions, no notes, no markdown, no quotes around it, nothing in any other language. If there are stretches of silence, music, or no clear speech, just skip them. This text will be fed directly into a text-to-speech engine, so it must be nothing but the words to be spoken aloud.`;
+
+  let resp;
+  try {
+    resp = await retryOn429(
+      async () => {
+        const token = await getAccessToken();
+        return axios.post(
+          `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+          {
+            contents: [{
+              role: 'user',
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType, data: audioBase64 } },
+              ],
+            }],
+          },
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 300000 }
+        );
+      },
+      { label: 'Vertex transcribe+translate', retries: 3 }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] transcribeAndTranslate FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
+
+  const candidate = resp.data.candidates?.[0];
+  const text = candidate?.content?.parts?.map((p) => p.text).filter(Boolean).join(' ').trim();
+  if (!text) {
+    const blockReason = candidate?.finishReason || resp.data.promptFeedback?.blockReason;
+    throw new Error(blockReason ? `Vertex returned no transcript (${blockReason})` : 'Vertex returned no transcript text');
+  }
+  return text;
+}
+
+// Splits translated text into TTS-safe chunks, breaking on sentence
+// boundaries where possible (falling back to hard breaks for one giant
+// run-on sentence). Cloud Text-to-Speech caps non-SSML input at 5000 bytes;
+// staying well under that per chunk (~700 chars) keeps every chunk safe even
+// for languages whose characters take multiple UTF-8 bytes each (Chinese,
+// Japanese, Arabic, etc.), and keeps each spoken chunk short enough that one
+// bad chunk doesn't waste minutes of synthesis if it needs a retry.
+function splitTextForTts(text, maxChars = 700) {
+  const sentences = text.match(/[^.!?\u3002\uff01\uff1f]+[.!?\u3002\uff01\uff1f]*/g) || [text];
+  const chunks = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const s = sentence.trim();
+    if (!s) continue;
+    if (s.length > maxChars) {
+      // One sentence alone is too long - hard-wrap it on word boundaries.
+      if (current) { chunks.push(current); current = ''; }
+      let rest = s;
+      while (rest.length > maxChars) {
+        let cut = rest.lastIndexOf(' ', maxChars);
+        if (cut <= 0) cut = maxChars;
+        chunks.push(rest.slice(0, cut).trim());
+        rest = rest.slice(cut).trim();
+      }
+      if (rest) current = rest;
+      continue;
+    }
+    if ((current + ' ' + s).trim().length > maxChars) {
+      chunks.push(current);
+      current = s;
+    } else {
+      current = (current ? current + ' ' : '') + s;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length ? chunks : [text];
+}
+
+/**
+ * Full Transcribe -> Translate -> Dub pipeline, entirely on Google Cloud
+ * (Vertex). Same call contract as the old self-hosted
+ * services.transcribeDubService.js dubVideo() (drop-in replacement - see
+ * that file, which now just dispatches to whichever provider is configured)
+ * so nothing else in jobs.videoEditWorker.js needs to change.
+ *
+ * @param {string} sourceFilePath - path to the source video/audio file
+ * @param {string} destAudioPath - where to save the resulting dubbed audio
+ * @param {string} targetLanguage - a key in TTS_LANGUAGE_CODES above (e.g. "hindi", "spanish") - this is both the language Gemini translates into and the Chirp3-HD voice locale used to speak it
+ * @param {string|null} sourceLanguage - optional hint (any language name), e.g. "chinese". Leave null/empty to auto-detect.
+ * @param {string} [voiceName] - Chirp3-HD voice character (Charon/Kore/Iapetus/Puck/Zephyr)
+ */
+async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLanguage = null, voiceName) {
+  if (!targetLanguage) throw new Error('A target language is required for dubbing');
+  const localeCode = TTS_LANGUAGE_CODES[targetLanguage];
+  if (!localeCode) {
+    throw new Error(`"${targetLanguage}" isn't a supported dub voice language. Supported: ${Object.keys(TTS_LANGUAGE_CODES).filter((k) => !['roman_urdu'].includes(k)).join(', ')}`);
+  }
+
+  const tmpDir = path.dirname(destAudioPath);
+  const base = path.basename(destAudioPath).replace(/\.[^.]+$/, '');
+  const extractedAudioPath = path.join(tmpDir, `${base}_extracted.mp3`);
+  const chunkPaths = [];
+
+  try {
+    // 1. Pull just the audio out of the source file - see utils.ffmpeg.extractAudio.
+    logger.info(`[vertex] dubVideo: extracting audio from ${sourceFilePath}`);
+    await ffmpeg.extractAudio(sourceFilePath, extractedAudioPath);
+
+    // 2. Transcribe + translate in one Gemini call.
+    logger.info(`[vertex] dubVideo: transcribing + translating to ${targetLanguage}`);
+    const translatedText = await transcribeAndTranslate(extractedAudioPath, targetLanguage, sourceLanguage);
+    logger.info(`[vertex] dubVideo: translated transcript (${translatedText.length} chars): ${translatedText.slice(0, 200)}${translatedText.length > 200 ? '...' : ''}`);
+
+    // 3. Speak the translation via Chirp3-HD, chunked to stay under the TTS
+    //    API's per-request text limit, then stitch the chunks back together.
+    const chunks = splitTextForTts(translatedText);
+    logger.info(`[vertex] dubVideo: synthesizing ${chunks.length} audio chunk(s)`);
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkPath = path.join(tmpDir, `${base}_chunk${i}.mp3`);
+      await synthesizeSpeech(chunks[i], chunkPath, voiceName, targetLanguage);
+      chunkPaths.push(chunkPath);
+    }
+
+    // 4. Stitch chunks -> final dubbed audio at the exact destAudioPath the
+    //    caller asked for (ffmpeg picks the container/codec from its extension).
+    if (chunkPaths.length === 1) {
+      await ffmpeg.transcodeAudio(chunkPaths[0], destAudioPath);
+    } else {
+      const concatenatedPath = path.join(tmpDir, `${base}_concat.mp3`);
+      await ffmpeg.concatAudio(chunkPaths, concatenatedPath);
+      await ffmpeg.transcodeAudio(concatenatedPath, destAudioPath);
+      fs.unlinkSync(concatenatedPath);
+    }
+
+    logger.info(`[vertex] dubVideo: done, saved to ${destAudioPath}`);
+    return destAudioPath;
+  } finally {
+    // Clean up every scratch file regardless of success/failure.
+    [extractedAudioPath, ...chunkPaths].forEach((p) => { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {} });
+  }
 }
 
 // ---- Script writing (same prompt/response contract as services.geminiService.js's
@@ -576,6 +790,8 @@ module.exports = {
   extractVeoResultBytes,
   generateImage,
   synthesizeSpeech,
+  transcribeAndTranslate,
+  dubVideo,
   writeScript,
   writeVisualPromptsForScript,
   generateProductExplainerScript,
