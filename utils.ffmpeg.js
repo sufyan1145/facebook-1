@@ -228,6 +228,43 @@ async function extractSampledFrames(sourcePath, outputDir, intervalSeconds, maxF
     .map((f) => path.join(outputDir, f));
 }
 
+// Muxes a narration track onto a video so the two always end up the SAME
+// length - unlike mergeAudioVideo above (which uses -shortest and truncates
+// whichever track is shorter), this is built for services.vertexAiService.js
+// buildExplainerVideo(), where the narration's length is only an estimate
+// (Gemini is asked to write ~1 word per ~0.43s, but real TTS pacing varies)
+// and cutting either track short would either lose part of the video or cut
+// the narration off mid-sentence. Instead:
+//   - narration shorter than video -> pad the narration with silence at the
+//     end, so the full video still plays (just with silence after the
+//     narration finishes)
+//   - narration longer than video -> freeze the video's last frame for the
+//     extra time, so the narration is never cut off
+async function muxNarrationOverVideo(videoPath, narrationPath, outputPath) {
+  const videoDuration = await getMediaDuration(videoPath);
+  const narrationDuration = await getMediaDuration(narrationPath);
+
+  if (narrationDuration <= videoDuration + 0.05) {
+    await run([
+      '-y', '-i', videoPath, '-i', narrationPath,
+      '-filter_complex', `[1:a]apad=whole_dur=${videoDuration}[a]`,
+      '-map', '0:v:0', '-map', '[a]',
+      '-c:v', 'copy', '-c:a', 'aac', '-t', String(videoDuration),
+      outputPath,
+    ]);
+  } else {
+    const extendBy = narrationDuration - videoDuration;
+    await run([
+      '-y', '-i', videoPath, '-i', narrationPath,
+      '-filter_complex', `[0:v]tpad=stop_mode=clone:stop_duration=${extendBy}[v]`,
+      '-map', '[v]', '-map', '1:a:0',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'aac',
+      outputPath,
+    ], 300000);
+  }
+  return outputPath;
+}
+
 // Concatenates per-scene voiceover audio files (same codec expected) into one track.
 // Extracts just the original audio for a clip-burst block, at normal volume
 // (no narration mixed in) - used when a clip block has no voiceover of its
@@ -368,4 +405,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
+module.exports = { concatClips, mergeAudioVideo, muxNarrationOverVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };

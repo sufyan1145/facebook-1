@@ -62,21 +62,23 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
     tempFiles.push(current);
     logger.info(`[video-edit] job ${job.id}: source downloaded`);
 
-    // Explain Video mode: a standalone analysis action, not an edit - paste
-    // any video's link and get back an exact, chronological account of what
-    // happens in it (see services.vertexAiService.js explainVideo). Works on
-    // any video (not just movies/long content), skips every editing/dub/
-    // Drive-upload step below entirely, and the job "completes" with just a
-    // text result attached (no output video file).
+    // Explain Video mode: a standalone analysis action (same shape as
+    // Transcribe & Dub above) - paste any video's link and get back the
+    // SAME video with an AI-narrated explainer track: an exact, chronological
+    // account of what happens, spoken over the video and synced to match its
+    // length (see services.vertexAiService.js buildExplainerVideo). Works on
+    // any video, not just movies/long content. Falls through to the normal
+    // finalize/Drive-upload tail below just like News Reaction/Product
+    // Explainer, since the result IS a video, not just text.
     if (spec.explainOnly) {
       await VideoEditJob.setStatus(job.id, 'analyzing_video');
-      logger.info(`[video-edit] job ${job.id}: analyzing video content`);
-      const explanation = await vertexAiService.explainVideo(current);
-      await VideoEditJob.setGeneratedExplanation(job.id, explanation);
-      await VideoEditJob.markCompleted(job.id, {});
-      await Log.record(job.user_id, 'Video Explained', { sourceUrl: job.source_url, jobId: job.id });
-      logger.info(`[video-edit] job ${job.id}: video explanation ready`);
-      return;
+      logger.info(`[video-edit] job ${job.id}: building explainer video`);
+      const explainerPath = path.join(env.upload.tempDir, `${job.id}_explainer.mp4`);
+      const { narrationText } = await vertexAiService.buildExplainerVideo(current, explainerPath, spec.explainVoiceName || undefined);
+      tempFiles.push(explainerPath);
+      current = explainerPath;
+      await VideoEditJob.setGeneratedExplanation(job.id, narrationText);
+      logger.info(`[video-edit] job ${job.id}: explainer video built`);
     }
 
     // Optional: regenerate the source video's original title/description (any
@@ -115,7 +117,12 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
     // services.newsReactionService.js) instead of running the normal
     // effects/dub chain below, since it replaces the whole timeline rather
     // than modifying it step by step.
-    if (spec.newsReaction && spec.newsReaction.enabled) {
+    if (spec.explainOnly) {
+      // Explain Video already built the whole output above - nothing else
+      // in this block applies (dub/effects/News Reaction/Product Explainer
+      // are all mutually exclusive with it), skip straight to the shared
+      // finalize/Drive-upload tail below.
+    } else if (spec.newsReaction && spec.newsReaction.enabled) {
       await VideoEditJob.setStatus(job.id, 'building_reaction');
       logger.info(`[video-edit] job ${job.id}: building news reaction video`);
       const reactionMeta = await videoDownloadService.getMetadata(job.source_url).catch((err) => {

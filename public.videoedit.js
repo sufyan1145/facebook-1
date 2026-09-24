@@ -70,7 +70,7 @@ function renderJobs(jobs) {
         j.status === 'failed'
           ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>`
           : j.status === 'completed' && j.generated_explanation
-          ? `<button class="btn xs" data-explanation="${j.id}">View explanation</button>`
+          ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button> <button class="btn xs" data-explanation="${j.id}">Script</button>`
           : j.status === 'completed'
           ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button>`
           : '—';
@@ -291,7 +291,7 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
+        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true, explainVoiceName: document.getElementById('explainVoiceName').value || null }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
       });
       document.getElementById('explainUrlInput').value = '';
       loadJobs();

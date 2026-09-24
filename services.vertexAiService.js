@@ -397,11 +397,14 @@ async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLan
 
 // ---- Explain Video (Gemini, via Vertex - "what exactly happens in this video") ----
 //
-// Works on ANY video (not just movies/long content) - samples frames across
-// the whole video plus the full audio, and asks Gemini for an exact,
-// chronological, specific account of what happens (not a vague one-line
-// summary), so a content creator can tell at a glance what's actually in a
-// video without having to sit and watch it themselves.
+// Same shape as the Transcribe & Dub feature above (dubVideo): analyze the
+// source -> write a script -> speak it via Chirp3-HD -> mux it onto the
+// video so the result IS a video (with a spoken explainer track), not just
+// text. Works on ANY video (not just movies/long content) - samples frames
+// across the whole video plus the full audio, and asks Gemini for an exact,
+// specific, chronological account of what happens (not a vague one-line
+// summary), so the finished explainer video actually tells the audience
+// what's going on instead of being generic filler.
 
 // Cloud/network video downloads of typical social videos are usually well
 // under an hour; for a video this well-sampled range, ~45 frames gives
@@ -410,12 +413,21 @@ async function dubVideo(sourceFilePath, destAudioPath, targetLanguage, sourceLan
 // accurately without the frame batch itself becoming huge.
 const EXPLAIN_MAX_FRAMES = 45;
 const EXPLAIN_MIN_INTERVAL_SECONDS = 2; // don't sample faster than this even for very short videos
+// Natural spoken pace for the narration script Gemini writes, so the
+// synthesized narration comes out close to the source video's own length
+// (muxNarrationOverVideo below still guarantees a clean sync either way,
+// padding or freeze-extending as needed - this just keeps that adjustment
+// small under normal conditions).
+const NARRATION_WORDS_PER_SECOND = 2.3;
 
 /**
  * @param {string} sourceFilePath - path to the downloaded source video
- * @returns {Promise<string>} an exact, chronological description of what happens in the video
+ * @param {number|null} targetDurationSeconds - if given, Gemini is asked to
+ *   pace the narration to roughly this many seconds of spoken audio (used by
+ *   buildExplainerVideo below). Omit for a plain, unpaced explanation.
+ * @returns {Promise<string>} an exact, chronological narration script of what happens in the video
  */
-async function explainVideo(sourceFilePath) {
+async function explainVideo(sourceFilePath, targetDurationSeconds = null) {
   const tmpDir = path.join(path.dirname(sourceFilePath), `${path.basename(sourceFilePath, path.extname(sourceFilePath))}_explain_frames`);
   const extractedAudioPath = `${sourceFilePath}.explain_audio.mp3`;
   let framePaths = [];
@@ -437,11 +449,15 @@ async function explainVideo(sourceFilePath) {
       logger.error(`[vertex] explainVideo: audio extraction failed, continuing with frames only: ${audioErr.message}`);
     }
 
+    const pacingInstruction = targetDurationSeconds
+      ? `This will be read aloud as a narration track played OVER the video (replacing/covering its original audio), so it needs to roughly fill the video's own length: aim for about ${Math.round(targetDurationSeconds * NARRATION_WORDS_PER_SECOND)} words (this video is about ${Math.round(targetDurationSeconds)} seconds long, at a natural spoken pace). Prioritize being complete and accurate over hitting that word count exactly, but don't pad with filler, and don't rush/skip real content just to be shorter.`
+      : '';
+
     const prompt = `You are watching a video frame-by-frame (attached as ${framePaths.length} still frames, sampled evenly across the whole video, in chronological order)${hasAudio ? ', with its full audio also attached' : ''}.
 
-Describe EXACTLY and CHRONOLOGICALLY what happens in this video, from start to finish - not a vague one-line summary. Be specific: what actually happens, what changes from one moment to the next, any key actions, any text/captions visible on screen, and (if audio is attached) what is said or important sounds heard. If there's a twist, reveal, or punchline, describe it clearly - don't be coy about it. Mention roughly where in the video (early/middle/end, or approximate timing) major things happen.
+Write an EXACT and CHRONOLOGICAL narration of what happens in this video, from start to finish - not a vague one-line summary. Be specific: what actually happens, what changes from one moment to the next, any key actions, any text/captions visible on screen, and (if audio is attached) what is said or important sounds heard. If there's a twist, reveal, or punchline, describe it clearly - don't be coy about it or hold it back for suspense.
 
-The goal is for someone who has NOT seen the video to know precisely what's in it well enough to write about it, react to it, or caption it accurately - so avoid generic filler like "an interesting video happens" - describe the real content. Write it as clear prose (a few short paragraphs, not bullet points unless the video has genuinely distinct chapters/steps).`;
+The goal is for someone who has NOT seen the video to know precisely what's in it just from hearing your narration, so they're never bored or confused wondering what's happening on screen - so avoid generic filler like "an interesting video happens" and describe the real, specific content. Write it as natural spoken narration (plain flowing sentences someone could read aloud, not bullet points, headers, or markdown).${pacingInstruction ? `\n\n${pacingInstruction}` : ''}`;
 
     const imageParts = framePaths.map((p) => ({
       inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(p).toString('base64') },
@@ -480,6 +496,59 @@ The goal is for someone who has NOT seen the video to know precisely what's in i
     framePaths.forEach((p) => { try { fs.unlinkSync(p); } catch (_) {} });
     try { if (fs.existsSync(tmpDir)) fs.rmdirSync(tmpDir); } catch (_) {}
     try { if (fs.existsSync(extractedAudioPath)) fs.unlinkSync(extractedAudioPath); } catch (_) {}
+  }
+}
+
+/**
+ * Full Explain Video pipeline: analyze -> write narration -> speak it via
+ * Chirp3-HD -> mux it onto the source video, guaranteed synced to the
+ * video's length either way (see utils.ffmpeg.muxNarrationOverVideo). Same
+ * shape as dubVideo() above, just with an AI-written narration script
+ * instead of a translated transcript.
+ *
+ * @param {string} sourceFilePath - path to the source video
+ * @param {string} destVideoPath - where to save the resulting explainer video
+ * @param {string} [voiceName] - Chirp3-HD voice character (Charon/Kore/Iapetus/Puck/Zephyr)
+ * @returns {Promise<{finalPath: string, narrationText: string}>}
+ */
+async function buildExplainerVideo(sourceFilePath, destVideoPath, voiceName) {
+  const tmpDir = path.dirname(destVideoPath);
+  const base = path.basename(destVideoPath).replace(/\.[^.]+$/, '');
+  const chunkPaths = [];
+  let narrationAudioPath = null;
+
+  try {
+    const videoDuration = await ffmpeg.getMediaDuration(sourceFilePath);
+
+    logger.info(`[vertex] buildExplainerVideo: analyzing video (duration ${videoDuration.toFixed(1)}s)`);
+    const narrationText = await explainVideo(sourceFilePath, videoDuration);
+    logger.info(`[vertex] buildExplainerVideo: narration script (${narrationText.length} chars): ${narrationText.slice(0, 200)}${narrationText.length > 200 ? '...' : ''}`);
+
+    const chunks = splitTextForTts(narrationText);
+    logger.info(`[vertex] buildExplainerVideo: synthesizing ${chunks.length} audio chunk(s)`);
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkPath = path.join(tmpDir, `${base}_narr_chunk${i}.mp3`);
+      await synthesizeSpeech(chunks[i], chunkPath, voiceName, 'english');
+      chunkPaths.push(chunkPath);
+    }
+
+    narrationAudioPath = path.join(tmpDir, `${base}_narration.mp3`);
+    if (chunkPaths.length === 1) {
+      await ffmpeg.transcodeAudio(chunkPaths[0], narrationAudioPath);
+    } else {
+      const concatenatedPath = path.join(tmpDir, `${base}_narr_concat.mp3`);
+      await ffmpeg.concatAudio(chunkPaths, concatenatedPath);
+      await ffmpeg.transcodeAudio(concatenatedPath, narrationAudioPath);
+      fs.unlinkSync(concatenatedPath);
+    }
+
+    logger.info('[vertex] buildExplainerVideo: muxing narration onto video');
+    await ffmpeg.muxNarrationOverVideo(sourceFilePath, narrationAudioPath, destVideoPath);
+
+    logger.info(`[vertex] buildExplainerVideo: done, saved to ${destVideoPath}`);
+    return { finalPath: destVideoPath, narrationText };
+  } finally {
+    [narrationAudioPath, ...chunkPaths].forEach((p) => { if (p && fs.existsSync(p)) { try { fs.unlinkSync(p); } catch (_) {} } });
   }
 }
 
@@ -881,6 +950,7 @@ module.exports = {
   transcribeAndTranslate,
   dubVideo,
   explainVideo,
+  buildExplainerVideo,
   writeScript,
   writeVisualPromptsForScript,
   generateProductExplainerScript,
