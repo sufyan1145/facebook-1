@@ -291,7 +291,7 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true, explainVoiceName: document.getElementById('explainVoiceName').value || null }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
+        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true, explainVoiceName: document.getElementById('explainVoiceName').value || null, explainLanguage: document.getElementById('explainLanguage').value || 'english' }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
       });
       document.getElementById('explainUrlInput').value = '';
       loadJobs();

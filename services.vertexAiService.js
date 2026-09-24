@@ -425,9 +425,13 @@ const NARRATION_WORDS_PER_SECOND = 2.3;
  * @param {number|null} targetDurationSeconds - if given, Gemini is asked to
  *   pace the narration to roughly this many seconds of spoken audio (used by
  *   buildExplainerVideo below). Omit for a plain, unpaced explanation.
+ * @param {string} [narrationLanguage] - human language name for the
+ *   narration script itself (e.g. "Hindi", "Urdu", "Spanish") - the video's
+ *   own spoken language doesn't matter, Gemini watches/listens then writes
+ *   in whichever language is asked for here. Defaults to English.
  * @returns {Promise<string>} an exact, chronological narration script of what happens in the video
  */
-async function explainVideo(sourceFilePath, targetDurationSeconds = null) {
+async function explainVideo(sourceFilePath, targetDurationSeconds = null, narrationLanguage = 'English') {
   const tmpDir = path.join(path.dirname(sourceFilePath), `${path.basename(sourceFilePath, path.extname(sourceFilePath))}_explain_frames`);
   const extractedAudioPath = `${sourceFilePath}.explain_audio.mp3`;
   let framePaths = [];
@@ -457,7 +461,7 @@ async function explainVideo(sourceFilePath, targetDurationSeconds = null) {
 
 Write an EXACT and CHRONOLOGICAL narration of what happens in this video, from start to finish - not a vague one-line summary. Be specific: what actually happens, what changes from one moment to the next, any key actions, any text/captions visible on screen, and (if audio is attached) what is said or important sounds heard. If there's a twist, reveal, or punchline, describe it clearly - don't be coy about it or hold it back for suspense.
 
-The goal is for someone who has NOT seen the video to know precisely what's in it just from hearing your narration, so they're never bored or confused wondering what's happening on screen - so avoid generic filler like "an interesting video happens" and describe the real, specific content. Write it as natural spoken narration (plain flowing sentences someone could read aloud, not bullet points, headers, or markdown).${pacingInstruction ? `\n\n${pacingInstruction}` : ''}`;
+The goal is for someone who has NOT seen the video to know precisely what's in it just from hearing your narration, so they're never bored or confused wondering what's happening on screen - so avoid generic filler like "an interesting video happens" and describe the real, specific content. Write it as natural spoken narration (plain flowing sentences someone could read aloud, not bullet points, headers, or markdown), entirely in ${narrationLanguage} (regardless of what language is spoken in the video itself).${pacingInstruction ? `\n\n${pacingInstruction}` : ''}`;
 
     const imageParts = framePaths.map((p) => ({
       inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(p).toString('base64') },
@@ -499,6 +503,21 @@ The goal is for someone who has NOT seen the video to know precisely what's in i
   }
 }
 
+// Human-readable display names for the Gemini prompt, keyed the same way as
+// TTS_LANGUAGE_CODES above (services.transcribeDubService.js /
+// public.videoedit.html use these same lowercase keys for both the Dub and
+// Explain Video language dropdowns, so this stays in sync with both).
+const LANGUAGE_DISPLAY_NAMES = {
+  english: 'English',
+  roman_urdu: 'Urdu written in Roman/Latin letters (Roman Urdu), not Urdu script',
+  urdu: 'Urdu (اردو script)',
+  hindi: 'Hindi', chinese: 'Chinese', spanish: 'Spanish', french: 'French',
+  italian: 'Italian', portuguese: 'Portuguese', japanese: 'Japanese', german: 'German',
+  arabic: 'Arabic', russian: 'Russian', korean: 'Korean', turkish: 'Turkish',
+  vietnamese: 'Vietnamese', indonesian: 'Indonesian', dutch: 'Dutch', polish: 'Polish',
+  thai: 'Thai', bengali: 'Bengali',
+};
+
 /**
  * Full Explain Video pipeline: analyze -> write narration -> speak it via
  * Chirp3-HD -> mux it onto the source video, guaranteed synced to the
@@ -509,9 +528,14 @@ The goal is for someone who has NOT seen the video to know precisely what's in i
  * @param {string} sourceFilePath - path to the source video
  * @param {string} destVideoPath - where to save the resulting explainer video
  * @param {string} [voiceName] - Chirp3-HD voice character (Charon/Kore/Iapetus/Puck/Zephyr)
+ * @param {string} [language] - a key in TTS_LANGUAGE_CODES (e.g. "english", "hindi", "urdu") - both the language Gemini narrates in and the Chirp3-HD voice locale used to speak it. Defaults to "english".
  * @returns {Promise<{finalPath: string, narrationText: string}>}
  */
-async function buildExplainerVideo(sourceFilePath, destVideoPath, voiceName) {
+async function buildExplainerVideo(sourceFilePath, destVideoPath, voiceName, language = 'english') {
+  const langKey = TTS_LANGUAGE_CODES[language] ? language : 'english';
+  if (language && !TTS_LANGUAGE_CODES[language]) {
+    logger.error(`[vertex] buildExplainerVideo: unsupported language "${language}", falling back to English`);
+  }
   const tmpDir = path.dirname(destVideoPath);
   const base = path.basename(destVideoPath).replace(/\.[^.]+$/, '');
   const chunkPaths = [];
@@ -520,15 +544,15 @@ async function buildExplainerVideo(sourceFilePath, destVideoPath, voiceName) {
   try {
     const videoDuration = await ffmpeg.getMediaDuration(sourceFilePath);
 
-    logger.info(`[vertex] buildExplainerVideo: analyzing video (duration ${videoDuration.toFixed(1)}s)`);
-    const narrationText = await explainVideo(sourceFilePath, videoDuration);
+    logger.info(`[vertex] buildExplainerVideo: analyzing video (duration ${videoDuration.toFixed(1)}s), narrating in ${langKey}`);
+    const narrationText = await explainVideo(sourceFilePath, videoDuration, LANGUAGE_DISPLAY_NAMES[langKey] || 'English');
     logger.info(`[vertex] buildExplainerVideo: narration script (${narrationText.length} chars): ${narrationText.slice(0, 200)}${narrationText.length > 200 ? '...' : ''}`);
 
     const chunks = splitTextForTts(narrationText);
     logger.info(`[vertex] buildExplainerVideo: synthesizing ${chunks.length} audio chunk(s)`);
     for (let i = 0; i < chunks.length; i++) {
       const chunkPath = path.join(tmpDir, `${base}_narr_chunk${i}.mp3`);
-      await synthesizeSpeech(chunks[i], chunkPath, voiceName, 'english');
+      await synthesizeSpeech(chunks[i], chunkPath, voiceName, langKey);
       chunkPaths.push(chunkPath);
     }
 

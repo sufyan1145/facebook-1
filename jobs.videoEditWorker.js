@@ -74,7 +74,7 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       await VideoEditJob.setStatus(job.id, 'analyzing_video');
       logger.info(`[video-edit] job ${job.id}: building explainer video`);
       const explainerPath = path.join(env.upload.tempDir, `${job.id}_explainer.mp4`);
-      const { narrationText } = await vertexAiService.buildExplainerVideo(current, explainerPath, spec.explainVoiceName || undefined);
+      const { narrationText } = await vertexAiService.buildExplainerVideo(current, explainerPath, spec.explainVoiceName || undefined, spec.explainLanguage || 'english');
       tempFiles.push(explainerPath);
       current = explainerPath;
       await VideoEditJob.setGeneratedExplanation(job.id, narrationText);
