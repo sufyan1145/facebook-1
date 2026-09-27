@@ -392,6 +392,64 @@ async function concatAudio(audioPaths, outputPath) {
   return outputPath;
 }
 
+// Returns {width, height} of a video's frame via ffprobe.
+function getVideoDimensions(filePath) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'ffprobe',
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', filePath],
+      (err, stdout) => {
+        if (err) return reject(new Error(`ffprobe failed: ${err.message}`));
+        const [w, h] = stdout.trim().split('x').map(Number);
+        if (!w || !h) return reject(new Error(`ffprobe returned no dimensions for ${filePath}`));
+        resolve({ width: w, height: h });
+      }
+    );
+  });
+}
+
+// Uses ffmpeg's cropdetect filter to find where the ACTUAL video content
+// sits within the frame (as opposed to black letterbox bars) - used by
+// polishRepostedVideo below so the top/bottom "blur band" adapts to each
+// video's real layout instead of guessing one fixed size for everyone. Many
+// repost-style videos put their caption/title bar INSIDE a black bar that's
+// much taller than a small fixed guess would cover (or shorter, for videos
+// with no letterboxing at all) - sampling the actual video tells us exactly
+// how tall that bar is for this specific video.
+//
+// Samples a few seconds starting 30% into the video (skips likely
+// black/fade intro frames) and reads cropdetect's last suggested crop box
+// from ffmpeg's stderr output. Returns null (caller should fall back to a
+// fixed guess) if detection fails or finds no meaningful bars.
+async function detectContentBounds(filePath) {
+  try {
+    const [duration, { width, height }] = await Promise.all([getMediaDuration(filePath), getVideoDimensions(filePath)]);
+    const sampleStart = Math.max(0, duration * 0.3);
+    const sampleLen = Math.min(4, Math.max(1, duration - sampleStart));
+
+    const { stderr } = await run([
+      '-ss', String(sampleStart), '-i', filePath, '-t', String(sampleLen),
+      '-vf', 'cropdetect=24:2:0', '-f', 'null', '-',
+    ], 60000);
+
+    const matches = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
+    if (!matches.length) return null;
+    const [, wStr, hStr, xStr, yStr] = matches[matches.length - 1];
+    const contentY = parseInt(yStr, 10);
+    const contentH = parseInt(hStr, 10);
+    if (!Number.isFinite(contentY) || !Number.isFinite(contentH) || contentH <= 0) return null;
+
+    // If cropdetect basically found the whole frame (no real bars), there's
+    // nothing useful to report - let the caller use its own fixed minimum instead.
+    if (contentY < height * 0.02 && contentY + contentH > height * 0.98) return null;
+
+    return { width, height, contentY, contentH };
+  } catch (err) {
+    logger.error(`[ffmpeg] detectContentBounds failed, falling back to a fixed guess: ${err.message}`);
+    return null;
+  }
+}
+
 // Applied to every Transcribe & Dub and Explain Video output (see
 // jobs.videoEditWorker.js): blurs the top and bottom bands of the frame,
 // where burned-in captions, TikTok/Instagram/YouTube watermarks, and
@@ -400,24 +458,50 @@ async function concatAudio(audioPaths, outputPath) {
 // (possibly) a different language, leaving the original on-screen captions
 // visible would be redundant or contradict the new narration.
 //
-// NOTE ON SCOPE: this cannot dynamically detect and erase text anywhere on
-// screen - that would need running an AI vision model on every single frame
-// (tens of thousands of paid API calls even for a short video), which isn't
-// practical. Blurring the top ~14% and bottom ~22% bands covers the two
-// overwhelmingly common cases (bottom captions/watermarks, top title cards)
-// automatically and near-instantly, but text placed elsewhere in the frame
-// (e.g. dead center) will not be touched.
+// The band size ADAPTS per video via detectContentBounds above (e.g. a
+// video whose caption bar sits well below a fixed guess still gets fully
+// covered, because we detect where its real content actually starts/ends
+// instead of assuming a fixed percentage). Falls back to a fixed minimum
+// (14% top / 22% bottom) when detection isn't confident, and never blurs
+// away more than 40% of the frame from either edge as a sanity clamp.
+//
+// NOTE ON SCOPE: this still cannot dynamically detect and erase text
+// anywhere on screen - that would need running an AI vision model on every
+// single frame (tens of thousands of paid API calls even for a short
+// video), which isn't practical. Text placed away from the top/bottom edges
+// (e.g. dead center of the frame) will not be touched.
 //
 // `addCommentLinkText` optionally burns a fixed "Movie link in first
 // comment" banner into the (now-blurred, so never overlapping real
 // captions) top band.
 async function polishRepostedVideo(inputPath, outputPath, addCommentLinkText = false) {
+  const FALLBACK_TOP_FRAC = 0.14;
+  const FALLBACK_BOT_FRAC = 0.22;
+  const MAX_BAND_FRAC = 0.40; // sanity clamp - never eat away more than this from either edge
+
+  let topFrac = FALLBACK_TOP_FRAC;
+  let botFrac = FALLBACK_BOT_FRAC;
+  const bounds = await detectContentBounds(inputPath);
+  if (bounds) {
+    const detectedTopFrac = bounds.contentY / bounds.height;
+    const detectedBotFrac = (bounds.height - (bounds.contentY + bounds.contentH)) / bounds.height;
+    // Use whichever is bigger (detected vs. fallback minimum) per edge, so a
+    // video with a taller-than-usual bar is still fully covered, while a
+    // video with barely any letterboxing still gets the safety-net minimum
+    // (watermarks/captions can still sit within real content, not just bars).
+    topFrac = Math.min(MAX_BAND_FRAC, Math.max(detectedTopFrac, FALLBACK_TOP_FRAC));
+    botFrac = Math.min(MAX_BAND_FRAC, Math.max(detectedBotFrac, FALLBACK_BOT_FRAC));
+    logger.info(`[ffmpeg] polishRepostedVideo: detected content bounds, using top=${(topFrac * 100).toFixed(0)}% bottom=${(botFrac * 100).toFixed(0)}% bands`);
+  } else {
+    logger.info(`[ffmpeg] polishRepostedVideo: no confident bar detection, using fixed top=${(topFrac * 100).toFixed(0)}% bottom=${(botFrac * 100).toFixed(0)}% bands`);
+  }
+
   let filter =
     '[0:v]split=3[base][topsrc][botsrc];' +
-    '[topsrc]crop=iw:ih*0.14:0:0,boxblur=20:2[topblur];' +
-    '[botsrc]crop=iw:ih*0.22:0:ih*0.78,boxblur=20:2[botblur];' +
+    `[topsrc]crop=iw:ih*${topFrac}:0:0,boxblur=20:2[topblur];` +
+    `[botsrc]crop=iw:ih*${botFrac}:0:ih*${1 - botFrac},boxblur=20:2[botblur];` +
     '[base][topblur]overlay=0:0[merged1];' +
-    '[merged1][botblur]overlay=0:main_h*0.78[merged2]';
+    `[merged1][botblur]overlay=0:main_h*${1 - botFrac}[merged2]`;
   filter += addCommentLinkText
     ? ";[merged2]drawtext=text='Movie link in first comment':font='DejaVu Sans Bold':fontsize=36:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=12:x=(w-text_w)/2:y=h*0.03[vout]"
     : ';[merged2]copy[vout]';
