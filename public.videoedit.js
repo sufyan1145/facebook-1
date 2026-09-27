@@ -248,6 +248,16 @@ function renderCueList() {
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
   document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
+
+  // "Regenerate title with AI" is one shared setting, but shown in two
+  // places (the main checkbox, and again inside the Dub fields for
+  // visibility) - keep them in sync in both directions.
+  document.getElementById('regenerateTitleEnabled').addEventListener('change', (e) => {
+    document.getElementById('dubRegenerateTitleEnabled').checked = e.target.checked;
+  });
+  document.getElementById('dubRegenerateTitleEnabled').addEventListener('change', (e) => {
+    document.getElementById('regenerateTitleEnabled').checked = e.target.checked;
+  });
   document.getElementById('autoHighlightEnabled').addEventListener('change', updateAutoHighlightFieldsVisibility);
   updateAutoHighlightFieldsVisibility();
   document.getElementById('newsReactionEnabled').addEventListener('change', updateNewsReactionFieldsVisibility);
@@ -368,7 +378,7 @@ function renderCueList() {
         try {
           await apiFetch('/videoedit/create', {
             method: 'POST',
-            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked }),
+            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked || document.getElementById('dubRegenerateTitleEnabled').checked }),
           });
           queued += 1;
         } catch (err) {
@@ -396,7 +406,7 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked }),
+        body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked || document.getElementById('dubRegenerateTitleEnabled').checked }),
       });
       msg.textContent = 'Started! Editing can take a few minutes depending on the effects chosen — check the history table below.';
       effectCues = [];
