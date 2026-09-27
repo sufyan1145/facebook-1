@@ -18,7 +18,7 @@
     <div class="content">
       <div class="card mb-16">
         <div class="section-title">🔍 Explain this video (AI video understanding)</div>
-        <div style="font-size:12px; color:var(--text-muted); margin:-6px 0 14px;">Paste any video's link — any platform, any length, not just movies — and AI watches (and listens to) it, then builds the SAME video back with a narrated explainer track spoken over it: an exact, chronological account of every scene, action, and key line, in order, including any twist or ending — no vague "interesting video happens" filler, so your audience is never bored or lost. The narration is synced to match the video's own length, just like the Transcribe &amp; Dub feature below.</div>
+        <div style="font-size:12px; color:var(--text-muted); margin:-6px 0 14px;">Paste any video's link — any platform, any length, not just movies — and AI watches (and listens to) it, then builds the SAME video back with a narrated explainer track spoken over it: an exact, chronological account of every scene, action, and key line, in order, including any twist or ending — no vague "interesting video happens" filler, so your audience is never bored or lost. The narration is synced to match the video's own length, just like the Transcribe &amp; Dub feature below. The original video's captions/watermarks are automatically blurred out on every result.</div>
         <div class="field-row">
           <div class="field" style="flex:2;">
             <label for="explainUrlInput">Video URL</label>
@@ -60,6 +60,12 @@
             </select>
           </div>
         </div>
+        <label class="checkbox-row" style="margin-bottom:6px;">
+          <input id="explainRegenerateMetadata" type="checkbox" /> Regenerate title with AI (any language in, catchy English title + hashtags out)
+        </label>
+        <label class="checkbox-row" style="margin-bottom:10px;">
+          <input id="explainAddCommentLinkText" type="checkbox" /> Add "Movie link in first comment" text at the top
+        </label>
         <button class="btn primary" id="explainBtn">Explain this video</button>
       </div>
 
@@ -160,7 +166,10 @@
                 </select>
               </div>
             </div>
-            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Replaces the video's original audio with an AI-generated voice speaking the target language (transcribed, translated, and spoken automatically via Google's Vertex AI - runs entirely in the cloud, no separate PC needed). This runs first, before any effects below, and can take a few minutes depending on the video's length.</div>
+            <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">Replaces the video's original audio with an AI-generated voice speaking the target language (transcribed, translated, and spoken automatically via Google's Vertex AI - runs entirely in the cloud, no separate PC needed). This runs first, before any effects below, and can take a few minutes depending on the video's length. The original video's captions/watermarks are automatically blurred out on every result.</div>
+            <label class="checkbox-row" style="margin-bottom:10px;">
+              <input id="dubAddCommentLinkText" type="checkbox" /> Add "Movie link in first comment" text at the top
+            </label>
           </div>
         </div>
 

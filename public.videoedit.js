@@ -291,7 +291,17 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true, explainVoiceName: document.getElementById('explainVoiceName').value || null, explainLanguage: document.getElementById('explainLanguage').value || 'english' }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
+        body: JSON.stringify({
+          url, secondaryUrl: null,
+          effects: {
+            explainOnly: true,
+            explainVoiceName: document.getElementById('explainVoiceName').value || null,
+            explainLanguage: document.getElementById('explainLanguage').value || 'english',
+            addCommentLinkText: document.getElementById('explainAddCommentLinkText').checked,
+          },
+          driveFolderId: null, driveFolderName: null, saveToDrive: false,
+          regenerateMetadata: document.getElementById('explainRegenerateMetadata').checked,
+        }),
       });
       document.getElementById('explainUrlInput').value = '';
       loadJobs();
@@ -323,6 +333,7 @@ function renderCueList() {
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       dubVoiceName: dubEnabled ? (document.getElementById('dubVoiceName').value || null) : null,
+      addCommentLinkText: dubEnabled ? document.getElementById('dubAddCommentLinkText').checked : false,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,

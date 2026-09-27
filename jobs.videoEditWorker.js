@@ -78,6 +78,15 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       tempFiles.push(explainerPath);
       current = explainerPath;
       await VideoEditJob.setGeneratedExplanation(job.id, narrationText);
+
+      // Always remove the original video's burned-in captions/watermarks
+      // (top+bottom band blur - see utils.ffmpeg.polishRepostedVideo), since
+      // they'd otherwise sit underneath/contradict the new AI narration.
+      // Optionally also burns a "Movie link in first comment" banner.
+      const polished = path.join(env.upload.tempDir, `${job.id}_explainer_polished.mp4`);
+      await ffmpeg.polishRepostedVideo(current, polished, !!spec.addCommentLinkText);
+      current = polished;
+      tempFiles.push(polished);
       logger.info(`[video-edit] job ${job.id}: explainer video built`);
     }
 
@@ -180,6 +189,15 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       await runFfmpeg(['-i', current, '-i', dubbedAudioPath, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
       current = out;
       tempFiles.push(out);
+
+      // Always remove the original video's burned-in captions/watermarks
+      // (top+bottom band blur - see utils.ffmpeg.polishRepostedVideo) since
+      // they'd otherwise contradict the new dubbed-language narration.
+      // Optionally also burns a "Movie link in first comment" banner.
+      const polished = path.join(env.upload.tempDir, `${job.id}_0_dubbed_polished.mp4`);
+      await ffmpeg.polishRepostedVideo(current, polished, !!spec.addCommentLinkText);
+      current = polished;
+      tempFiles.push(polished);
       logger.info(`[video-edit] job ${job.id}: dubbing done`);
     }
 

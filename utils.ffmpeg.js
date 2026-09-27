@@ -392,6 +392,46 @@ async function concatAudio(audioPaths, outputPath) {
   return outputPath;
 }
 
+// Applied to every Transcribe & Dub and Explain Video output (see
+// jobs.videoEditWorker.js): blurs the top and bottom bands of the frame,
+// where burned-in captions, TikTok/Instagram/YouTube watermarks, and
+// title-card text overlays are overwhelmingly likely to sit - since we're
+// replacing the video's own narration/audio with new AI narration in
+// (possibly) a different language, leaving the original on-screen captions
+// visible would be redundant or contradict the new narration.
+//
+// NOTE ON SCOPE: this cannot dynamically detect and erase text anywhere on
+// screen - that would need running an AI vision model on every single frame
+// (tens of thousands of paid API calls even for a short video), which isn't
+// practical. Blurring the top ~14% and bottom ~22% bands covers the two
+// overwhelmingly common cases (bottom captions/watermarks, top title cards)
+// automatically and near-instantly, but text placed elsewhere in the frame
+// (e.g. dead center) will not be touched.
+//
+// `addCommentLinkText` optionally burns a fixed "Movie link in first
+// comment" banner into the (now-blurred, so never overlapping real
+// captions) top band.
+async function polishRepostedVideo(inputPath, outputPath, addCommentLinkText = false) {
+  let filter =
+    '[0:v]split=3[base][topsrc][botsrc];' +
+    '[topsrc]crop=iw:ih*0.14:0:0,boxblur=20:2[topblur];' +
+    '[botsrc]crop=iw:ih*0.22:0:ih*0.78,boxblur=20:2[botblur];' +
+    '[base][topblur]overlay=0:0[merged1];' +
+    '[merged1][botblur]overlay=0:main_h*0.78[merged2]';
+  filter += addCommentLinkText
+    ? ";[merged2]drawtext=text='Movie link in first comment':font='DejaVu Sans Bold':fontsize=36:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=12:x=(w-text_w)/2:y=h*0.03[vout]"
+    : ';[merged2]copy[vout]';
+
+  await run([
+    '-y', '-i', inputPath,
+    '-filter_complex', filter,
+    '-map', '[vout]', '-map', '0:a?',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-c:a', 'copy',
+    outputPath,
+  ], 300000);
+  return outputPath;
+}
+
 // Burns pre-built .ass (Advanced SubStation) animated captions onto a video clip.
 async function burnCaptions(inputPath, assPath, outputPath) {
   await run([
@@ -405,4 +445,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, muxNarrationOverVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
+module.exports = { concatClips, mergeAudioVideo, muxNarrationOverVideo, polishRepostedVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
