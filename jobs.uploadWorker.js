@@ -4,6 +4,9 @@ const logger = require('./utils.logger');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const youtubeService = require('./services.youtubeService');
+const instagramService = require('./services.instagramService');
+const { registerTempPublicFile, unregisterTempPublicFile } = require('./routes.mediaPublic');
+const env = require('./config.env');
 const UploadHistory = require('./models.UploadHistory');
 const Log = require('./models.Log');
 const QueueJob = require('./models.QueueJob');
@@ -18,7 +21,7 @@ const worker = new Worker(
   async (job) => {
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
-      publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
+      publishImmediately, pageName, postToFacebook, postToInstagram, youtubeTokenId, youtubeVideoType,
       autoBackgroundMusic, musicFolderId,
     } = job.data;
 
@@ -95,11 +98,18 @@ const worker = new Worker(
         await Log.record(userId, 'Background Music Failed', { file: file.name, error: 'No music folder selected on the schedule' }, 'error');
       }
 
+      // Fetched once, shared by both Facebook and Instagram below - an
+      // Instagram Business account is always linked to a Facebook Page, so
+      // both platforms post through the same Page record and the same Page
+      // Access Token (page.page_access_token).
+      let page = null;
+      if ((postToFacebook !== false || postToInstagram) && pageDbId) {
+        page = await Page.findById(userId, pageDbId);
+        if (!page) throw new Error('Facebook page not found or disconnected');
+      }
+
       let fbVideoId = historyRow.facebook_video_id || null;
       if (postToFacebook !== false && pageDbId && !fbVideoId) {
-        const page = await Page.findById(userId, pageDbId);
-        if (!page) throw new Error('Facebook page not found or disconnected');
-
         fbVideoId = await facebookService.uploadVideoToPage({
           pageId: page.page_id,
           pageAccessToken: page.page_access_token,
@@ -113,6 +123,40 @@ const worker = new Worker(
         await notifyUploadEvent(userId, { type: 'success', videoName: file.name, pageName });
       } else if (fbVideoId) {
         logger.info(`Skipping Facebook upload for ${file.name} - already uploaded in a previous attempt (${fbVideoId})`);
+      }
+
+      // Instagram is optional and best-effort, same as YouTube below: a
+      // failure here never undoes an already-successful Facebook post.
+      // Needs a public URL for the video (see routes.mediaPublic.js) since
+      // Instagram's Graph API fetches it rather than accepting a direct
+      // upload - registered just for this step and torn down right after.
+      if (postToInstagram && page && !historyRow.instagram_media_id) {
+        if (!page.instagram_business_account_id) {
+          logger.error(`Instagram posting enabled for schedule ${scheduleId} but Page "${pageName}" has no linked Instagram Business/Creator account - skipping`);
+          await Log.record(userId, 'Instagram Upload Failed', { file: file.name, page: pageName, error: 'This Facebook Page has no linked Instagram Business/Creator account' }, 'error');
+        } else {
+          let publicToken;
+          try {
+            publicToken = registerTempPublicFile(tempPath);
+            const videoUrl = `${env.appUrl}/media-temp/${publicToken}`;
+            const igCaption = hashtags ? `${caption || ''}\n\n${hashtags}`.trim() : (caption || '');
+            const instagramMediaId = await instagramService.uploadVideoToInstagram({
+              instagramUserId: page.instagram_business_account_id,
+              pageAccessToken: page.page_access_token,
+              videoUrl,
+              caption: igCaption,
+            });
+            await UploadHistory.markInstagramUploaded(historyRow.id, instagramMediaId);
+            await Log.record(userId, 'Instagram Upload Completed', { file: file.name, page: pageName, instagramMediaId });
+          } catch (igErr) {
+            await Log.record(userId, 'Instagram Upload Failed', { file: file.name, page: pageName, error: igErr.message }, 'error');
+            logger.error(`Instagram upload failed for schedule ${scheduleId}: ${igErr.message}`);
+          } finally {
+            if (publicToken) unregisterTempPublicFile(publicToken);
+          }
+        }
+      } else if (postToInstagram && historyRow.instagram_media_id) {
+        logger.info(`Skipping Instagram upload for ${file.name} - already uploaded in a previous attempt (${historyRow.instagram_media_id})`);
       }
 
       // YouTube is optional and best-effort: a failure here should not undo an

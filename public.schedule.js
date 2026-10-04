@@ -100,7 +100,8 @@ function enterScheduleEditMode(schedule) {
   document.getElementById('scheduleCancelEditBtn').style.display = '';
 
   document.getElementById('postToFacebook').checked = !!schedule.post_to_facebook;
-  document.getElementById('pageIdField').style.display = schedule.post_to_facebook ? 'block' : 'none';
+  document.getElementById('postToInstagram').checked = !!schedule.post_to_instagram;
+  document.getElementById('pageIdField').style.display = (schedule.post_to_facebook || schedule.post_to_instagram) ? 'block' : 'none';
   if (schedule.page_id) document.getElementById('pageId').value = schedule.page_id;
 
   document.getElementById('folderId').value = schedule.folder_id;
@@ -169,9 +170,12 @@ async function loadOptions() {
   loadOptions();
   loadSchedules();
 
-  document.getElementById('postToFacebook').addEventListener('change', (e) => {
-    document.getElementById('pageIdField').style.display = e.target.checked ? 'block' : 'none';
-  });
+  const updatePageFieldVisibility = () => {
+    const show = document.getElementById('postToFacebook').checked || document.getElementById('postToInstagram').checked;
+    document.getElementById('pageIdField').style.display = show ? 'block' : 'none';
+  };
+  document.getElementById('postToFacebook').addEventListener('change', updatePageFieldVisibility);
+  document.getElementById('postToInstagram').addEventListener('change', updatePageFieldVisibility);
 
   document.getElementById('autoBackgroundMusic').addEventListener('change', (e) => {
     document.getElementById('musicFolderField').style.display = e.target.checked ? 'block' : 'none';
@@ -228,8 +232,10 @@ async function loadOptions() {
     const errorText = document.getElementById('errorText');
     errorText.textContent = '';
     const payload = {
-      pageId: document.getElementById('postToFacebook').checked ? document.getElementById('pageId').value : null,
+      pageId: (document.getElementById('postToFacebook').checked || document.getElementById('postToInstagram').checked)
+        ? document.getElementById('pageId').value : null,
       postToFacebook: document.getElementById('postToFacebook').checked,
+      postToInstagram: document.getElementById('postToInstagram').checked,
       folderId: document.getElementById('folderId').value,
       uploadTime: document.getElementById('uploadTime').value,
       timezone: document.getElementById('timezone').value,

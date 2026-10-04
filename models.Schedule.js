@@ -6,8 +6,8 @@ const Schedule = {
       `INSERT INTO schedules
         (user_id, page_id, folder_id, upload_time, timezone, repeat_type, specific_days,
          max_uploads, random_delay_seconds, caption, hashtags, privacy, publish_immediately, interval_hours, times,
-         post_to_facebook, youtube_token_id, youtube_video_type, auto_background_music, music_folder_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+         post_to_facebook, youtube_token_id, youtube_video_type, auto_background_music, music_folder_id, post_to_instagram)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        RETURNING *`,
       [
         userId, data.pageId || null, data.folderId, data.uploadTime, data.timezone, data.repeat,
@@ -17,6 +17,7 @@ const Schedule = {
         data.times && data.times.length ? JSON.stringify(data.times) : null,
         data.postToFacebook !== false, data.youtubeTokenId || null, data.youtubeVideoType || 'auto',
         data.autoBackgroundMusic || false, data.autoBackgroundMusic ? (data.musicFolderId || null) : null,
+        data.postToInstagram || false,
       ]
     );
     return res.rows[0];
@@ -34,7 +35,7 @@ const Schedule = {
          max_uploads = $9, random_delay_seconds = $10, caption = $11, hashtags = $12, privacy = $13,
          publish_immediately = $14, interval_hours = $15, times = $16,
          post_to_facebook = $17, youtube_token_id = $18, youtube_video_type = $19,
-         auto_background_music = $20, music_folder_id = $21,
+         auto_background_music = $20, music_folder_id = $21, post_to_instagram = $22,
          last_run_slots = '{}'::jsonb, last_run_at = NULL,
          updated_at = now()
        WHERE user_id = $1 AND id = $2
@@ -47,6 +48,7 @@ const Schedule = {
         data.times && data.times.length ? JSON.stringify(data.times) : null,
         data.postToFacebook !== false, data.youtubeTokenId || null, data.youtubeVideoType || 'auto',
         data.autoBackgroundMusic || false, data.autoBackgroundMusic ? (data.musicFolderId || null) : null,
+        data.postToInstagram || false,
       ]
     );
     return res.rows[0];

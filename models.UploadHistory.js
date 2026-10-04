@@ -44,6 +44,10 @@ const UploadHistory = {
     await query(`UPDATE upload_history SET youtube_video_id = $2 WHERE id = $1`, [id, youtubeVideoId]);
   },
 
+  async markInstagramUploaded(id, instagramMediaId) {
+    await query(`UPDATE upload_history SET instagram_media_id = $2 WHERE id = $1`, [id, instagramMediaId]);
+  },
+
   async markFailed(id) {
     await query(`UPDATE upload_history SET status = 'failed' WHERE id = $1`, [id]);
   },

@@ -10,13 +10,19 @@ const GRAPH_URL = `https://graph.facebook.com/${env.facebook.graphVersion}`;
 async function getUserPages(userId, facebookTokenId) {
   const accessToken = await getValidFacebookToken(userId, facebookTokenId);
   const resp = await axios.get(`${GRAPH_URL}/me/accounts`, {
-    params: { access_token: accessToken, fields: 'id,name,access_token,followers_count' },
+    // instagram_business_account{...} is a nested field expansion - gets the
+    // linked Instagram Business/Creator account's id+username in this same
+    // call, instead of needing a separate request per page. A page with no
+    // linked Instagram account simply omits this field entirely.
+    params: { access_token: accessToken, fields: 'id,name,access_token,followers_count,instagram_business_account{id,username}' },
   });
   return (resp.data.data || []).map((p) => ({
     id: p.id,
     name: p.name,
     access_token: p.access_token,
     followers: p.followers_count || 0,
+    instagram_business_account_id: p.instagram_business_account ? p.instagram_business_account.id : null,
+    instagram_username: p.instagram_business_account ? p.instagram_business_account.username : null,
   }));
 }
 

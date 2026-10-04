@@ -6,17 +6,19 @@ const Page = {
     const results = [];
     for (const p of pages) {
       const res = await query(
-        `INSERT INTO pages (user_id, facebook_token_id, page_id, page_name, followers, page_access_token, is_connected)
-         VALUES ($1,$2,$3,$4,$5,$6,TRUE)
+        `INSERT INTO pages (user_id, facebook_token_id, page_id, page_name, followers, page_access_token, is_connected, instagram_business_account_id, instagram_username)
+         VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,$8)
          ON CONFLICT (user_id, page_id) DO UPDATE SET
            facebook_token_id = EXCLUDED.facebook_token_id,
            page_name = EXCLUDED.page_name,
            followers = EXCLUDED.followers,
            page_access_token = EXCLUDED.page_access_token,
            is_connected = TRUE,
+           instagram_business_account_id = EXCLUDED.instagram_business_account_id,
+           instagram_username = EXCLUDED.instagram_username,
            updated_at = now()
          RETURNING *`,
-        [userId, facebookTokenId, p.id, p.name, p.followers || 0, encrypt(p.access_token)]
+        [userId, facebookTokenId, p.id, p.name, p.followers || 0, encrypt(p.access_token), p.instagram_business_account_id || null, p.instagram_username || null]
       );
       results.push(res.rows[0]);
     }

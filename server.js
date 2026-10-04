@@ -53,6 +53,9 @@ app.use('/api/tiktok', require('./routes.tiktok'));
 app.use('/api/videoedit', require('./routes.videoEdit'));
 app.use('/api/text-image-posts', require('./routes.textImagePost'));
 app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
+// Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
+// need to fetch a video from here directly (see routes.mediaPublic.js).
+app.use('/media-temp', require('./routes.mediaPublic').router);
 app.use('/become-tester', require('./routes.becomeTester'));
 
 app.get('/api/health', (req, res) => res.json({ success: true, message: 'OK' }));

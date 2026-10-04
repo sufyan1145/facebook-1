@@ -41,7 +41,7 @@ function renderPages(pages) {
   body.innerHTML = pages
     .map(
       (p) => `<tr>
-        <td>${escapeHtml(p.page_name)}</td>
+        <td>${escapeHtml(p.page_name)}${p.instagram_username ? ` <span class="pill ok" title="Linked Instagram account">IG @${escapeHtml(p.instagram_username)}</span>` : ''}</td>
         <td>${escapeHtml(p.fb_user_name || '—')}</td>
         <td class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(p.page_id)}</td>
         <td>${p.followers?.toLocaleString?.() ?? p.followers}</td>

@@ -127,6 +127,7 @@ async function fireSchedule(schedule) {
         publishImmediately: schedule.publish_immediately,
         pageName: schedule.page_name,
         postToFacebook: schedule.post_to_facebook,
+        postToInstagram: schedule.post_to_instagram,
         youtubeTokenId: schedule.youtube_token_id,
         youtubeVideoType: schedule.youtube_video_type,
         autoBackgroundMusic: schedule.auto_background_music,

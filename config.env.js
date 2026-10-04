@@ -64,6 +64,13 @@ module.exports = {
       'pages_read_engagement',
       'pages_manage_posts',
       'business_management',
+      // Instagram posting - both are Advanced Access permissions that need
+      // Meta App Review before they work for anyone other than the app's
+      // own admins/testers (same review process pages_manage_posts already
+      // went through). Until that's approved, Instagram posting will only
+      // work when YOU connect your own account, not for other users.
+      'instagram_basic',
+      'instagram_content_publish',
     ],
   },
 
