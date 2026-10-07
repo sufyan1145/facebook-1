@@ -68,7 +68,12 @@ function getImpersonateArgs() {
 // what YouTube's bot-detection actually keys off of - cookies alone aren't
 // always enough from a flagged datacenter IP range (Contabo, Railway, AWS,
 // etc. are all treated the same way).
-function getProxyArgs() {
+// Chinese platforms (Douyin etc.) time out through the residential proxy, so
+// they go direct (or via DOUYIN_PROXY if set).
+function getProxyArgs(url = '') {
+  if (/(^|\.)(douyin|iesdouyin|amemv)\.com/i.test(url.replace(/^https?:\/\//, '').split('/')[0])) {
+    return process.env.DOUYIN_PROXY ? ['--proxy', process.env.DOUYIN_PROXY] : [];
+  }
   if (!env.videoDownload?.proxyUrl) return [];
   if (!getProxyArgs._logged) {
     getProxyArgs._logged = true;
@@ -94,7 +99,7 @@ async function getMetadata(url) {
   try {
     const { stdout } = await execFileAsync(
       YTDLP_BIN,
-      [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
+      [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(url), '--dump-json', '--no-warnings', '--skip-download', url],
       { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
     );
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -211,7 +216,7 @@ async function getCodecs(filePath) {
 
 async function findAudioVideoFormatId(url) {
   try {
-    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
+    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(url), '--dump-json', '--no-warnings', '--skip-download', url], {
       timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20,
     });
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -235,7 +240,7 @@ async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
   const cookiesArgs = getCookiesArgs();
   const impersonateArgs = getImpersonateArgs();
-  const proxyArgs = getProxyArgs();
+  const proxyArgs = getProxyArgs(url);
   // --merge-output-format mp4 is required on every attempt (not just the
   // explicit-merge fallback below). Without it, whenever yt-dlp has to merge
   // separately-downloaded video+audio streams (which is exactly what happens
