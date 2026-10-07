@@ -26,13 +26,14 @@ const ffmpeg = require('./utils.ffmpeg');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
-const EXEC_OPTS = { timeout: 15 * 60 * 1000, maxBuffer: 1024 * 1024 * 50 };
+// timeout: 0 = no limit, so very long videos never get killed mid-encode.
+const EXEC_OPTS = { timeout: 0, maxBuffer: 1024 * 1024 * 50 };
 
 // Same memory-safe encode settings that fixed the TikTok downloader's OOM
 // issue - low thread count + limited x264 lookahead keeps peak memory well
 // under control, and veryfast/crf20 keeps CPU time reasonable too. Used on
 // every pass below that re-encodes video (not needed where -c:v copy applies).
-const SAFE_VIDEO_ENCODE = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-threads', '2', '-x264-params', 'rc-lookahead=20:ref=2'];
+const SAFE_VIDEO_ENCODE = ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-threads', '0', '-x264-params', 'rc-lookahead=0:ref=1'];
 
 async function runFfmpeg(args) {
   try {
@@ -43,7 +44,7 @@ async function runFfmpeg(args) {
     // (e.g. "Filter graph too complex", a bad filter argument, etc.) - attach
     // it so failures are actually diagnosable instead of just "it failed".
     const stderr = (err.stderr || '').toString().trim();
-    if (stderr) err.message = `${err.message}\nffmpeg stderr: ${stderr.slice(0, 2000)}`;
+    if (stderr) err.message = `${err.message}\nffmpeg stderr: ${stderr.slice(-1500)}`;
     throw err;
   }
 }
@@ -74,19 +75,10 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       await VideoEditJob.setStatus(job.id, 'analyzing_video');
       logger.info(`[video-edit] job ${job.id}: building explainer video`);
       const explainerPath = path.join(env.upload.tempDir, `${job.id}_explainer.mp4`);
-      const { narrationText } = await vertexAiService.buildExplainerVideo(current, explainerPath, spec.explainVoiceName || undefined, spec.explainLanguage || 'english');
+      const { narrationText } = await vertexAiService.buildExplainerVideo(current, explainerPath, spec.explainVoiceName || undefined);
       tempFiles.push(explainerPath);
       current = explainerPath;
       await VideoEditJob.setGeneratedExplanation(job.id, narrationText);
-
-      // Always remove the original video's burned-in captions/watermarks
-      // (top+bottom band blur - see utils.ffmpeg.polishRepostedVideo), since
-      // they'd otherwise sit underneath/contradict the new AI narration.
-      // Optionally also burns a "Movie link in first comment" banner.
-      const polished = path.join(env.upload.tempDir, `${job.id}_explainer_polished.mp4`);
-      await ffmpeg.polishRepostedVideo(current, polished, !!spec.addCommentLinkText);
-      current = polished;
-      tempFiles.push(polished);
       logger.info(`[video-edit] job ${job.id}: explainer video built`);
     }
 
@@ -189,15 +181,6 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       await runFfmpeg(['-i', current, '-i', dubbedAudioPath, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
       current = out;
       tempFiles.push(out);
-
-      // Always remove the original video's burned-in captions/watermarks
-      // (top+bottom band blur - see utils.ffmpeg.polishRepostedVideo) since
-      // they'd otherwise contradict the new dubbed-language narration.
-      // Optionally also burns a "Movie link in first comment" banner.
-      const polished = path.join(env.upload.tempDir, `${job.id}_0_dubbed_polished.mp4`);
-      await ffmpeg.polishRepostedVideo(current, polished, !!spec.addCommentLinkText);
-      current = polished;
-      tempFiles.push(polished);
       logger.info(`[video-edit] job ${job.id}: dubbing done`);
     }
 

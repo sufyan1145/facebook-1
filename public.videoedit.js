@@ -68,7 +68,7 @@ function renderJobs(jobs) {
     .map((j) => {
       const resultCell =
         j.status === 'failed'
-          ? `<span style="color:var(--signal-red);font-size:12px;">${escapeHtml(j.error_message || '')}</span>`
+          ? `<button class="btn xs" data-error="${j.id}" title="Error dekhne ke liye click karein" aria-label="Show error" style="background:var(--signal-red-dim);color:var(--signal-red);border:1px solid rgba(240,85,90,0.4);border-radius:50%;width:26px;height:26px;padding:0;font-weight:700;line-height:1;cursor:pointer;">!</button>`
           : j.status === 'completed' && j.generated_explanation
           ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button> <button class="btn xs" data-explanation="${j.id}">Script</button>`
           : j.status === 'completed'
@@ -94,6 +94,13 @@ function renderJobs(jobs) {
     btn.addEventListener('click', () => {
       const job = jobs.find((j) => j.id === btn.dataset.copyTitle);
       if (job) navigator.clipboard.writeText(`${job.generated_title || ''}\n\n${job.generated_hashtags || ''}`).catch(() => {});
+    });
+  });
+
+  body.querySelectorAll('button[data-error]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const job = jobs.find((j) => j.id === btn.dataset.error);
+      if (job) showErrorModal(job.error_message || 'Unknown error');
     });
   });
 
@@ -138,6 +145,33 @@ function showPreview(jobId, fileName) {
   card.style.display = 'block';
   card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   player.play().catch(() => {});
+}
+
+function showErrorModal(text) {
+  const old = document.getElementById('errorModal');
+  if (old) old.remove();
+  const wrap = document.createElement('div');
+  wrap.id = 'errorModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg-card,#10151d);border:1px solid rgba(240,85,90,.4);border-radius:12px;max-width:760px;width:100%;max-height:80vh;display:flex;flex-direction:column;padding:16px;';
+  const head = document.createElement('div');
+  head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:var(--signal-red);font-weight:600;';
+  head.textContent = 'Error details';
+  const actions = document.createElement('div');
+  const copy = document.createElement('button');
+  copy.className = 'btn xs'; copy.textContent = 'Copy'; copy.style.marginRight = '6px';
+  copy.onclick = () => { navigator.clipboard.writeText(text).catch(() => {}); copy.textContent = 'Copied'; };
+  const close = document.createElement('button');
+  close.className = 'btn xs'; close.textContent = 'Close';
+  close.onclick = () => wrap.remove();
+  actions.append(copy, close); head.appendChild(actions);
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'margin:0;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;color:var(--signal-red);';
+  pre.textContent = text;
+  box.append(head, pre); wrap.appendChild(box);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+  document.body.appendChild(wrap);
 }
 
 function showExplanation(text) {
@@ -248,16 +282,6 @@ function renderCueList() {
   document.getElementById('saveToDrive').addEventListener('change', updateFolderFieldVisibility);
   document.getElementById('splitScreenMode').addEventListener('change', updateSecondaryUrlVisibility);
   document.getElementById('dubEnabled').addEventListener('change', updateDubFieldsVisibility);
-
-  // "Regenerate title with AI" is one shared setting, but shown in two
-  // places (the main checkbox, and again inside the Dub fields for
-  // visibility) - keep them in sync in both directions.
-  document.getElementById('regenerateTitleEnabled').addEventListener('change', (e) => {
-    document.getElementById('dubRegenerateTitleEnabled').checked = e.target.checked;
-  });
-  document.getElementById('dubRegenerateTitleEnabled').addEventListener('change', (e) => {
-    document.getElementById('regenerateTitleEnabled').checked = e.target.checked;
-  });
   document.getElementById('autoHighlightEnabled').addEventListener('change', updateAutoHighlightFieldsVisibility);
   updateAutoHighlightFieldsVisibility();
   document.getElementById('newsReactionEnabled').addEventListener('change', updateNewsReactionFieldsVisibility);
@@ -301,17 +325,7 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({
-          url, secondaryUrl: null,
-          effects: {
-            explainOnly: true,
-            explainVoiceName: document.getElementById('explainVoiceName').value || null,
-            explainLanguage: document.getElementById('explainLanguage').value || 'english',
-            addCommentLinkText: document.getElementById('explainAddCommentLinkText').checked,
-          },
-          driveFolderId: null, driveFolderName: null, saveToDrive: false,
-          regenerateMetadata: document.getElementById('explainRegenerateMetadata').checked,
-        }),
+        body: JSON.stringify({ url, secondaryUrl: null, effects: { explainOnly: true, explainVoiceName: document.getElementById('explainVoiceName').value || null }, driveFolderId: null, driveFolderName: null, saveToDrive: false, regenerateMetadata: false }),
       });
       document.getElementById('explainUrlInput').value = '';
       loadJobs();
@@ -343,7 +357,6 @@ function renderCueList() {
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       dubVoiceName: dubEnabled ? (document.getElementById('dubVoiceName').value || null) : null,
-      addCommentLinkText: dubEnabled ? document.getElementById('dubAddCommentLinkText').checked : false,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,
@@ -378,7 +391,7 @@ function renderCueList() {
         try {
           await apiFetch('/videoedit/create', {
             method: 'POST',
-            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked || document.getElementById('dubRegenerateTitleEnabled').checked }),
+            body: JSON.stringify({ url, secondaryUrl: null, effects: baseEffects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked }),
           });
           queued += 1;
         } catch (err) {
@@ -406,7 +419,7 @@ function renderCueList() {
     try {
       await apiFetch('/videoedit/create', {
         method: 'POST',
-        body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked || document.getElementById('dubRegenerateTitleEnabled').checked }),
+        body: JSON.stringify({ url, secondaryUrl: secondaryUrl || null, effects, driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: document.getElementById('regenerateTitleEnabled').checked }),
       });
       msg.textContent = 'Started! Editing can take a few minutes depending on the effects chosen — check the history table below.';
       effectCues = [];
