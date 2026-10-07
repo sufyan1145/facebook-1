@@ -134,12 +134,16 @@ function renderJobs(jobs) {
   if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
 }
 
+const warmed = new Set();
+
 function showPreview(jobId, fileName) {
   currentPreviewJobId = jobId;
   const card = document.getElementById('previewCard');
   const player = document.getElementById('previewPlayer');
   const downloadBtn = document.getElementById('downloadFileBtn');
+  player.preload = 'auto';
   player.src = `/api/videoedit/jobs/${jobId}/file`;
+  player.load();
   downloadBtn.href = `/api/videoedit/jobs/${jobId}/file?download=1`;
   downloadBtn.download = fileName;
   card.style.display = 'block';
@@ -189,6 +193,11 @@ async function loadJobs() {
   try {
     const { data } = await apiFetch('/videoedit/jobs');
     renderJobs(data);
+    // pre-warm server cache so Preview starts instantly
+    data.filter((j) => j.status === 'completed' && !warmed.has(j.id)).slice(0, 3).forEach((j) => {
+      warmed.add(j.id);
+      fetch(`/api/videoedit/jobs/${j.id}/file?warm=1`, { credentials: 'include' }).catch(() => {});
+    });
   } catch (err) {
     document.getElementById('jobsBody').innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(err.message)}</td></tr>`;
   }
