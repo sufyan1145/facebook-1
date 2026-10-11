@@ -169,7 +169,10 @@ function showErrorModal(text) {
   const close = document.createElement('button');
   close.className = 'btn xs'; close.textContent = 'Close';
   close.onclick = () => wrap.remove();
-  actions.append(copy, close); head.appendChild(actions);
+  const ai = document.createElement('button');
+  ai.className = 'btn xs'; ai.textContent = 'AI se poochein'; ai.style.marginRight = '6px';
+  ai.onclick = () => { wrap.remove(); if (window.openAiChat) window.openAiChat(text); };
+  actions.append(ai, copy, close); head.appendChild(actions);
   const pre = document.createElement('pre');
   pre.style.cssText = 'margin:0;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;color:var(--signal-red);';
   pre.textContent = text;
