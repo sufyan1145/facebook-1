@@ -173,3 +173,7 @@ function escapeHtml(str) {
   div.textContent = str ?? '';
   return div.innerHTML;
 }
+
+
+// AI help chat widget (loads on every page that includes app.js)
+(function(){var s=document.createElement('script');s.src='chat-widget.js';s.defer=true;document.body.appendChild(s);})();

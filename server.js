@@ -51,6 +51,7 @@ app.use('/api/videogen', require('./routes.videogen'));
 app.use('/api/content-schedules', require('./routes.contentSchedule'));
 app.use('/api/tiktok', require('./routes.tiktok'));
 app.use('/api/videoedit', require('./routes.videoEdit'));
+app.use('/api/chat', require('./routes.chat'));
 app.use('/api/text-image-posts', require('./routes.textImagePost'));
 app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
 // Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
