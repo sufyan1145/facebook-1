@@ -68,6 +68,19 @@ const UploadHistory = {
     return res.rows.map((r) => r.drive_file_id);
   },
 
+  // Successfully uploaded file ids for a page, OLDEST upload first. Used by
+  // schedules with "allow re-upload" to recycle the least-recently-posted
+  // video when everything in the folder has already been posted once.
+  async getUploadedFileIdsOldestFirst(facebookPageId) {
+    const res = await query(
+      `SELECT drive_file_id FROM upload_history
+       WHERE facebook_page_id IS NOT DISTINCT FROM $1 AND status = 'success'
+       ORDER BY uploaded_at ASC NULLS FIRST`,
+      [facebookPageId || null]
+    );
+    return res.rows.map((r) => r.drive_file_id);
+  },
+
   async listByUser(userId, { limit = 50, offset = 0 } = {}) {
     const res = await query(
       'SELECT * FROM upload_history WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',

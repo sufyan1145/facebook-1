@@ -106,7 +106,35 @@ function findDueSlot(schedule) {
 async function fireSchedule(schedule) {
   const uploadedIds = await UploadHistory.getUploadedFileIds(schedule.page_id);
   const videos = await driveService.listUnpublishedVideos(schedule.user_id, schedule.drive_folder_id, uploadedIds);
-  const toUpload = videos.slice(0, schedule.max_uploads || 1);
+  const maxUploads = schedule.max_uploads || 1;
+  const toUpload = videos.slice(0, maxUploads);
+
+  // Optional "allow re-upload": only when ticked on the schedule. Brand-new
+  // videos always go first; only when the folder has fewer fresh videos than
+  // needed do we top up with already-posted ones, least recently posted first
+  // (so every video gets its turn before any video repeats). With the option
+  // off this block never runs and behaviour is exactly as before.
+  if (schedule.allow_reupload && toUpload.length < maxUploads) {
+    try {
+      const orderedIds = await UploadHistory.getUploadedFileIdsOldestFirst(schedule.page_id);
+      if (orderedIds.length) {
+        const rank = new Map(orderedIds.map((id, i) => [id, i]));
+        const taken = new Set(toUpload.map((f) => f.id));
+        const all = await driveService.listUnpublishedVideos(schedule.user_id, schedule.drive_folder_id, []);
+        const recycle = all
+          .filter((f) => rank.has(f.id) && !taken.has(f.id))
+          .sort((a, b) => rank.get(a.id) - rank.get(b.id))
+          .slice(0, maxUploads - toUpload.length);
+        toUpload.push(...recycle);
+        if (recycle.length) {
+          logger.info(`Schedule ${schedule.id}: re-upload enabled, recycling ${recycle.length} previously posted video(s)`);
+        }
+      }
+    } catch (reErr) {
+      // never block the normal run because the optional recycle step failed
+      logger.error(`Schedule ${schedule.id}: re-upload selection failed: ${reErr.message}`);
+    }
+  }
 
   for (const file of toUpload) {
     file.folderName = schedule.folder_name;
@@ -140,6 +168,7 @@ async function fireSchedule(schedule) {
   await Log.record(schedule.user_id, 'Schedule Triggered', {
     scheduleId: schedule.id,
     videosQueued: toUpload.length,
+    reuploadEnabled: !!schedule.allow_reupload,
   });
 }
 
