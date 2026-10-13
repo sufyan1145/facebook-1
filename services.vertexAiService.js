@@ -99,7 +99,7 @@ function extractVeoResultBytes(status) {
 
 // ---- Nano Banana (Gemini image) via Vertex ----
 
-async function generateImage(prompt, destPath) {
+async function generateImage(prompt, destPath, { retries } = {}) {
   const token = await getAccessToken();
   let resp;
   try {
@@ -113,7 +113,7 @@ async function generateImage(prompt, destPath) {
           },
           { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         ),
-      { label: 'Vertex image generation (Nano Banana)' }
+      { label: 'Vertex image generation (Nano Banana)', retries } // retries undefined -> retryOn429's own default applies, same as before
     );
   } catch (err) {
     const detail = err.response?.data;

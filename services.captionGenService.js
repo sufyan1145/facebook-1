@@ -5,25 +5,34 @@
  */
 const geminiService = require('./services.geminiService');
 const vertexAiService = require('./services.vertexAiService');
+const { resolveProvider } = require('./utils.textImageProvider');
 const env = require('./config.env');
 const logger = require('./utils.logger');
 
-// Tries Gemini/Vertex (whichever env.contentPipeline.scriptProvider picks)
-// with 2 retries (short backoff) since transient 503s ("model overloaded")
-// are common and usually resolve within seconds - unlike image
-// generation, there's no equivalent second provider to fall back to for text,
-// so it's worth waiting briefly before giving up. If it still fails after
-// retries, falls back to using the raw topic text as both the caption and
-// the image prompt, so the scheduled post still goes out rather than failing
-// entirely. Returns fallbackReason (non-null only when the fallback was used)
-// so the caller can surface it in Activity Logs.
-// avoidList: recent captions from this same schedule, passed through so the
-// AI knows what's already been covered and picks something different.
+// Provider is picked by utils.textImageProvider.js (Vertex when configured,
+// or TEXT_IMAGE_PROVIDER=vertex/gemini). Primary provider gets 2 retries
+// (transient 503s are common and usually clear in seconds). If Vertex still
+// fails, the free Gemini key is tried before giving up; if everything fails,
+// falls back to using the raw topic text as both the caption and the image
+// prompt, so the scheduled post still goes out. fallbackReason is non-null
+// only when that last fallback was used (surfaced in Activity Logs).
+// avoidList: recent captions from this same schedule, so the AI picks
+// something different.
 async function generatePostContent(topic, avoidList) {
+  const provider = resolveProvider();
+  const tryGemini = () => geminiService.generatePostContent(topic, { retries: 2, avoidList });
+
   try {
-    const result = env.contentPipeline.scriptProvider === 'vertex'
-      ? await vertexAiService.generatePostContent(topic, { avoidList })
-      : await geminiService.generatePostContent(topic, { retries: 2, avoidList });
+    if (provider === 'vertex') {
+      try {
+        const result = await vertexAiService.generatePostContent(topic, { avoidList });
+        return { ...result, fallbackReason: null };
+      } catch (vErr) {
+        if (!(env.googleAi && env.googleAi.geminiApiKey)) throw vErr;
+        logger.warn(`[captionGenService] Vertex content generation failed (${vErr.message}) - trying Gemini free tier`);
+      }
+    }
+    const result = await tryGemini();
     return { ...result, fallbackReason: null };
   } catch (err) {
     logger.warn(`[captionGenService] Structured content generation failed after retries (${err.message}) - falling back to using the topic text directly for both caption and image`);
