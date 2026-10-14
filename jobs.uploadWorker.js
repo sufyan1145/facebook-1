@@ -13,6 +13,8 @@ const QueueJob = require('./models.QueueJob');
 const { notifyUploadEvent } = require('./services.notificationService');
 const Page = require('./models.Page');
 const TikTokJob = require('./models.TikTokJob');
+const VideoEditJob = require('./models.VideoEditJob');
+const { captionFromFileName } = require('./utils.fileNameCaption');
 const ffmpeg = require('./utils.ffmpeg');
 const path = require('path');
 
@@ -22,7 +24,7 @@ const worker = new Worker(
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
       publishImmediately, pageName, postToFacebook, postToInstagram, youtubeTokenId, youtubeVideoType,
-      autoBackgroundMusic, musicFolderId,
+      autoBackgroundMusic, musicFolderId, useFilenameAsCaption,
     } = job.data;
 
     // If this exact file was downloaded via the TikTok Downloader, use its
@@ -40,6 +42,33 @@ const worker = new Worker(
       }
     } catch (lookupErr) {
       logger.error(`TikTok caption lookup failed for ${file.name}: ${lookupErr.message}`);
+    }
+
+    // Same idea for files made by the Video Editor: its regenerated title is
+    // stored on the video_edit_jobs row (and is also baked into the Drive file name).
+    if (!tiktokJob || !tiktokJob.generated_title) {
+      try {
+        const editJob = await VideoEditJob.findByDriveFileId(file.id);
+        if (editJob && editJob.generated_title) {
+          caption = editJob.generated_title;
+          hashtags = editJob.generated_hashtags || scheduleHashtags;
+          logger.info(`Using Video Editor title as caption for ${file.name}`);
+        }
+      } catch (lookupErr) {
+        logger.error(`Video Editor caption lookup failed for ${file.name}: ${lookupErr.message}`);
+      }
+    }
+
+    // Optional per-schedule setting: no generated title was found (e.g. the
+    // history was cleared, or it is a plain Drive video) - use the text in the
+    // file name itself as the Facebook/Instagram description and YouTube description.
+    const usedGeneratedTitle = caption !== scheduleCaption || (tiktokJob && tiktokJob.generated_title);
+    if (useFilenameAsCaption && !usedGeneratedTitle) {
+      const fromName = captionFromFileName(file.name);
+      if (fromName) {
+        caption = fromName;
+        logger.info(`Using file name as caption for ${file.name}: "${fromName}"`);
+      }
     }
 
     await QueueJob.upsertFromBullJob(job, 'active', userId, scheduleId);

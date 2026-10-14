@@ -107,6 +107,7 @@ function enterScheduleEditMode(schedule) {
   document.getElementById('folderId').value = schedule.folder_id;
 
   document.getElementById('allowReupload').checked = !!schedule.allow_reupload;
+  document.getElementById('useFilenameAsCaption').checked = !!schedule.use_filename_as_caption;
   document.getElementById('autoBackgroundMusic').checked = !!schedule.auto_background_music;
   document.getElementById('musicFolderField').style.display = schedule.auto_background_music ? 'block' : 'none';
   if (schedule.music_folder_id) document.getElementById('musicFolderId').value = schedule.music_folder_id;
@@ -255,6 +256,7 @@ async function loadOptions() {
       youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
       youtubeVideoType: document.getElementById('youtubeVideoType').value,
       allowReupload: document.getElementById('allowReupload').checked,
+      useFilenameAsCaption: document.getElementById('useFilenameAsCaption').checked,
       autoBackgroundMusic: document.getElementById('autoBackgroundMusic').checked,
       musicFolderId: document.getElementById('autoBackgroundMusic').checked ? document.getElementById('musicFolderId').value : null,
     };

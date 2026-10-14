@@ -50,6 +50,17 @@ const VideoEditJob = {
     return res.rows[0];
   },
 
+  // Used by the upload worker so a Video Editor file posted by a schedule
+  // gets its AI/regenerated title (and hashtags) as the caption, the same way
+  // TikTok Downloader files already do.
+  async findByDriveFileId(driveFileId) {
+    const res = await query(
+      `SELECT * FROM video_edit_jobs WHERE drive_file_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1`,
+      [driveFileId]
+    );
+    return res.rows[0];
+  },
+
   async deleteById(userId, id) {
     const res = await query('DELETE FROM video_edit_jobs WHERE id = $1 AND user_id = $2 RETURNING *', [id, userId]);
     return res.rows[0];

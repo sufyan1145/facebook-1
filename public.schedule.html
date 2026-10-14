@@ -48,6 +48,12 @@
             </div>
             <div class="field">
               <label class="checkbox-row" style="margin-bottom:4px;">
+                <input id="useFilenameAsCaption" type="checkbox" /> Use the video's file name as its description/title
+              </label>
+              <div style="font-size:11px; color:var(--text-muted);">When on, the text in the video's file name (underscores turned into spaces, extension and the Video Editor's trailing code removed) is posted as the caption/description instead of the caption typed above. Hashtags from this schedule are still added. Videos from the Video Editor or TikTok Downloader that already have a regenerated title use that title.</div>
+            </div>
+            <div class="field">
+              <label class="checkbox-row" style="margin-bottom:4px;">
                 <input id="allowReupload" type="checkbox" /> Allow re-upload of the same videos
               </label>
               <div style="font-size:11px; color:var(--text-muted);">Off (default): a video already uploaded is never posted again. On: new videos go first; once every video in the folder has been posted, the schedule starts over and re-uploads the oldest-posted videos first.</div>

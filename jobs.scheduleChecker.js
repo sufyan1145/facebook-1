@@ -160,6 +160,7 @@ async function fireSchedule(schedule) {
         youtubeVideoType: schedule.youtube_video_type,
         autoBackgroundMusic: schedule.auto_background_music,
         musicFolderId: schedule.music_folder_id,
+        useFilenameAsCaption: !!schedule.use_filename_as_caption,
       },
       { delay }
     );
