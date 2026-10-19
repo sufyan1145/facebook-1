@@ -177,3 +177,7 @@ function escapeHtml(str) {
 
 // AI help chat widget (loads on every page that includes app.js)
 (function(){var s=document.createElement('script');s.src='chat-widget.js';s.defer=true;document.body.appendChild(s);})();
+
+
+// Mobile bottom tab bar (phones only)
+(function(){var s=document.createElement('script');s.src='mobile-nav.js';s.defer=true;document.body.appendChild(s);})();
