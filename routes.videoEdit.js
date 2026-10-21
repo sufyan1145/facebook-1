@@ -4,6 +4,8 @@ const videoEditController = require('./controllers.videoEditController');
 const { requireAuth } = require('./middleware.auth');
 
 router.post('/create', requireAuth, videoEditController.create);
+router.get('/clips/progress', requireAuth, videoEditController.clipProgress);
+router.delete('/clips/progress', requireAuth, videoEditController.resetClipProgress);
 router.get('/jobs', requireAuth, videoEditController.listJobs);
 router.get('/jobs/:id/file', requireAuth, videoEditController.streamFile);
 router.delete('/jobs/:id', requireAuth, videoEditController.deleteJob);

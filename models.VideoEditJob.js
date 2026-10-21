@@ -61,6 +61,45 @@ const VideoEditJob = {
     return res.rows[0];
   },
 
+  // ---- "Make clips from a long video" ------------------------------------
+  async setClipSummary(id, text) {
+    await query('UPDATE video_edit_jobs SET clip_summary = $2, updated_at = now() WHERE id = $1', [id, text || null]);
+  },
+
+  // One finished clip = its own completed history entry (previewable,
+  // downloadable, usable by schedules like any other Video Editor file).
+  async createClipChild(parent, { id, driveFileId, driveFileName, localFilePath, generatedTitle, clipInfo, createdAt }) {
+    const res = await query(
+      `INSERT INTO video_edit_jobs
+         (id, user_id, source_url, effects_json, drive_folder_id, drive_folder_name, status,
+          drive_file_id, drive_file_name, local_file_path, generated_title, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'completed',$7,$8,$9,$10,$11,now())
+       RETURNING *`,
+      [
+        id, parent.user_id, parent.source_url, JSON.stringify({ clipPart: clipInfo || {} }),
+        parent.drive_folder_id || null, parent.drive_folder_name || null,
+        driveFileId || null, driveFileName || null, localFilePath || null,
+        generatedTitle || null, createdAt || new Date(),
+      ]
+    );
+    return res.rows[0];
+  },
+
+  // A clip batch for this video is queued/running right now (ignores rows
+  // stuck for 45+ minutes, e.g. after a server restart).
+  async hasActiveClipJob(userId, sourceKey) {
+    const res = await query(
+      `SELECT 1 FROM video_edit_jobs
+        WHERE user_id = $1
+          AND status IN ('pending','downloading','splitting')
+          AND effects_json->'clipSplit'->>'sourceKey' = $2
+          AND updated_at > now() - interval '45 minutes'
+        LIMIT 1`,
+      [userId, sourceKey]
+    );
+    return res.rows.length > 0;
+  },
+
   async deleteById(userId, id) {
     const res = await query('DELETE FROM video_edit_jobs WHERE id = $1 AND user_id = $2 RETURNING *', [id, userId]);
     return res.rows[0];

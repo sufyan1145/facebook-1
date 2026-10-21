@@ -4,6 +4,8 @@ const videoDownloadService = require('./services.videoDownloadService');
 const driveService = require('./services.googleDriveService');
 const Log = require('./models.Log');
 const { enqueueVideoEditJob } = require('./jobs.videoEditWorker');
+const VideoClipProgress = require('./models.VideoClipProgress');
+const clipSplitter = require('./utils.clipSplitter');
 
 async function create(req, res, next) {
   try {
@@ -22,15 +24,31 @@ async function create(req, res, next) {
       return res.status(400).json({ success: false, message: 'Please select a Drive folder, or turn off "Save to Google Drive"' });
     }
 
+    // "Make clips from a long video" is its own mode: only the clip settings
+    // are kept (other effects are ignored), and the same video can't have two
+    // clip batches running at once (they would race for the same parts).
+    let jobEffects = effects;
+    let regen = !!regenerateMetadata;
+    if (effects && effects.clipSplit && effects.clipSplit.enabled) {
+      const v = clipSplitter.validateClipSpec(effects.clipSplit, { saveToDrive: !!saveToDrive });
+      if (!v.ok) return res.status(400).json({ success: false, message: v.error });
+      const sourceKey = clipSplitter.normalizeSourceKey(url);
+      if (await VideoEditJob.hasActiveClipJob(req.user.id, sourceKey)) {
+        return res.status(409).json({ success: false, message: 'Clips for this video are already being made. Please wait until that finishes.' });
+      }
+      jobEffects = { clipSplit: { enabled: true, clipSeconds: v.clipSeconds, maxClips: v.maxClips, sourceKey } };
+      regen = false;
+    }
+
     const job = await VideoEditJob.create(req.user.id, {
       sourceUrl: url,
-      secondaryUrl,
-      effects,
+      secondaryUrl: jobEffects && jobEffects.clipSplit ? null : secondaryUrl,
+      effects: jobEffects,
       driveFolderId: saveToDrive ? driveFolderId : null,
       driveFolderName: saveToDrive ? driveFolderName : null,
     });
 
-    enqueueVideoEditJob(job, { regenerateMetadata: !!regenerateMetadata });
+    enqueueVideoEditJob(job, { regenerateMetadata: regen });
     await Log.record(req.user.id, 'Video Edit Started', { sourceUrl: url, jobId: job.id });
     res.json({ success: true, data: job });
   } catch (err) {
@@ -40,8 +58,52 @@ async function create(req, res, next) {
 
 async function listJobs(req, res, next) {
   try {
-    const jobs = await VideoEditJob.listByUser(req.user.id);
+    // 150 (was 50): one clip batch can add many entries at once.
+    const jobs = await VideoEditJob.listByUser(req.user.id, 150);
     res.json({ success: true, data: jobs });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---- Clip progress for a video (how far clips have been cut) -------------
+async function clipProgress(req, res, next) {
+  try {
+    const url = String(req.query.url || '').trim();
+    if (!url || !videoDownloadService.isValidUrl(url)) return res.json({ success: true, data: null });
+    const key = clipSplitter.normalizeSourceKey(url);
+    const p = await VideoClipProgress.get(req.user.id, key);
+    if (!p) return res.json({ success: true, data: null });
+    const total = p.source_duration != null ? Number(p.source_duration) : null;
+    res.json({
+      success: true,
+      data: {
+        partsMade: p.parts_made,
+        nextStart: Number(p.next_start),
+        sourceDuration: total,
+        finished: total != null && clipSplitter.isFinished(Number(p.next_start), total),
+        busy: await VideoEditJob.hasActiveClipJob(req.user.id, key),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Start over for this video: the next clips begin at 0:00 again.
+// (Clips that already exist in the history / Drive are not deleted.)
+async function resetClipProgress(req, res, next) {
+  try {
+    const url = String(req.query.url || '').trim();
+    if (!url || !videoDownloadService.isValidUrl(url)) {
+      return res.status(400).json({ success: false, message: 'A valid video URL is required' });
+    }
+    const key = clipSplitter.normalizeSourceKey(url);
+    if (await VideoEditJob.hasActiveClipJob(req.user.id, key)) {
+      return res.status(409).json({ success: false, message: 'Clips for this video are being made right now. Try again when they finish.' });
+    }
+    await VideoClipProgress.reset(req.user.id, key);
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }
@@ -170,4 +232,4 @@ async function clearHistory(req, res, next) {
   }
 }
 
-module.exports = { create, listJobs, streamFile, deleteJob, clearHistory };
+module.exports = { create, listJobs, streamFile, deleteJob, clearHistory, clipProgress, resetClipProgress };

@@ -23,6 +23,7 @@ const driveService = require('./services.googleDriveService');
 const effects = require('./utils.videoEffects');
 const autoHighlight = require('./utils.autoHighlight');
 const ffmpeg = require('./utils.ffmpeg');
+const clipSplitService = require('./services.clipSplitService');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
@@ -55,6 +56,13 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
   let finalTitle = null; // used for the Drive filename - see title regeneration block below
   try {
     const spec = typeof job.effects_json === 'string' ? JSON.parse(job.effects_json) : job.effects_json || {};
+
+    // "Make clips from a long video" has its own self-contained flow
+    // (see services.clipSplitService.js); nothing below applies to it.
+    if (spec.clipSplit && spec.clipSplit.enabled) {
+      await clipSplitService.processClipJob(job, spec.clipSplit);
+      return;
+    }
 
     await VideoEditJob.setStatus(job.id, 'downloading');
     logger.info(`[video-edit] job ${job.id}: downloading source`);

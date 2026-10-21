@@ -5,6 +5,7 @@ const STATUS_LABEL = {
   regenerating_metadata: 'Rewriting title/hashtags…',
   dubbing: 'Transcribing & dubbing…',
   editing: 'Applying effects…',
+  splitting: 'Cutting clips…',
   completed: 'Completed',
   failed: 'Failed',
 };
@@ -69,6 +70,8 @@ function renderJobs(jobs) {
       const resultCell =
         j.status === 'failed'
           ? `<button class="btn xs" data-error="${j.id}" title="Error dekhne ke liye click karein" aria-label="Show error" style="background:var(--signal-red-dim);color:var(--signal-red);border:1px solid rgba(240,85,90,0.4);border-radius:50%;width:26px;height:26px;padding:0;font-weight:700;line-height:1;cursor:pointer;">!</button>`
+          : j.status === 'completed' && j.clip_summary && !j.drive_file_id && !j.local_file_path
+          ? '—'
           : j.status === 'completed' && j.generated_explanation
           ? `<button class="btn xs" data-preview="${j.id}" data-name="${escapeHtml(j.drive_file_name || 'video.mp4')}">Preview</button> <button class="btn xs" data-explanation="${j.id}">Script</button>`
           : j.status === 'completed'
@@ -82,7 +85,7 @@ function renderJobs(jobs) {
         </td>
         <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(j.generated_hashtags || '')}">${escapeHtml(j.generated_hashtags || '')}</td>
         <td>${escapeHtml(j.drive_folder_name || 'Local only')}</td>
-        <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span></td>
+        <td><span class="badge ${j.status === 'completed' ? 'success' : j.status === 'failed' ? 'failed' : ''}">${STATUS_LABEL[j.status] || j.status}</span>${j.clip_summary ? `<div style="font-size:11px; color:var(--text-muted); margin-top:4px; max-width:260px;">${escapeHtml(j.clip_summary)}</div>` : ''}</td>
         <td>${resultCell}</td>
         <td style="font-size:12px; color:var(--text-muted);">${timeAgo(j.created_at)}</td>
         <td><button class="btn xs danger" data-delete="${j.id}">Delete</button></td>
@@ -129,7 +132,7 @@ function renderJobs(jobs) {
     document.getElementById('previewCard').style.display = 'block';
   }
 
-  const stillActive = jobs.some((j) => ['pending', 'downloading', 'analyzing_video', 'dubbing', 'editing'].includes(j.status));
+  const stillActive = jobs.some((j) => ['pending', 'downloading', 'analyzing_video', 'dubbing', 'editing', 'splitting'].includes(j.status));
   clearTimeout(jobsPollTimer);
   if (stillActive) jobsPollTimer = setTimeout(loadJobs, 8000);
 }
@@ -196,6 +199,7 @@ async function loadJobs() {
   try {
     const { data } = await apiFetch('/videoedit/jobs');
     renderJobs(data);
+    if (typeof refreshClipProgress === 'function') refreshClipProgress();
     // pre-warm server cache so Preview starts instantly
     data.filter((j) => j.status === 'completed' && !warmed.has(j.id)).slice(0, 3).forEach((j) => {
       warmed.add(j.id);
@@ -278,12 +282,161 @@ function renderCueList() {
   });
 }
 
+
+// ---------------------------------------------------------------------------
+// "Make clips from a long video": paste a long video, pick the length of each
+// clip and how many to make now. Clips continue from where the last batch for
+// the same video ended, so a part is never made twice (see
+// services.clipSplitService.js). The card is built here so no HTML file changes.
+// ---------------------------------------------------------------------------
+function fmtClipTime(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return `${h ? h + ':' : ''}${h ? String(m).padStart(2, '0') : m}:${String(r).padStart(2, '0')}`;
+}
+
+let clipsProgressTimer = null;
+async function refreshClipProgress() {
+  const box = document.getElementById('clipsProgress');
+  const urlEl = document.getElementById('clipsUrl');
+  if (!box || !urlEl) return;
+  const url = urlEl.value.trim();
+  if (!/^https?:\/\//i.test(url)) { box.textContent = ''; return; }
+  try {
+    const { data } = await apiFetch(`/videoedit/clips/progress?url=${encodeURIComponent(url)}`);
+    box.textContent = '';
+    if (!data || !data.partsMade) {
+      box.textContent = 'No clips made from this video yet - clips will start from 0:00.';
+      return;
+    }
+    const info = document.createElement('span');
+    info.textContent = data.finished
+      ? `✔ ${data.partsMade} clip(s) made - the whole video is done.`
+      : `✔ ${data.partsMade} clip(s) already made (up to ${fmtClipTime(data.nextStart)}${data.sourceDuration ? ' of ' + fmtClipTime(data.sourceDuration) : ''}). New clips continue from ${fmtClipTime(data.nextStart)}.`;
+    box.appendChild(info);
+    if (!data.busy) {
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'btn xs';
+      reset.style.marginLeft = '8px';
+      reset.textContent = 'Reset';
+      reset.title = 'Start again from 0:00 for this video (existing clips are not deleted)';
+      reset.onclick = async () => {
+        if (!confirm('Reset the clip record for this video? The next clips will start from 0:00 again. (Clips that already exist are not deleted.)')) return;
+        try {
+          await apiFetch(`/videoedit/clips/progress?url=${encodeURIComponent(url)}`, { method: 'DELETE' });
+          refreshClipProgress();
+        } catch (err) { alert(err.message); }
+      };
+      box.appendChild(reset);
+    } else {
+      const busy = document.createElement('span');
+      busy.style.marginLeft = '8px';
+      busy.textContent = '(clips are being made now...)';
+      box.appendChild(busy);
+    }
+  } catch (_) { box.textContent = ''; }
+}
+
+function buildClipsCard() {
+  if (document.getElementById('clipsCard')) return;
+  const card = document.createElement('div');
+  card.className = 'card mb-16';
+  card.id = 'clipsCard';
+  card.innerHTML = `
+    <div class="section-title">✂ Make clips from a long video</div>
+    <div style="font-size:12px; color:var(--text-muted); margin:-6px 0 14px;">Paste a long video, choose how long each clip should be and how many clips you want. Each time, clips continue from where the last ones ended - a part that was already made is never made again, so you can make them part by part (for example 3 now, 3 later). In this mode only cutting is done; other editing effects are not applied.</div>
+    <div class="field">
+      <label for="clipsUrl">Video URL</label>
+      <input id="clipsUrl" type="url" placeholder="https://..." />
+    </div>
+    <div id="clipsProgress" style="font-size:12px; color:var(--text-muted); margin:-4px 0 12px;"></div>
+    <div class="field-row">
+      <div class="field">
+        <label for="clipsLength">Length of each clip</label>
+        <div style="display:flex; gap:6px;">
+          <input id="clipsLength" type="number" min="1" step="any" value="1" style="flex:1;" />
+          <select id="clipsUnit" style="width:110px;"><option value="60" selected>minutes</option><option value="1">seconds</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="clipsCount">How many clips now</label>
+        <input id="clipsCount" type="number" min="1" max="100" step="1" placeholder="Empty = all remaining" />
+      </div>
+    </div>
+    <label class="checkbox-row" style="margin-bottom:10px;">
+      <input id="clipsSaveToDrive" type="checkbox" checked /> Save clips to Google Drive
+    </label>
+    <div class="field" id="clipsFolderField">
+      <label for="clipsFolder">Save into Drive folder</label>
+      <select id="clipsFolder"></select>
+    </div>
+    <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">Up to 100 clips per run with Drive (20 without Drive). The last piece is skipped if it is shorter than 5 seconds.</div>
+    <button class="btn primary" id="clipsBtn">Make clips</button>
+    <div id="clipsMsg" style="margin-top:8px; font-size:13px; color:var(--text-muted);"></div>`;
+
+  const explainBtn = document.getElementById('explainBtn');
+  const anchor = explainBtn ? explainBtn.closest('.card') : null;
+  if (anchor) anchor.after(card);
+  else { const c = document.querySelector('.content'); if (!c) return; c.prepend(card); }
+
+  const folderSel = document.getElementById('clipsFolder');
+  const mainFolders = document.getElementById('folderSelect');
+  folderSel.innerHTML = mainFolders ? mainFolders.innerHTML : '';
+  const folderField = document.getElementById('clipsFolderField');
+  const saveBox = document.getElementById('clipsSaveToDrive');
+  saveBox.addEventListener('change', () => { folderField.style.display = saveBox.checked ? '' : 'none'; });
+
+  const urlEl = document.getElementById('clipsUrl');
+  wireSingleUrlAutoClean(urlEl);
+  const schedule = () => { clearTimeout(clipsProgressTimer); clipsProgressTimer = setTimeout(refreshClipProgress, 400); };
+  urlEl.addEventListener('input', schedule);
+  urlEl.addEventListener('change', schedule);
+  urlEl.addEventListener('paste', schedule);
+
+  document.getElementById('clipsBtn').addEventListener('click', async () => {
+    const msg = document.getElementById('clipsMsg');
+    const btn = document.getElementById('clipsBtn');
+    const url = urlEl.value.trim();
+    if (!url) { msg.textContent = 'Please paste a video URL.'; return; }
+    const seconds = Math.round(Number(document.getElementById('clipsLength').value) * Number(document.getElementById('clipsUnit').value));
+    if (!(seconds >= 5)) { msg.textContent = 'Each clip must be at least 5 seconds long.'; return; }
+    const countRaw = document.getElementById('clipsCount').value.trim();
+    const maxClips = countRaw ? parseInt(countRaw, 10) : null;
+    if (countRaw && !(maxClips >= 1)) { msg.textContent = 'How many clips: enter 1 or more, or leave it empty for all remaining.'; return; }
+    const saveToDrive = saveBox.checked;
+    const driveFolderId = saveToDrive ? folderSel.value : null;
+    const driveFolderName = saveToDrive ? folderSel.selectedOptions[0]?.dataset.name : null;
+    if (saveToDrive && !driveFolderId) { msg.textContent = 'Please select a Drive folder, or turn off "Save clips to Google Drive".'; return; }
+
+    btn.disabled = true;
+    msg.textContent = 'Starting…';
+    try {
+      await apiFetch('/videoedit/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          url, secondaryUrl: null,
+          effects: { clipSplit: { enabled: true, clipSeconds: seconds, maxClips } },
+          driveFolderId, driveFolderName, saveToDrive, regenerateMetadata: false,
+        }),
+      });
+      msg.textContent = 'Started! The clips appear in the history table below as they are made.';
+      loadJobs();
+    } catch (err) {
+      msg.textContent = `Error: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
   renderNav('videoedit');
 
   await loadFolders();
+  buildClipsCard();
   await loadJobs();
   updateFolderFieldVisibility();
   updateSecondaryUrlVisibility();
