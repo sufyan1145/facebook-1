@@ -24,6 +24,8 @@ const effects = require('./utils.videoEffects');
 const autoHighlight = require('./utils.autoHighlight');
 const ffmpeg = require('./utils.ffmpeg');
 const clipSplitService = require('./services.clipSplitService');
+const multiVoiceDubService = require('./services.multiVoiceDubService');
+const dubTimeline = require('./utils.dubTimeline');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
@@ -182,11 +184,34 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       logger.info(`[video-edit] job ${job.id}: transcribing + dubbing into ${spec.dubTargetLanguage}`);
       await VideoEditJob.setStatus(job.id, 'dubbing');
       const dubbedAudioPath = path.join(env.upload.tempDir, `${job.id}_dubbed_audio.wav`);
-      await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null, spec.dubVoiceName || undefined);
+      if (spec.dubMultiVoice) {
+        // Multi-voice: every speaker gets their own male/female voice, placed
+        // at the time the original line was spoken (services.multiVoiceDubService.js).
+        const r = await multiVoiceDubService.dubVideoMultiVoice(current, dubbedAudioPath, {
+          targetLanguage: spec.dubTargetLanguage,
+          sourceLanguage: spec.dubSourceLanguage || null,
+          fallbackVoice: spec.dubVoiceName || null,
+        });
+        logger.info(`[video-edit] job ${job.id}: multi-voice dub - ${r.speakers} speaker(s), ${r.lines} line(s)`);
+      } else {
+        await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null, spec.dubVoiceName || undefined);
+      }
       tempFiles.push(dubbedAudioPath);
 
+      // Optional (both dub modes): keep the video's original audio, quietly,
+      // underneath the dub. 0 / not set = the old behaviour (original replaced).
+      let audioForMux = dubbedAudioPath;
+      const originalVolume = dubTimeline.clampOriginalVolume(spec.dubOriginalVolume);
+      if (originalVolume > 0) {
+        const mixedPath = path.join(env.upload.tempDir, `${job.id}_dubbed_mixed.m4a`);
+        await multiVoiceDubService.mixOriginalUnder(current, dubbedAudioPath, originalVolume, mixedPath);
+        tempFiles.push(mixedPath);
+        audioForMux = mixedPath;
+        logger.info(`[video-edit] job ${job.id}: original audio kept at ${Math.round(originalVolume * 100)}% under the dub`);
+      }
+
       const out = path.join(env.upload.tempDir, `${job.id}_0_dubbed.mp4`);
-      await runFfmpeg(['-i', current, '-i', dubbedAudioPath, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
+      await runFfmpeg(['-i', current, '-i', audioForMux, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
       current = out;
       tempFiles.push(out);
       logger.info(`[video-edit] job ${job.id}: dubbing done`);

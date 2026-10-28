@@ -430,6 +430,39 @@ function buildClipsCard() {
   });
 }
 
+
+// ---------------------------------------------------------------------------
+// Dub extras, added to the existing "Transcribe & dub" section (no HTML change):
+//  - "Different voice for each speaker": male voices for men, female voices for
+//    women, each speaker keeps their own voice (services.multiVoiceDubService.js)
+//  - "Original audio volume": keep the video's own audio quietly under the dub
+// ---------------------------------------------------------------------------
+function buildDubExtras() {
+  const fields = document.getElementById('dubFields');
+  if (!fields || document.getElementById('dubMultiVoice')) return;
+  const box = document.createElement('div');
+  box.id = 'dubExtras';
+  box.innerHTML = `
+    <label class="checkbox-row" style="margin-bottom:6px; display:flex; align-items:center; justify-content:flex-start; gap:8px; text-align:left;">
+      <input id="dubMultiVoice" style="width:auto; flex:0 0 auto;" type="checkbox" /> Different voice for each speaker (male / female, detected automatically)
+    </label>
+    <div style="font-size:11px; color:var(--text-muted); margin:0 0 12px;">The AI works out who is speaking and whether it is a man or a woman, and gives every person their own voice, spoken at the same moment as the original line. Up to 60 minutes. The speaker detection is the AI's best guess, so check the result. The "Dub voice" above is then only used if a voice cannot be chosen.</div>
+    <div class="field">
+      <label for="dubOriginalVolume">Original audio volume: <span id="dubOriginalVolumeLabel">0% (off - original is replaced)</span></label>
+      <input id="dubOriginalVolume" type="range" min="0" max="50" step="5" value="0" />
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">0% = only the dub is heard (same as before). Higher = the video's original sound (voices, music, effects) stays quietly underneath. 10-20% is a good start. Only keep the original sound if you have the rights to this video's audio.</div>
+    </div>`;
+  fields.appendChild(box);
+  const slider = document.getElementById('dubOriginalVolume');
+  const label = document.getElementById('dubOriginalVolumeLabel');
+  const update = () => {
+    const v = Number(slider.value);
+    label.textContent = v === 0 ? '0% (off - original is replaced)' : `${v}%`;
+  };
+  slider.addEventListener('input', update);
+  update();
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
@@ -437,6 +470,7 @@ function buildClipsCard() {
 
   await loadFolders();
   buildClipsCard();
+  buildDubExtras();
   await loadJobs();
   updateFolderFieldVisibility();
   updateSecondaryUrlVisibility();
@@ -522,6 +556,8 @@ function buildClipsCard() {
       autoHighlightMinutes: autoHighlightEnabled ? (Number(document.getElementById('autoHighlightMinutes').value) || 1.5) : null,
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       dubVoiceName: dubEnabled ? (document.getElementById('dubVoiceName').value || null) : null,
+      dubMultiVoice: dubEnabled && !!(document.getElementById('dubMultiVoice') || {}).checked,
+      dubOriginalVolume: dubEnabled ? (Number((document.getElementById('dubOriginalVolume') || {}).value || 0) / 100) : 0,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,
