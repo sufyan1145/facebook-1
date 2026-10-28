@@ -94,10 +94,10 @@ async function hasAudioStream(file) {
   } catch (_) { return false; }
 }
 
-async function detectSilenceMids(audioPath) {
+async function detectSilences(audioPath) {
   try {
-    const { stderr } = await ff(['-i', audioPath, '-af', 'silencedetect=noise=-35dB:d=0.35', '-f', 'null', '-'], { encoding: 'utf8' });
-    return tl.parseSilenceDetect(stderr);
+    const { stderr } = await ff(['-i', audioPath, '-af', 'silencedetect=noise=-35dB:d=0.25', '-f', 'null', '-'], { encoding: 'utf8' });
+    return tl.parseSilenceIntervals(stderr);
   } catch (_) { return []; }
 }
 
@@ -274,20 +274,22 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
     const total = await mediaDuration(sourceFilePath);
     if (total > MAX_VIDEO_SECONDS) throw new Error('Multi-voice dub supports videos up to 60 minutes. Use a shorter video, or make clips first.');
 
-    // 1. audio + parts
-    const fullAudio = mark(path.join(dir, `${base}_mv_full.mp3`));
-    await ff(['-i', sourceFilePath, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '48k', fullAudio]);
-    const silences = await detectSilenceMids(fullAudio);
-    const chunks = tl.planChunks(total, { target: 300, window: 30, silences });
-    logger.info(`[multivoice-dub] ${total.toFixed(0)}s of video -> ${chunks.length} part(s) for transcription`);
+    // 1. audio + parts. The working copy is an uncompressed WAV so cutting it
+    //    is sample-accurate; parts are short (~2.5 min) because the AI's
+    //    timestamps are more exact on short audio than on a long one.
+    const fullAudio = mark(path.join(dir, `${base}_mv_full.wav`));
+    await ff(['-i', sourceFilePath, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', fullAudio]);
+    const silences = await detectSilences(fullAudio);
+    const chunks = tl.planChunks(total, { target: 150, window: 20, silences: silences.map((s) => (s.start + s.end) / 2) });
+    logger.info(`[multivoice-dub] ${total.toFixed(0)}s of video -> ${chunks.length} part(s) for transcription, ${silences.length} silence(s) found`);
 
     // 2. who says what, when (parts one after another so speaker ids carry over)
     let all = [];
     let known = [];
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
-      const part = chunks.length === 1 ? fullAudio : mark(path.join(dir, `${base}_mv_part${i}.mp3`));
-      if (chunks.length > 1) await ff(['-ss', String(c.start), '-i', fullAudio, '-t', String(c.end - c.start), '-c:a', 'libmp3lame', '-b:a', '48k', '-ar', '16000', '-ac', '1', part]);
+      const part = mark(path.join(dir, `${base}_mv_part${i}.mp3`));
+      await ff(['-ss', String(c.start), '-i', fullAudio, '-t', String(c.end - c.start), '-c:a', 'libmp3lame', '-b:a', '48k', '-ar', '16000', '-ac', '1', part]);
       const raw = await geminiSegments(part, { targetLabel, sourceLanguage, known });
       const segs = tl.normalizeSegments(raw, { offset: c.start, chunkLength: c.end - c.start });
       all = all.concat(segs);
@@ -296,7 +298,12 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
     }
     if (!all.length) throw new Error('No speech was found in this video, so there is nothing to dub.');
     all.sort((a, b) => a.start - b.start);
-    const lines = tl.mergeSegments(all);
+
+    // Pin every line to where speech really starts/ends in the original audio.
+    const snap = tl.snapToSpeech(all, silences);
+    const shifts = snap.lines.map((l) => Math.abs(l.start - l.rawStart));
+    logger.info(`[multivoice-dub] timing: ${snap.snapped}/${all.length} line starts matched to real speech, average correction ${(shifts.reduce((a, b) => a + b, 0) / Math.max(shifts.length, 1)).toFixed(2)}s, largest ${Math.max(0, ...shifts).toFixed(2)}s`);
+    const lines = tl.mergeSegments(snap.lines);
 
     // 3. voices
     const speakers = tl.summarizeSpeakers(lines);

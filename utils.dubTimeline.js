@@ -61,7 +61,7 @@ function round3(n) { return Math.round(n * 1000) / 1000; }
 
 // Joins neighbouring lines of the SAME speaker that are almost back-to-back, so
 // the voice speaks them as one natural sentence (and we make fewer TTS calls).
-function mergeSegments(segs, { maxGap = 0.6, maxDuration = 18, maxChars = 600 } = {}) {
+function mergeSegments(segs, { maxGap = 0.5, maxDuration = 10, maxChars = 450 } = {}) {
   const out = [];
   for (const s of segs) {
     const last = out[out.length - 1];
@@ -152,6 +152,51 @@ function parseSilenceDetect(stderrText) {
   return mids;
 }
 
+function parseSilenceIntervals(stderrText) {
+  const out = [];
+  let start = null;
+  for (const line of String(stderrText || '').split('\n')) {
+    const a = line.match(/silence_start:\s*(-?[\d.]+)/);
+    if (a) { start = Math.max(parseFloat(a[1]), 0); continue; }
+    const b = line.match(/silence_end:\s*(-?[\d.]+)/);
+    if (b && start !== null) { out.push({ start, end: parseFloat(b[1]) }); start = null; }
+  }
+  return out;
+}
+
+function nearest(list, t, window) {
+  let best = null; let bestD = Infinity;
+  for (const x of list) {
+    const d = Math.abs(x - t);
+    if (d <= window && d < bestD) { best = x; bestD = d; }
+  }
+  return best;
+}
+
+// The AI's timestamps are usually close but can be off by about a second.
+// The audio itself knows exactly where speech starts: right after a silence.
+// Each line's start is moved to the nearest speech start (and its end to the
+// nearest speech end) within `window` seconds. Where no silence is nearby
+// (e.g. constant background music) the AI's time is kept as it is.
+function snapToSpeech(lines, silences, { window = 1.2, minSilence = 0.25 } = {}) {
+  const real = (silences || []).filter((s) => s.end - s.start >= minSilence);
+  const onsets = real.map((s) => s.end);
+  const offsets = real.map((s) => s.start);
+  let prevStart = -Infinity;
+  let snapped = 0;
+  const out = lines.map((l) => {
+    let start = l.start; let end = l.end;
+    const o = nearest(onsets, l.start, window);
+    if (o !== null && o > prevStart + 0.05) { start = o; snapped += 1; }
+    const f = nearest(offsets, l.end, window);
+    if (f !== null && f > start + 0.3) end = f;
+    if (end <= start) end = l.end > start ? l.end : start + 0.5;
+    prevStart = start;
+    return { ...l, rawStart: l.start, start: round3(start), end: round3(end) };
+  });
+  return { lines: out, snapped };
+}
+
 // Parts of about `target` seconds; each cut is moved to the quietest nearby
 // spot (a silence within +-window) so a sentence is not cut in half.
 function planChunks(total, { target = 300, window = 30, silences = [] } = {}) {
@@ -213,5 +258,5 @@ function clampOriginalVolume(v) {
 
 module.exports = {
   SAMPLE_RATE, parseTime, parseSegmentsJson, normalizeSegments, mergeSegments, summarizeSpeakers,
-  assignVoices, planPlacement, parseSilenceDetect, planChunks, mixPcm, encodeWav, clampOriginalVolume,
+  assignVoices, planPlacement, parseSilenceDetect, parseSilenceIntervals, snapToSpeech, planChunks, mixPcm, encodeWav, clampOriginalVolume,
 };
