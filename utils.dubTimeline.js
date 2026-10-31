@@ -338,7 +338,37 @@ function planSfxCues(lines, total, { minPause = 1.2, minSpacing = 5, max = 80 } 
   return cues;
 }
 
+function clampVolume01(v, dflt = 0) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(Math.max(n, 0), 1);
+}
+
+// Volume curve for the ORIGINAL audio: `speak` while somebody is talking (the
+// spans), `rest` everywhere else, with short smooth ramps so there are no
+// clicks. Returns Int16 samples (32767 = 100%) at `sampleRate`.
+function buildGainEnvelope(spans, totalSec, speak, rest, { sampleRate = SAMPLE_RATE, ramp = 0.15 } = {}) {
+  const len = Math.ceil(totalSec * sampleRate);
+  const target = new Float32Array(len).fill(rest);
+  for (const sp of spans || []) {
+    const a = Math.max(0, Math.round(sp.start * sampleRate));
+    const b = Math.min(len, Math.round(sp.end * sampleRate));
+    for (let i = a; i < b; i++) target[i] = speak;
+  }
+  const w = Math.max(1, Math.round(ramp * sampleRate));
+  const out = new Int16Array(len);
+  const half = Math.floor(w / 2);
+  const cum = new Float64Array(len + 1);
+  for (let i = 0; i < len; i++) cum[i + 1] = cum[i] + target[i];
+  for (let i = 0; i < len; i++) {
+    const lo = Math.max(0, i - half); const hi = Math.min(len, i + half + 1);
+    out[i] = Math.round(((cum[hi] - cum[lo]) / (hi - lo)) * 32767);
+  }
+  return out;
+}
+
 module.exports = {
+  clampVolume01, buildGainEnvelope,
   planSilenceCuts, keepSegments, mapTime, planSfxCues,
   SAMPLE_RATE, parseTime, parseSegmentsJson, normalizeSegments, mergeSegments, summarizeSpeakers,
   assignVoices, planPlacement, parseSilenceDetect, parseSilenceIntervals, snapToSpeech, planChunks, mixPcm, encodeWav, clampOriginalVolume,

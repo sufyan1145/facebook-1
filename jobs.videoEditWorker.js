@@ -205,13 +205,18 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       // Optional (both dub modes): keep the video's original audio, quietly,
       // underneath the dub. 0 / not set = the old behaviour (original replaced).
       let audioForMux = dubbedAudioPath;
-      const originalVolume = dubTimeline.clampOriginalVolume(spec.dubOriginalVolume);
-      if (originalVolume > 0) {
+      // New settings: volume while speaking (default 0) + the rest of the time
+      // (default 100%, needs the multi-voice dub which knows when people talk).
+      // Old jobs only have dubOriginalVolume (one constant volume).
+      const speakVol = spec.dubOriginalVolumeSpeak != null ? dubTimeline.clampVolume01(spec.dubOriginalVolumeSpeak, 0) : dubTimeline.clampOriginalVolume(spec.dubOriginalVolume);
+      const restVol = spec.dubOriginalVolumeRest != null ? dubTimeline.clampVolume01(spec.dubOriginalVolumeRest, 1) : speakVol;
+      const envelope = !!(dubInfo && dubInfo.spans && dubInfo.spans.length && spec.dubOriginalVolumeRest != null);
+      if (envelope ? (speakVol > 0 || restVol > 0) : speakVol > 0) {
         const mixedPath = path.join(env.upload.tempDir, `${job.id}_dubbed_mixed.m4a`);
-        await multiVoiceDubService.mixOriginalUnder(current, dubbedAudioPath, originalVolume, mixedPath);
+        await multiVoiceDubService.mixOriginalUnder(current, dubbedAudioPath, speakVol, mixedPath, envelope ? { spans: dubInfo.spans, total: dubInfo.total, restVolume: restVol } : {});
         tempFiles.push(mixedPath);
         audioForMux = mixedPath;
-        logger.info(`[video-edit] job ${job.id}: original audio kept at ${Math.round(originalVolume * 100)}% under the dub`);
+        logger.info(`[video-edit] job ${job.id}: original audio at ${Math.round(speakVol * 100)}% while speaking${envelope ? `, ${Math.round(restVol * 100)}% the rest of the time` : ''}`);
       }
 
       const out = path.join(env.upload.tempDir, `${job.id}_0_dubbed.mp4`);

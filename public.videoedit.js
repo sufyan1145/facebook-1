@@ -464,19 +464,20 @@ function buildDubExtras() {
     </label>
     <div style="font-size:11px; color:var(--text-muted); margin:0 0 12px;">A short whoosh and a quick zoom-in when someone starts talking after a pause or the speaker changes. Needs "Different voice for each speaker".</div>
     <div class="field">
-      <label for="dubOriginalVolume">Original audio volume: <span id="dubOriginalVolumeLabel">0% (off - original is replaced)</span></label>
-      <input id="dubOriginalVolume" type="range" min="0" max="50" step="5" value="0" />
-      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">0% = only the dub is heard (same as before). Higher = the video's original sound (voices, music, effects) stays quietly underneath. 10-20% is a good start. Only keep the original sound if you have the rights to this video's audio.</div>
+      <label for="dubOriginalVolumeSpeak">Original volume while people speak: <span id="dubOriginalVolumeSpeakLabel">0%</span></label>
+      <input id="dubOriginalVolumeSpeak" type="range" min="0" max="100" step="5" value="0" />
+    </div>
+    <div class="field">
+      <label for="dubOriginalVolumeRest">Original volume the rest of the time: <span id="dubOriginalVolumeRestLabel">100%</span></label>
+      <input id="dubOriginalVolumeRest" type="range" min="0" max="100" step="5" value="100" />
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">0% while speaking + 100% the rest = the original dialogue is muted, but the music and sound effects stay. The "rest of the time" setting needs "Different voice for each speaker" (it knows when people talk); without it, only the first slider is used for the whole video. If the AI misses a line, the original voice of that line can still be heard. Only keep the original sound if you have the rights to this video's audio.</div>
     </div>`;
   fields.appendChild(box);
-  const slider = document.getElementById('dubOriginalVolume');
-  const label = document.getElementById('dubOriginalVolumeLabel');
-  const update = () => {
-    const v = Number(slider.value);
-    label.textContent = v === 0 ? '0% (off - original is replaced)' : `${v}%`;
-  };
-  slider.addEventListener('input', update);
-  update();
+  [['dubOriginalVolumeSpeak', 'dubOriginalVolumeSpeakLabel'], ['dubOriginalVolumeRest', 'dubOriginalVolumeRestLabel']].forEach(([id, lab]) => {
+    const sl = document.getElementById(id); const lb = document.getElementById(lab);
+    const upd = () => { lb.textContent = `${sl.value}%`; };
+    sl.addEventListener('input', upd); upd();
+  });
   const cutBox = document.getElementById('dubCutBox');
   const cutCb = document.getElementById('dubCutSilence');
   cutCb.addEventListener('change', () => { cutBox.style.display = cutCb.checked ? 'flex' : 'none'; });
@@ -581,7 +582,8 @@ function buildDubExtras() {
       dubSilenceKeep: Number((document.getElementById('dubSilenceKeep') || {}).value || 3),
       dubVoiceShift: dubEnabled ? Number((document.getElementById('dubVoiceShift') || {}).value || 0) : 0,
       dubSfxZoom: dubEnabled && !!(document.getElementById('dubSfxZoom') || {}).checked,
-      dubOriginalVolume: dubEnabled ? (Number((document.getElementById('dubOriginalVolume') || {}).value || 0) / 100) : 0,
+      dubOriginalVolumeSpeak: dubEnabled ? (Number((document.getElementById('dubOriginalVolumeSpeak') || {}).value || 0) / 100) : 0,
+      dubOriginalVolumeRest: dubEnabled ? (Number((document.getElementById('dubOriginalVolumeRest') || {}).value || 100) / 100) : 1,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,

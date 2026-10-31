@@ -380,9 +380,23 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
  * Works for any dub (single voice or multi-voice). Videos without an audio
  * track just keep the dub. The result is as long as the longer of the two.
  */
-async function mixOriginalUnder(videoPath, dubAudioPath, volume, outPath) {
-  const v = tl.clampOriginalVolume(volume);
-  if (v <= 0 || !(await hasAudioStream(videoPath))) {
+async function mixOriginalUnder(videoPath, dubAudioPath, volume, outPath, { spans = null, total = null, restVolume = null } = {}) {
+  const hasOriginal = await hasAudioStream(videoPath);
+  const useEnvelope = !!(spans && spans.length && restVolume !== null && total);
+  if (useEnvelope && hasOriginal) {
+    // Original audio: `volume` (0-1) while people talk, `restVolume` otherwise.
+    const speak = tl.clampVolume01(volume, 0);
+    const rest = tl.clampVolume01(restVolume, 1);
+    const gainPath = outPath.replace(/\.[^.]+$/, '') + '_gain.wav';
+    try {
+      fs.writeFileSync(gainPath, tl.encodeWav(tl.buildGainEnvelope(spans, total, speak, rest)));
+      const filter = `[0:a]aresample=${tl.SAMPLE_RATE},aformat=channel_layouts=mono[o0];[2:a]aresample=${tl.SAMPLE_RATE},aformat=channel_layouts=mono[g];[o0][g]amultiply[o];[1:a]aresample=${tl.SAMPLE_RATE},aformat=channel_layouts=mono[d];[o][d]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,alimiter=limit=0.95[a]`;
+      await ff(['-i', videoPath, '-i', dubAudioPath, '-i', gainPath, '-filter_complex', filter, '-map', '[a]', '-c:a', 'aac', '-b:a', '192k', outPath]);
+    } finally { try { fs.unlinkSync(gainPath); } catch (_) {} }
+    return outPath;
+  }
+  const v = tl.clampVolume01(volume, 0);
+  if (v <= 0 || !hasOriginal) {
     await ff(['-i', dubAudioPath, '-c:a', 'aac', '-b:a', '192k', outPath]);
     return outPath;
   }
