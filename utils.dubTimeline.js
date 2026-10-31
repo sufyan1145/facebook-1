@@ -120,7 +120,7 @@ function assignVoices(speakers, pools) {
 // Each clip starts when the original line started and may run into the gap
 // before the next line; if it is still too long it is sped up (max `maxTempo`);
 // if even that is not enough it simply runs a little into the next line.
-function planPlacement(segs, total, { maxTempo = 1.4 } = {}) {
+function planPlacement(segs, total, { maxTempo = 1.5, shift = 0, maxDrift = 3 } = {}) {
   const out = [];
   let overruns = 0;
   for (let i = 0; i < segs.length; i++) {
@@ -131,7 +131,15 @@ function planPlacement(segs, total, { maxTempo = 1.4 } = {}) {
     const tempo = Math.min(Math.max(s.dur / room, 1), maxTempo);
     const placed = s.dur / tempo;
     if (placed > room + 0.05) overruns += 1;
-    let startSec = s.start;
+    let startSec = Math.max(0, s.start - shift);
+    // Never let two voices talk over each other: a line that would start while
+    // the previous one is still speaking waits for it (up to maxDrift seconds
+    // late; beyond that it keeps its own time so the video never drifts).
+    const prev = out[out.length - 1];
+    if (prev) {
+      const prevEnd = prev.startSec + prev.placedDuration + 0.08;
+      if (startSec < prevEnd && prevEnd - (s.start - shift) <= maxDrift) startSec = prevEnd;
+    }
     if (startSec + placed > total) startSec = Math.max(0, total - placed);
     out.push({ index: i, startSec: round3(startSec), tempo: round3(tempo), placedDuration: round3(placed) });
   }

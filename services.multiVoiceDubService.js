@@ -260,7 +260,7 @@ async function mapLimit(items, limit, fn) {
  * @param {object} o { targetLanguage, sourceLanguage, fallbackVoice }
  * @returns {Promise<{speakers:number, lines:number, overruns:number}>}
  */
-async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguage, sourceLanguage = null, fallbackVoice = null } = {}) {
+async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguage, sourceLanguage = null, fallbackVoice = null, voiceShift = 0 } = {}) {
   const languageCode = TTS_LANGUAGE_CODES[targetLanguage];
   if (!languageCode) throw new Error(`"${targetLanguage}" isn't a supported dub language. Supported: ${Object.keys(TTS_LANGUAGE_CODES).join(', ')}`);
   const targetLabel = LANGUAGE_LABEL[targetLanguage] || (targetLanguage.charAt(0).toUpperCase() + targetLanguage.slice(1));
@@ -340,7 +340,7 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
       for (const p of spoken[i]) dur += await mediaDuration(p);
       measured.push({ i, start: lines[i].start, end: lines[i].end, dur });
     }
-    const plan = tl.planPlacement(measured, total);
+    const plan = tl.planPlacement(measured, total, { shift: Math.min(Math.max(Number(voiceShift) || 0, 0), 3) });
     const items = [];
     const spans = [];
     const cueLines = [];

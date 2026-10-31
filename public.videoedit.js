@@ -447,6 +447,10 @@ function buildDubExtras() {
       <input id="dubMultiVoice" style="width:auto; flex:0 0 auto;" type="checkbox" /> Different voice for each speaker (male / female, detected automatically)
     </label>
     <div style="font-size:11px; color:var(--text-muted); margin:0 0 12px;">The AI works out who is speaking and whether it is a man or a woman, and gives every person their own voice, spoken at the same moment as the original line. Up to 60 minutes. The speaker detection is the AI's best guess, so check the result. The "Dub voice" above is then only used if a voice cannot be chosen.</div>
+    <div class="field" style="margin-top:12px;">
+      <label for="dubVoiceShift">Voice earlier by (seconds) <input id="dubVoiceShift" type="number" min="0" max="3" step="0.5" value="0" style="width:70px;" /></label>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">If the dub comes a little late after the scene starts, try 1 or 2. Lines never overlap each other.</div>
+    </div>
     <label class="checkbox-row" style="margin:12px 0 6px; display:flex; align-items:center; justify-content:flex-start; gap:8px; text-align:left;">
       <input id="dubCutSilence" style="width:auto; flex:0 0 auto;" type="checkbox" /> Cut long silent parts
     </label>
@@ -575,6 +579,7 @@ function buildDubExtras() {
       dubCutSilence: dubEnabled && !!(document.getElementById('dubCutSilence') || {}).checked,
       dubSilenceMax: Number((document.getElementById('dubSilenceMax') || {}).value || 5),
       dubSilenceKeep: Number((document.getElementById('dubSilenceKeep') || {}).value || 3),
+      dubVoiceShift: dubEnabled ? Number((document.getElementById('dubVoiceShift') || {}).value || 0) : 0,
       dubSfxZoom: dubEnabled && !!(document.getElementById('dubSfxZoom') || {}).checked,
       dubOriginalVolume: dubEnabled ? (Number((document.getElementById('dubOriginalVolume') || {}).value || 0) / 100) : 0,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,

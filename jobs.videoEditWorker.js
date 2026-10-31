@@ -193,6 +193,7 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
           targetLanguage: spec.dubTargetLanguage,
           sourceLanguage: spec.dubSourceLanguage || null,
           fallbackVoice: spec.dubVoiceName || null,
+          voiceShift: spec.dubVoiceShift || 0,
         });
         dubInfo = r;
         logger.info(`[video-edit] job ${job.id}: multi-voice dub - ${r.speakers} speaker(s), ${r.lines} line(s)`);
