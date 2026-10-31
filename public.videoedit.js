@@ -447,6 +447,18 @@ function buildDubExtras() {
       <input id="dubMultiVoice" style="width:auto; flex:0 0 auto;" type="checkbox" /> Different voice for each speaker (male / female, detected automatically)
     </label>
     <div style="font-size:11px; color:var(--text-muted); margin:0 0 12px;">The AI works out who is speaking and whether it is a man or a woman, and gives every person their own voice, spoken at the same moment as the original line. Up to 60 minutes. The speaker detection is the AI's best guess, so check the result. The "Dub voice" above is then only used if a voice cannot be chosen.</div>
+    <label class="checkbox-row" style="margin:12px 0 6px; display:flex; align-items:center; justify-content:flex-start; gap:8px; text-align:left;">
+      <input id="dubCutSilence" style="width:auto; flex:0 0 auto;" type="checkbox" /> Cut long silent parts
+    </label>
+    <div style="font-size:11px; color:var(--text-muted); margin:0 0 6px;">Only where nobody is talking. A scene with dialogue is never cut. Needs "Different voice for each speaker".</div>
+    <div id="dubCutBox" style="display:none; gap:10px; margin:0 0 12px;">
+      <label style="font-size:12px;">Cut silence longer than (sec) <input id="dubSilenceMax" type="number" min="2" max="30" value="5" style="width:70px;" /></label>
+      <label style="font-size:12px;">Keep this much (sec) <input id="dubSilenceKeep" type="number" min="0" max="10" value="3" style="width:70px;" /></label>
+    </div>
+    <label class="checkbox-row" style="margin:12px 0 6px; display:flex; align-items:center; justify-content:flex-start; gap:8px; text-align:left;">
+      <input id="dubSfxZoom" style="width:auto; flex:0 0 auto;" type="checkbox" /> Sound effect + zoom-in at scene moments
+    </label>
+    <div style="font-size:11px; color:var(--text-muted); margin:0 0 12px;">A short whoosh and a quick zoom-in when someone starts talking after a pause or the speaker changes. Needs "Different voice for each speaker".</div>
     <div class="field">
       <label for="dubOriginalVolume">Original audio volume: <span id="dubOriginalVolumeLabel">0% (off - original is replaced)</span></label>
       <input id="dubOriginalVolume" type="range" min="0" max="50" step="5" value="0" />
@@ -461,6 +473,9 @@ function buildDubExtras() {
   };
   slider.addEventListener('input', update);
   update();
+  const cutBox = document.getElementById('dubCutBox');
+  const cutCb = document.getElementById('dubCutSilence');
+  cutCb.addEventListener('change', () => { cutBox.style.display = cutCb.checked ? 'flex' : 'none'; });
 }
 
 (async function init() {
@@ -557,6 +572,10 @@ function buildDubExtras() {
       dubSourceLanguage: dubEnabled ? (document.getElementById('dubSourceLanguage').value || null) : null,
       dubVoiceName: dubEnabled ? (document.getElementById('dubVoiceName').value || null) : null,
       dubMultiVoice: dubEnabled && !!(document.getElementById('dubMultiVoice') || {}).checked,
+      dubCutSilence: dubEnabled && !!(document.getElementById('dubCutSilence') || {}).checked,
+      dubSilenceMax: Number((document.getElementById('dubSilenceMax') || {}).value || 5),
+      dubSilenceKeep: Number((document.getElementById('dubSilenceKeep') || {}).value || 3),
+      dubSfxZoom: dubEnabled && !!(document.getElementById('dubSfxZoom') || {}).checked,
       dubOriginalVolume: dubEnabled ? (Number((document.getElementById('dubOriginalVolume') || {}).value || 0) / 100) : 0,
       newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
       productExplainer: productExplainerEnabled ? {

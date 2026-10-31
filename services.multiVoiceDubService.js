@@ -342,6 +342,8 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
     }
     const plan = tl.planPlacement(measured, total);
     const items = [];
+    const spans = [];
+    const cueLines = [];
     for (let k = 0; k < measured.length; k++) {
       const { i } = measured[k];
       const place = plan.items[k];
@@ -351,6 +353,9 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
       const pcm = new Int16Array(len);
       let off = 0; for (const c of chunksPcm) { pcm.set(c, off); off += c.length; }
       items.push({ pcm, startSec: place.startSec });
+      const lineSpan = { start: Math.min(lines[i].start, place.startSec), end: Math.max(lines[i].end, place.startSec + place.placedDuration) };
+      spans.push({ start: lineSpan.start - 0.15, end: lineSpan.end + 0.15 });
+      cueLines.push({ start: lines[i].start, end: lineSpan.end, speaker: lines[i].speaker });
       spoken[i].forEach((p) => { try { fs.unlinkSync(p); } catch (_) {} });
     }
 
@@ -358,7 +363,12 @@ async function dubVideoMultiVoice(sourceFilePath, destAudioPath, { targetLanguag
     const mixed = tl.mixPcm(items, total);
     fs.writeFileSync(destAudioPath, tl.encodeWav(mixed));
     logger.info(`[multivoice-dub] done: ${lines.length} lines, ${speakers.length} speakers, ${plan.overruns} line(s) slightly overlap the next one`);
-    return { speakers: speakers.length, lines: lines.length, overruns: plan.overruns };
+    // Lines whose speech failed still count as dialogue (never cut there).
+    lines.forEach((l, i) => { if (!spoken[i]) spans.push({ start: l.start - 0.15, end: l.end + 0.15 }); });
+    // Where people talk (never cut) and where a sound-effect + zoom fits - used
+    // by services.dubFinishService.js for the optional "cut silences" / "SFX zoom".
+    const cues = tl.planSfxCues(cueLines, total);
+    return { speakers: speakers.length, lines: lines.length, overruns: plan.overruns, spans, cues, total };
   } finally {
     scratch.forEach((p) => { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {} });
   }

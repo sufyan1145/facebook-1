@@ -256,7 +256,82 @@ function clampOriginalVolume(v) {
   return Math.min(n, 0.5);
 }
 
+// ---- cutting long silences + sound-effect cues -----------------------------
+
+// spans: [{start,end}] where somebody is talking (original line or dubbed
+// line, whichever is longer). A "silence" is any stretch between spans.
+// Silences longer than `minSilence` are shortened to `keep` seconds (half kept
+// before, half after the cut); shorter ones are never touched, and nothing
+// inside a dialogue span is ever cut. Returns the REMOVED ranges.
+function planSilenceCuts(spans, total, { minSilence = 5, keep = 3 } = {}) {
+  const clean = (spans || [])
+    .filter((s) => s && Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
+    .map((s) => ({ start: Math.max(0, s.start), end: Math.min(total, s.end) }))
+    .sort((a, b) => a.start - b.start);
+  if (!clean.length) return [];
+  const merged = [];
+  for (const s of clean) {
+    const last = merged[merged.length - 1];
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+    else merged.push({ ...s });
+  }
+  const k = Math.min(Math.max(keep, 0), minSilence);
+  const half = k / 2;
+  const cuts = [];
+  const gap = (a, b, head, tail) => {
+    if (b - a <= minSilence) return;
+    const from = head ? a : a + half;
+    const to = tail ? b : b - half;
+    if (head && tail) return;
+    if (to - from > 0.05) cuts.push({ start: round3(from), end: round3(to) });
+  };
+  gap(0, merged[0].start, true, false);
+  for (let i = 0; i + 1 < merged.length; i++) gap(merged[i].end, merged[i + 1].start, false, false);
+  gap(merged[merged.length - 1].end, total, false, true);
+  return cuts;
+}
+
+function keepSegments(cuts, total) {
+  const out = [];
+  let pos = 0;
+  for (const c of cuts) {
+    if (c.start - pos > 0.05) out.push({ start: round3(pos), end: round3(c.start) });
+    pos = Math.max(pos, c.end);
+  }
+  if (total - pos > 0.05) out.push({ start: round3(pos), end: round3(total) });
+  return out;
+}
+
+// Time in the original -> time in the shortened video.
+function mapTime(keep, t) {
+  let acc = 0;
+  for (const k of keep) {
+    if (t < k.start) return round3(acc);
+    if (t <= k.end) return round3(acc + (t - k.start));
+    acc += k.end - k.start;
+  }
+  return round3(acc);
+}
+
+// Where a sound effect + zoom-in happens: when someone starts talking after a
+// real pause, or when the speaker changes (a new "beat" of the scene), never
+// closer together than `minSpacing`. lines: [{start, speaker}] sorted.
+function planSfxCues(lines, total, { minPause = 1.2, minSpacing = 5, max = 80 } = {}) {
+  const cues = [];
+  let prevEnd = 0; let prevSpeaker = null; let last = -Infinity;
+  for (const l of lines) {
+    const pause = l.start - prevEnd;
+    const change = prevSpeaker !== null && l.speaker !== prevSpeaker;
+    if ((pause >= minPause || change) && l.start - last >= minSpacing && l.start < total - 0.6 && cues.length < max) {
+      cues.push(round3(l.start)); last = l.start;
+    }
+    prevEnd = Math.max(prevEnd, l.end); prevSpeaker = l.speaker;
+  }
+  return cues;
+}
+
 module.exports = {
+  planSilenceCuts, keepSegments, mapTime, planSfxCues,
   SAMPLE_RATE, parseTime, parseSegmentsJson, normalizeSegments, mergeSegments, summarizeSpeakers,
   assignVoices, planPlacement, parseSilenceDetect, parseSilenceIntervals, snapToSpeech, planChunks, mixPcm, encodeWav, clampOriginalVolume,
 };

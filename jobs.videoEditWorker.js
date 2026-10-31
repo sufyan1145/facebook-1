@@ -26,6 +26,7 @@ const ffmpeg = require('./utils.ffmpeg');
 const clipSplitService = require('./services.clipSplitService');
 const multiVoiceDubService = require('./services.multiVoiceDubService');
 const dubTimeline = require('./utils.dubTimeline');
+const dubFinishService = require('./services.dubFinishService');
 const Log = require('./models.Log');
 const { notifyUploadEvent } = require('./services.notificationService');
 
@@ -184,6 +185,7 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       logger.info(`[video-edit] job ${job.id}: transcribing + dubbing into ${spec.dubTargetLanguage}`);
       await VideoEditJob.setStatus(job.id, 'dubbing');
       const dubbedAudioPath = path.join(env.upload.tempDir, `${job.id}_dubbed_audio.wav`);
+      let dubInfo = null;
       if (spec.dubMultiVoice) {
         // Multi-voice: every speaker gets their own male/female voice, placed
         // at the time the original line was spoken (services.multiVoiceDubService.js).
@@ -192,6 +194,7 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
           sourceLanguage: spec.dubSourceLanguage || null,
           fallbackVoice: spec.dubVoiceName || null,
         });
+        dubInfo = r;
         logger.info(`[video-edit] job ${job.id}: multi-voice dub - ${r.speakers} speaker(s), ${r.lines} line(s)`);
       } else {
         await transcribeDubService.dubVideo(current, dubbedAudioPath, spec.dubTargetLanguage, spec.dubSourceLanguage || null, spec.dubVoiceName || undefined);
@@ -215,6 +218,25 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
       current = out;
       tempFiles.push(out);
       logger.info(`[video-edit] job ${job.id}: dubbing done`);
+
+      // Optional finishing (multi-voice dub only, it knows where people talk):
+      // cut long silences and/or sound effect + zoom-in.
+      const wantCut = !!spec.dubCutSilence;
+      const wantSfx = !!spec.dubSfxZoom;
+      if (dubInfo && (wantCut || wantSfx)) {
+        try {
+          const cuts = wantCut ? dubTimeline.planSilenceCuts(dubInfo.spans, dubInfo.total, {
+            minSilence: Math.min(Math.max(Number(spec.dubSilenceMax) || 5, 2), 30),
+            keep: Math.min(Math.max(Number(spec.dubSilenceKeep) || 3, 0), 10),
+          }) : [];
+          const fin = path.join(env.upload.tempDir, `${job.id}_0_finished.mp4`);
+          const r2 = await dubFinishService.finishDub(current, fin, { cuts, cues: wantSfx ? dubInfo.cues : [], sfx: wantSfx, total: dubInfo.total, runFfmpeg });
+          if (r2.output !== current) { current = r2.output; tempFiles.push(fin); }
+          logger.info(`[video-edit] job ${job.id}: finishing done - ${r2.removedSeconds.toFixed(1)}s silence removed, ${r2.cues} zoom moment(s)`);
+        } catch (err) {
+          logger.warn(`[video-edit] job ${job.id}: finishing (silence cut / zoom) failed, keeping the plain dub: ${err.message}`);
+        }
+      }
     }
 
     let secondaryPath = null;
