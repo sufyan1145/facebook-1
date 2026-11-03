@@ -68,12 +68,7 @@ function getImpersonateArgs() {
 // what YouTube's bot-detection actually keys off of - cookies alone aren't
 // always enough from a flagged datacenter IP range (Contabo, Railway, AWS,
 // etc. are all treated the same way).
-// Chinese platforms (Douyin etc.) time out through the residential proxy, so
-// they go direct (or via DOUYIN_PROXY if set).
-function getProxyArgs(url = '') {
-  if (/(^|\.)(douyin|iesdouyin|amemv)\.com/i.test(url.replace(/^https?:\/\//, '').split('/')[0])) {
-    return process.env.DOUYIN_PROXY ? ['--proxy', process.env.DOUYIN_PROXY] : [];
-  }
+function getProxyArgs() {
   if (!env.videoDownload?.proxyUrl) return [];
   if (!getProxyArgs._logged) {
     getProxyArgs._logged = true;
@@ -99,7 +94,7 @@ async function getMetadata(url) {
   try {
     const { stdout } = await execFileAsync(
       YTDLP_BIN,
-      [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(url), '--dump-json', '--no-warnings', '--skip-download', url],
+      [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(), '--dump-json', '--no-warnings', '--skip-download', url],
       { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 }
     );
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -114,7 +109,57 @@ async function getMetadata(url) {
   }
 }
 
+// ---- reliability wrapper -------------------------------------------------
+// The proxy (SOCKS5) drops connections now and then, especially when several
+// downloads start at once ("cannot complete SOCKS5 connection"). So:
+//  1. at most YTDLP_CONCURRENCY (default 2) downloads run at the same time,
+//  2. network/proxy errors are retried (3 tries, short wait in between),
+//  3. if the proxy still fails, one last try goes direct (without the proxy).
+const MAX_PARALLEL = Math.max(1, parseInt(process.env.YTDLP_CONCURRENCY, 10) || 2);
+let activeDownloads = 0;
+const waiting = [];
+async function acquireSlot() {
+  if (activeDownloads < MAX_PARALLEL) { activeDownloads += 1; return; }
+  await new Promise((resolve) => waiting.push(resolve));
+}
+function releaseSlot() {
+  const next = waiting.shift();
+  if (next) next(); else activeDownloads -= 1;
+}
+const NETWORK_ERROR_RE = /SOCKS5|ProxyError|proxy|Connection (reset|refused|aborted)|timed out|Timeout|Temporary failure|Unable to download (API|webpage)|HTTP Error 5\d\d|Remote end closed|EOF occurred|Network is unreachable|IncompleteRead|Read timed out/i;
+function withoutProxy(args) {
+  const i = args.indexOf('--proxy');
+  return i === -1 ? args : [...args.slice(0, i), ...args.slice(i + 2)];
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function ytdlpDownload(url, rawPath, args) {
+  await acquireSlot();
+  try {
+    const tries = 3;
+    let lastErr;
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      try {
+        return await ytdlpDownloadOnce(url, rawPath, args);
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err.stderr || err.message || '');
+        if (!NETWORK_ERROR_RE.test(msg)) throw err;
+        logger.warn(`[videodl] network/proxy error for ${url} (try ${attempt}/${tries}): ${msg.split('\n')[0].slice(0, 200)}`);
+        if (attempt < tries) await sleep(attempt * 4000);
+      }
+    }
+    if (args.includes('--proxy')) {
+      logger.warn(`[videodl] proxy kept failing for ${url}, last try without the proxy`);
+      try { return await ytdlpDownloadOnce(url, rawPath, withoutProxy(args)); } catch (err) { lastErr = err; }
+    }
+    throw lastErr;
+  } finally {
+    releaseSlot();
+  }
+}
+
+async function ytdlpDownloadOnce(url, rawPath, args) {
   try {
     await execFileAsync(YTDLP_BIN, args, { timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20 });
   } catch (err) {
@@ -178,7 +223,9 @@ async function ytdlpDownload(url, rawPath, args) {
     }
 
     logger.error(`[videodl] download failed for ${url}: ${message}`);
-    throw new Error('Failed to download this video.');
+    const finalErr = new Error('Failed to download this video.');
+    finalErr.stderr = message; // lets the retry wrapper recognise proxy/network errors
+    throw finalErr;
 
 
   }
@@ -216,7 +263,7 @@ async function getCodecs(filePath) {
 
 async function findAudioVideoFormatId(url) {
   try {
-    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(url), '--dump-json', '--no-warnings', '--skip-download', url], {
+    const { stdout } = await execFileAsync(YTDLP_BIN, [...getCookiesArgs(), ...getImpersonateArgs(), ...getProxyArgs(), '--dump-json', '--no-warnings', '--skip-download', url], {
       timeout: TIMEOUT_MS, maxBuffer: 1024 * 1024 * 20,
     });
     const data = JSON.parse(stdout.trim().split('\n')[0]);
@@ -240,7 +287,7 @@ async function downloadVideo(url, destPath) {
   const rawPath = destPath.replace(/\.mp4$/, '_raw.mp4');
   const cookiesArgs = getCookiesArgs();
   const impersonateArgs = getImpersonateArgs();
-  const proxyArgs = getProxyArgs(url);
+  const proxyArgs = getProxyArgs();
   // --merge-output-format mp4 is required on every attempt (not just the
   // explicit-merge fallback below). Without it, whenever yt-dlp has to merge
   // separately-downloaded video+audio streams (which is exactly what happens
