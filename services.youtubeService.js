@@ -60,4 +60,30 @@ async function uploadVideo(userId, youtubeTokenId, filePath, { title, descriptio
   return videoId;
 }
 
-module.exports = { uploadVideo };
+/**
+ * Sets a custom thumbnail on an uploaded video (JPEG/PNG, max 2 MB).
+ * Needs a verified YouTube channel (YouTube rule, not ours); the existing
+ * youtube.upload permission is enough.
+ */
+async function uploadThumbnail(userId, youtubeTokenId, videoId, imagePath) {
+  const auth = await getValidYoutubeClient(userId, youtubeTokenId);
+  const youtube = google.youtube({ version: 'v3', auth });
+  await youtube.thumbnails.set({
+    videoId,
+    media: { mimeType: /\.png$/i.test(imagePath) ? 'image/png' : 'image/jpeg', body: fs.createReadStream(imagePath) },
+  });
+  logger.info(`[youtube] custom thumbnail set for video ${videoId}`);
+}
+
+// Same rule uploadVideo uses to decide Short vs long-form.
+async function isLongVideo(filePath, videoType) {
+  if (videoType === 'shorts') return false;
+  if (videoType === 'long') return true;
+  try {
+    return (await ffmpeg.getMediaDuration(filePath)) > SHORTS_MAX_SECONDS;
+  } catch (e) {
+    return false;
+  }
+}
+
+module.exports = { uploadVideo, uploadThumbnail, isLongVideo };

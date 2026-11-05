@@ -4,8 +4,7 @@ const logger = require('./utils.logger');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const youtubeService = require('./services.youtubeService');
-const instagramService = require('./services.instagramService');
-const { registerTempPublicFile, unregisterTempPublicFile } = require('./routes.mediaPublic');
+const youtubeThumbnailService = require('./services.youtubeThumbnailService');
 const env = require('./config.env');
 const UploadHistory = require('./models.UploadHistory');
 const Log = require('./models.Log');
@@ -13,8 +12,6 @@ const QueueJob = require('./models.QueueJob');
 const { notifyUploadEvent } = require('./services.notificationService');
 const Page = require('./models.Page');
 const TikTokJob = require('./models.TikTokJob');
-const VideoEditJob = require('./models.VideoEditJob');
-const { captionFromFileName } = require('./utils.fileNameCaption');
 const ffmpeg = require('./utils.ffmpeg');
 const path = require('path');
 
@@ -23,8 +20,8 @@ const worker = new Worker(
   async (job) => {
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
-      publishImmediately, pageName, postToFacebook, postToInstagram, youtubeTokenId, youtubeVideoType,
-      autoBackgroundMusic, musicFolderId, useFilenameAsCaption,
+      publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
+      autoBackgroundMusic, musicFolderId,
     } = job.data;
 
     // If this exact file was downloaded via the TikTok Downloader, use its
@@ -42,33 +39,6 @@ const worker = new Worker(
       }
     } catch (lookupErr) {
       logger.error(`TikTok caption lookup failed for ${file.name}: ${lookupErr.message}`);
-    }
-
-    // Same idea for files made by the Video Editor: its regenerated title is
-    // stored on the video_edit_jobs row (and is also baked into the Drive file name).
-    if (!tiktokJob || !tiktokJob.generated_title) {
-      try {
-        const editJob = await VideoEditJob.findByDriveFileId(file.id);
-        if (editJob && editJob.generated_title) {
-          caption = editJob.generated_title;
-          hashtags = editJob.generated_hashtags || scheduleHashtags;
-          logger.info(`Using Video Editor title as caption for ${file.name}`);
-        }
-      } catch (lookupErr) {
-        logger.error(`Video Editor caption lookup failed for ${file.name}: ${lookupErr.message}`);
-      }
-    }
-
-    // Optional per-schedule setting: no generated title was found (e.g. the
-    // history was cleared, or it is a plain Drive video) - use the text in the
-    // file name itself as the Facebook/Instagram description and YouTube description.
-    const usedGeneratedTitle = caption !== scheduleCaption || (tiktokJob && tiktokJob.generated_title);
-    if (useFilenameAsCaption && !usedGeneratedTitle) {
-      const fromName = captionFromFileName(file.name);
-      if (fromName) {
-        caption = fromName;
-        logger.info(`Using file name as caption for ${file.name}: "${fromName}"`);
-      }
     }
 
     await QueueJob.upsertFromBullJob(job, 'active', userId, scheduleId);
@@ -127,18 +97,11 @@ const worker = new Worker(
         await Log.record(userId, 'Background Music Failed', { file: file.name, error: 'No music folder selected on the schedule' }, 'error');
       }
 
-      // Fetched once, shared by both Facebook and Instagram below - an
-      // Instagram Business account is always linked to a Facebook Page, so
-      // both platforms post through the same Page record and the same Page
-      // Access Token (page.page_access_token).
-      let page = null;
-      if ((postToFacebook !== false || postToInstagram) && pageDbId) {
-        page = await Page.findById(userId, pageDbId);
-        if (!page) throw new Error('Facebook page not found or disconnected');
-      }
-
       let fbVideoId = historyRow.facebook_video_id || null;
       if (postToFacebook !== false && pageDbId && !fbVideoId) {
+        const page = await Page.findById(userId, pageDbId);
+        if (!page) throw new Error('Facebook page not found or disconnected');
+
         fbVideoId = await facebookService.uploadVideoToPage({
           pageId: page.page_id,
           pageAccessToken: page.page_access_token,
@@ -154,40 +117,6 @@ const worker = new Worker(
         logger.info(`Skipping Facebook upload for ${file.name} - already uploaded in a previous attempt (${fbVideoId})`);
       }
 
-      // Instagram is optional and best-effort, same as YouTube below: a
-      // failure here never undoes an already-successful Facebook post.
-      // Needs a public URL for the video (see routes.mediaPublic.js) since
-      // Instagram's Graph API fetches it rather than accepting a direct
-      // upload - registered just for this step and torn down right after.
-      if (postToInstagram && page && !historyRow.instagram_media_id) {
-        if (!page.instagram_business_account_id) {
-          logger.error(`Instagram posting enabled for schedule ${scheduleId} but Page "${pageName}" has no linked Instagram Business/Creator account - skipping`);
-          await Log.record(userId, 'Instagram Upload Failed', { file: file.name, page: pageName, error: 'This Facebook Page has no linked Instagram Business/Creator account' }, 'error');
-        } else {
-          let publicToken;
-          try {
-            publicToken = registerTempPublicFile(tempPath);
-            const videoUrl = `${env.appUrl}/media-temp/${publicToken}`;
-            const igCaption = hashtags ? `${caption || ''}\n\n${hashtags}`.trim() : (caption || '');
-            const instagramMediaId = await instagramService.uploadVideoToInstagram({
-              instagramUserId: page.instagram_business_account_id,
-              pageAccessToken: page.page_access_token,
-              videoUrl,
-              caption: igCaption,
-            });
-            await UploadHistory.markInstagramUploaded(historyRow.id, instagramMediaId);
-            await Log.record(userId, 'Instagram Upload Completed', { file: file.name, page: pageName, instagramMediaId });
-          } catch (igErr) {
-            await Log.record(userId, 'Instagram Upload Failed', { file: file.name, page: pageName, error: igErr.message }, 'error');
-            logger.error(`Instagram upload failed for schedule ${scheduleId}: ${igErr.message}`);
-          } finally {
-            if (publicToken) unregisterTempPublicFile(publicToken);
-          }
-        }
-      } else if (postToInstagram && historyRow.instagram_media_id) {
-        logger.info(`Skipping Instagram upload for ${file.name} - already uploaded in a previous attempt (${historyRow.instagram_media_id})`);
-      }
-
       // YouTube is optional and best-effort: a failure here should not undo an
       // already-successful (or intentionally skipped) Facebook post.
       // Also skipped entirely if a previous (retried) attempt already uploaded
@@ -195,14 +124,31 @@ const worker = new Worker(
       if (youtubeTokenId && !historyRow.youtube_video_id) {
         try {
           const tags = (hashtags || '').split(/\s+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean);
+          const ytTitle = (tiktokJob && tiktokJob.generated_title) || file.name.replace(/\.[^.]+$/, '');
           const youtubeVideoId = await youtubeService.uploadVideo(userId, youtubeTokenId, tempPath, {
-            title: (tiktokJob && tiktokJob.generated_title) || file.name.replace(/\.[^.]+$/, ''),
+            title: ytTitle,
             description: caption || file.name,
             tags,
             videoType: youtubeVideoType,
           });
           await UploadHistory.markYoutubeUploaded(historyRow.id, youtubeVideoId);
           await Log.record(userId, 'YouTube Upload Completed', { file: file.name, youtubeVideoId });
+
+          // Long videos only: AI thumbnail (Nano Banana 2). Best effort - a
+          // failure here never affects the upload that already succeeded.
+          if (youtubeThumbnailService.enabled() && await youtubeService.isLongVideo(tempPath, youtubeVideoType)) {
+            const thumbPath = path.join(env.upload.tempDir, `${youtubeVideoId}_thumb.jpg`);
+            try {
+              await youtubeThumbnailService.createThumbnail(tempPath, ytTitle, thumbPath);
+              await youtubeService.uploadThumbnail(userId, youtubeTokenId, youtubeVideoId, thumbPath);
+              await Log.record(userId, 'YouTube Thumbnail Set', { file: file.name, youtubeVideoId });
+            } catch (thumbErr) {
+              await Log.record(userId, 'YouTube Thumbnail Failed', { file: file.name, error: thumbErr.message }, 'error');
+              logger.error(`YouTube thumbnail failed for ${file.name}: ${thumbErr.message}`);
+            } finally {
+              driveService.deleteTempFile(thumbPath);
+            }
+          }
         } catch (ytErr) {
           await Log.record(userId, 'YouTube Upload Failed', { file: file.name, error: ytErr.message }, 'error');
           logger.error(`YouTube upload failed for schedule ${scheduleId}: ${ytErr.message}`);

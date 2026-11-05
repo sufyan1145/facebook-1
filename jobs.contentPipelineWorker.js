@@ -21,6 +21,7 @@ const vertexAiService = require('./services.vertexAiService');
 const pollinationsService = require('./services.pollinationsService');
 const pexelsService = require('./services.pexelsService');
 const youtubeService = require('./services.youtubeService');
+const youtubeThumbnailService = require('./services.youtubeThumbnailService');
 const driveService = require('./services.googleDriveService');
 const facebookService = require('./services.facebookService');
 const ffmpeg = require('./utils.ffmpeg');
@@ -566,17 +567,15 @@ async function runPipeline(schedule) {
         await Log.record(schedule.user_id, 'YouTube Upload Completed', { keyword: schedule.keyword, youtubeVideoId });
         logger.info(`[content-pipeline] YouTube upload succeeded for schedule ${schedule.id}, video id: ${youtubeVideoId}`);
 
-        // Custom thumbnail is also best-effort - a failure here shouldn't affect the video upload above.
+        // Custom AI thumbnail (long videos only) is best-effort - a failure here shouldn't affect the video upload above.
         try {
-          const thumbBgPath = path.join(env.upload.tempDir, `${run.id}_thumb_bg.png`);
-          const thumbPath = path.join(env.upload.tempDir, `${run.id}_thumb.jpg`);
-          const thumbPrompt = `${script.topic}, dramatic, eye-catching, vibrant colors, high contrast, professional YouTube thumbnail background, cinematic, no text, no words, no logos`;
-          await generateStandaloneImage(thumbPrompt, thumbBgPath, 1280, 720, '16:9');
-          tempFiles.push(thumbBgPath);
-          await ffmpeg.generateThumbnail(thumbBgPath, script.topic, thumbPath);
-          tempFiles.push(thumbPath);
-          await youtubeService.uploadThumbnail(schedule.user_id, schedule.youtube_token_id, youtubeVideoId, thumbPath);
-          logger.info(`[content-pipeline] custom thumbnail set for schedule ${schedule.id}`);
+          if (youtubeThumbnailService.enabled() && await youtubeService.isLongVideo(finalPath, schedule.youtube_video_type)) {
+            const thumbPath = path.join(env.upload.tempDir, `${run.id}_thumb.jpg`);
+            tempFiles.push(thumbPath);
+            await youtubeThumbnailService.createThumbnail(finalPath, script.topic, thumbPath);
+            await youtubeService.uploadThumbnail(schedule.user_id, schedule.youtube_token_id, youtubeVideoId, thumbPath);
+            logger.info(`[content-pipeline] custom thumbnail set for schedule ${schedule.id}`);
+          }
         } catch (thumbErr) {
           logger.error(`[content-pipeline] thumbnail generation/upload failed for schedule ${schedule.id}: ${thumbErr.message}`);
         }
