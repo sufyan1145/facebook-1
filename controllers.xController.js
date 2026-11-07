@@ -43,7 +43,22 @@ const checkAccount = wrap(async (req, res) => {
     await XAccount.markUsed(acc.id);
     res.json({ success: true, message: 'Cookies are working.' });
   } catch (err) {
+    // X's check endpoint being gone says nothing about the cookies - never mark those "expired".
+    if (err.endpointGone) return res.status(400).json({ success: false, message: `Could not check right now. ${err.message} Use "Test post" to prove the account works.` });
     await XAccount.markExpired(acc.id, err.message);
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// The one check that cannot lie: really post a short test tweet (the user can delete it).
+const testPost = wrap(async (req, res) => {
+  const acc = await XAccount.findById(req.user.id, req.params.id);
+  if (!acc) return res.status(404).json({ success: false, message: 'Account not found' });
+  try {
+    const r = await xService.postTweet(acc, { text: 'Test post from Sufyan PostFire - connection works. (you can delete this)' });
+    await Log.record(req.user.id, 'X Test Post', { username: acc.username, url: r.url });
+    res.json({ success: true, data: r });
+  } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
 });
@@ -54,4 +69,4 @@ const removeAccount = wrap(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { listAccounts, addAccount, checkAccount, removeAccount };
+module.exports = { listAccounts, addAccount, checkAccount, testPost, removeAccount };

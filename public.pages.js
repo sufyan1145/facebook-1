@@ -81,11 +81,21 @@ async function loadX() {
     el.innerHTML = data.map((a) => `<span class="account-chip">
       <span class="dot ${a.status === 'active' ? 'ok' : ''}"></span>@${escapeHtml(a.username)}${a.status === 'expired' ? ' <span class="badge failed" title="' + escapeHtml(a.last_error || '') + '">Expired</span>' : ''}
       <button class="btn xs" data-xcheck="${a.id}" title="Check the cookies still work">Check</button>
+      <button class="btn xs" data-xtest="${a.id}" title="Post a short test tweet to prove the account works">Test post</button>
       <button class="btn xs danger" data-xdel="${a.id}" title="Disconnect this X account">✕</button></span>`).join('');
     el.querySelectorAll('[data-xcheck]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true; xSay('Checking…');
       try { await apiFetch(`/x/accounts/${b.dataset.xcheck}/check`, { method: 'POST' }); xSay('Cookies are working.'); }
       catch (err) { xSay(err.message, true); }
+      loadX();
+    }));
+    el.querySelectorAll('[data-xtest]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Ye X par ek chhoti test post karega (baad mein aap delete kar sakte hain). Jari rakhein?')) return;
+      b.disabled = true; xSay('Posting test tweet…');
+      try {
+        const { data } = await apiFetch(`/x/accounts/${b.dataset.xtest}/test`, { method: 'POST' });
+        xSay(`Test post ho gayi: ${data.url}`);
+      } catch (err) { xSay(err.message, true); }
       loadX();
     }));
     el.querySelectorAll('[data-xdel]').forEach((b) => b.addEventListener('click', async () => {

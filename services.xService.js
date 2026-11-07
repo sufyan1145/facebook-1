@@ -121,19 +121,21 @@ function xError(err) {
 // present. It is generated from x.com's home page by the "x-client-transaction-id" package.
 // If the package is missing or X changes again, calls go out without it (and fail clearly).
 let txPromise = null; let txAt = 0;
+let txStatus = 'not tried yet';
 function getTransactionGenerator() {
   if (txPromise && Date.now() - txAt < 20 * 60 * 1000) return txPromise;
   txAt = Date.now();
   txPromise = (async () => {
     let lib;
     try { lib = require('x-client-transaction-id'); }
-    catch (_) { logger.warn('[x] package "x-client-transaction-id" is not installed - run npm install'); return null; }
+    catch (_) { txStatus = 'package x-client-transaction-id is NOT installed (run npm install / rebuild)'; logger.warn(`[x] ${txStatus}`); return null; }
     const doc = lib.handleXMigration ? await lib.handleXMigration() : await lib.fetchXDocument();
-    if (typeof lib.ClientTransaction.create === 'function') return lib.ClientTransaction.create(doc);
-    const ct = new lib.ClientTransaction(doc);
-    if (typeof ct.initialize === 'function') await ct.initialize();
+    let ct;
+    if (typeof lib.ClientTransaction.create === 'function') ct = await lib.ClientTransaction.create(doc);
+    else { ct = new lib.ClientTransaction(doc); if (typeof ct.initialize === 'function') await ct.initialize(); }
+    txStatus = 'ok';
     return ct;
-  })().catch((err) => { logger.warn(`[x] transaction-id setup failed: ${err.message}`); txPromise = null; return null; });
+  })().catch((err) => { txStatus = `setup failed: ${String(err.message).slice(0, 120)}`; logger.warn(`[x] transaction-id ${txStatus}`); txPromise = null; return null; });
   return txPromise;
 }
 
@@ -143,7 +145,8 @@ async function txHeader(method, url) {
   try {
     return { 'x-client-transaction-id': await ct.generateTransactionId(String(method).toUpperCase(), new URL(url).pathname) };
   } catch (err) {
-    logger.warn(`[x] transaction-id generation failed: ${err.message}`);
+    txStatus = `generate failed: ${String(err.message).slice(0, 120)}`;
+    logger.warn(`[x] transaction-id ${txStatus}`);
     return {};
   }
 }
@@ -182,7 +185,7 @@ async function verify({ authToken, ct0 }) {
       throw xError(err);
     }
   }
-  const e = new Error(`X did not answer on any known endpoint (${lastErr && lastErr.message ? lastErr.message : 'no reply'}).`);
+  const e = new Error(`X did not answer on any known endpoint (${lastErr && lastErr.message ? lastErr.message : 'no reply'}) [transaction-id: ${txStatus}]`);
   e.endpointGone = true; // cookies were not rejected - X just changed its endpoints
   throw e;
 }
