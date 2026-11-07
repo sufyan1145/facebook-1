@@ -68,9 +68,23 @@ function parseCookies({ authToken, ct0, cookies }) {
     }
   }
   a = a.replace(/^["']|["']$/g, ''); c = c.replace(/^["']|["']$/g, '');
-  if (!a || !c) throw new Error('Both auth_token and ct0 cookies are required.');
+  if (!a) throw new Error('The auth_token cookie is required.');
   if (/\s/.test(a + c)) throw new Error('The cookie values must not contain spaces.');
-  return { authToken: a, ct0: c };
+  return { authToken: a, ct0: c }; // ct0 is optional - it is fetched automatically when empty
+}
+
+// ct0 is only X's CSRF cookie. With just auth_token we ask x.com for a fresh one
+// (it comes back in Set-Cookie); if X does not hand one out we make our own - X only
+// checks that the cookie and the x-csrf-token header carry the same value.
+async function fetchCt0(authToken) {
+  try {
+    const r = await axios.get('https://x.com/', {
+      headers: { 'user-agent': UA, cookie: `auth_token=${authToken}` }, timeout: 20000, validateStatus: () => true,
+    });
+    const found = [].concat(r.headers['set-cookie'] || []).map((c) => String(c).match(/(?:^|\s)ct0=([^;]+)/)).find(Boolean);
+    if (found && found[1]) return found[1];
+  } catch (err) { logger.warn(`[x] ct0 fetch failed: ${err.message}`); }
+  return require('crypto').randomBytes(16).toString('hex');
 }
 
 function headers(acc, extra = {}) {
@@ -114,6 +128,7 @@ const VERIFY_ENDPOINTS = [
 ];
 
 async function verify({ authToken, ct0 }) {
+  ct0 = ct0 || await fetchCt0(authToken);
   const acc = { auth_token: authToken, ct0 };
   let lastErr = null;
   for (const url of VERIFY_ENDPOINTS) {
@@ -126,7 +141,7 @@ async function verify({ authToken, ct0 }) {
         const r = await axios.get('https://api.x.com/1.1/account/verify_credentials.json', { headers: headers(acc), timeout: 20000 });
         displayName = r.data && r.data.name; xUserId = r.data && r.data.id_str;
       } catch (_) { /* optional */ }
-      return { username, displayName, xUserId };
+      return { username, displayName, xUserId, ct0 };
     } catch (err) {
       if (!err.response) throw err;
       const status = err.response.status;
@@ -180,7 +195,19 @@ function fitTweet(text, url) {
 }
 
 // ---- post -------------------------------------------------------------------------
-async function postTweet(account, { text, url, imagePaths = [] }) {
+async function postTweet(account, opts) {
+  try {
+    return await postTweetOnce(account, opts);
+  } catch (err) {
+    if (err.status !== 403 || err.expired) throw err;
+    // ct0 may simply be stale: get a new one, save it, try once more
+    const fresh = await fetchCt0(account.auth_token);
+    await XAccount.setCt0(account.id, fresh);
+    return postTweetOnce({ ...account, ct0: fresh }, opts);
+  }
+}
+
+async function postTweetOnce(account, { text, url, imagePaths = [] }) {
   const acc = { ...account };
   try {
     const mediaIds = [];

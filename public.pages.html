@@ -28,11 +28,11 @@
         <div id="xList" class="accounts-list" style="margin-bottom:10px;"><span class="empty">Loading…</span></div>
         <div id="xMsg" style="font-size:12px; margin-bottom:8px;"></div>
         <form id="xForm" style="display:none; max-width:560px;" autocomplete="off">
-          <div class="field"><label for="xAuth">auth_token cookie</label><input id="xAuth" type="password" autocomplete="new-password" /></div>
-          <div class="field"><label for="xCt0">ct0 cookie</label><input id="xCt0" type="password" autocomplete="new-password" /></div>
-          <div class="field"><label for="xRaw">…or paste all cookies (cookie string or JSON export)</label><textarea id="xRaw" rows="3" placeholder='auth_token=...; ct0=...'></textarea>
+          <div class="field"><label for="xAuth">auth_token (OAuth token) — bas yehi chahiye</label><input id="xAuth" type="password" autocomplete="new-password" /></div>
+          <div class="field"><label for="xCt0">ct0 (optional — khali chhor dein, khud ho jayega)</label><input id="xCt0" type="password" autocomplete="new-password" /></div>
+          <div class="field"><label for="xRaw">…ya saari cookies paste karein (cookie string ya JSON export)</label><textarea id="xRaw" rows="3" placeholder='auth_token=...; ct0=...'></textarea>
             <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">
-              Log in to x.com in your browser → press F12 → <b>Application</b> (Chrome) → <b>Cookies → https://x.com</b> → copy the values of <b>auth_token</b> and <b>ct0</b>.
+              Log in to x.com in your browser → press F12 → <b>Application</b> (Chrome) → <b>Cookies → https://x.com</b> → copy the value of <b>auth_token</b> (ct0 is not needed).
               The cookies are checked with X first, then stored encrypted. If you log out of X in that browser, or X resets the session, the account shows "Expired" and you must add it again.
               This is an unofficial method: keep posting volume modest (a few posts a day) to protect your account.
             </div>

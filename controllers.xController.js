@@ -18,7 +18,7 @@ const addAccount = wrap(async (req, res) => {
   let info;
   try { info = await xService.verify(cookies); }
   catch (err) { return res.status(400).json({ success: false, message: `X did not accept these cookies: ${err.message}` }); }
-  const acc = await XAccount.upsert(req.user.id, { ...info, authToken: cookies.authToken, ct0: cookies.ct0 });
+  const acc = await XAccount.upsert(req.user.id, { ...info, authToken: cookies.authToken, ct0: info.ct0 || cookies.ct0 });
   await Log.record(req.user.id, 'X Account Connected', { username: info.username });
   res.status(201).json({ success: true, data: acc });
 });
