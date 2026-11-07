@@ -103,22 +103,38 @@ function xError(err) {
 }
 
 // ---- verify -------------------------------------------------------------------
+// X moves/removes internal endpoints now and then (a 404 "page does not exist" just means
+// THIS endpoint is gone), so several are tried in order. A 401/403 means bad cookies and stops.
+const VERIFY_ENDPOINTS = [
+  'https://api.x.com/1.1/account/settings.json',
+  'https://api.twitter.com/1.1/account/settings.json',
+  'https://x.com/i/api/1.1/account/settings.json',
+  'https://api.x.com/1.1/account/verify_credentials.json',
+  'https://x.com/i/api/1.1/account/verify_credentials.json',
+];
+
 async function verify({ authToken, ct0 }) {
   const acc = { auth_token: authToken, ct0 };
-  try {
-    const { data } = await axios.get('https://x.com/i/api/1.1/account/settings.json', { headers: headers(acc), timeout: 20000 });
-    const username = data && data.screen_name;
-    if (!username) throw new Error('Could not read the account name from X.');
-    let displayName = null; let xUserId = null;
+  let lastErr = null;
+  for (const url of VERIFY_ENDPOINTS) {
     try {
-      const r = await axios.get('https://x.com/i/api/1.1/account/verify_credentials.json', { headers: headers(acc), timeout: 20000 });
-      displayName = r.data && r.data.name; xUserId = r.data && r.data.id_str;
-    } catch (_) { /* optional */ }
-    return { username, displayName, xUserId };
-  } catch (err) {
-    if (err.response) throw xError(err);
-    throw err;
+      const { data } = await axios.get(url, { headers: headers(acc), timeout: 20000, params: { include_ext_sharing_audiospaces_listening_data_with_followers: true } });
+      const username = data && data.screen_name;
+      if (!username) { lastErr = new Error('Could not read the account name from X.'); continue; }
+      let displayName = null; let xUserId = null;
+      try {
+        const r = await axios.get('https://api.x.com/1.1/account/verify_credentials.json', { headers: headers(acc), timeout: 20000 });
+        displayName = r.data && r.data.name; xUserId = r.data && r.data.id_str;
+      } catch (_) { /* optional */ }
+      return { username, displayName, xUserId };
+    } catch (err) {
+      if (!err.response) throw err;
+      const status = err.response.status;
+      if (status === 404) { lastErr = xError(err); continue; }
+      throw xError(err);
+    }
   }
+  throw new Error(lastErr && lastErr.message ? `X did not answer on any known endpoint (${lastErr.message}). Please try again later.` : 'X did not answer. Please try again later.');
 }
 
 // ---- GraphQL queryId (changes when X ships a new web build) ---------------------

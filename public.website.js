@@ -76,8 +76,9 @@ async function loadShareTargets() {
   try { xAccounts = (await apiFetch('/x/accounts')).data; } catch (_) { xAccounts = []; }
   const box = $('shareBox');
   if (!fbPages.length && !xAccounts.length) { box.innerHTML = '<span class="empty">No social accounts connected yet.</span>'; return; }
-  box.innerHTML = fbPages.map((p) => `<label class="checkbox-row"><input type="checkbox" class="share-page" value="${p.id}" /> Facebook: ${escapeHtml(p.page_name)}</label>`).join('')
-    + xAccounts.map((x) => `<label class="checkbox-row"><input type="checkbox" class="share-x" value="${x.id}" ${x.status === 'expired' ? 'disabled' : ''} /> X: @${escapeHtml(x.username)}${x.status === 'expired' ? ' (cookies expired)' : ''}</label>`).join('');
+  const CB = 'style="width:auto; flex:none; padding:0; margin:0;"';
+  box.innerHTML = fbPages.map((p) => `<label class="checkbox-row" style="cursor:pointer;"><input type="checkbox" class="share-page" value="${p.id}" ${CB} /> <span>Facebook: ${escapeHtml(p.page_name || p.page_id)}</span></label>`).join('')
+    + xAccounts.map((x) => `<label class="checkbox-row" style="cursor:pointer;"><input type="checkbox" class="share-x" value="${x.id}" ${x.status === 'expired' ? 'disabled' : ''} ${CB} /> <span>X: @${escapeHtml(x.username)}${x.status === 'expired' ? ' (cookies expired)' : ''}</span></label>`).join('');
 }
 function pickedShare() {
   return {
