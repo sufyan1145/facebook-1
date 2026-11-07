@@ -183,4 +183,12 @@ const worker = new Worker(
 worker.on('completed', (job) => logger.info(`Job ${job.id} completed`));
 worker.on('failed', (job, err) => logger.error(`Job ${job?.id} failed: ${err.message}`));
 
+// Website Automation: its schedule checker runs in this same worker process
+// (loaded here so jobs.worker-entry.js does not need to change).
+try {
+  require('./jobs.websiteWorker').startWebsiteScheduleChecker();
+} catch (err) {
+  logger.error(`Website schedule checker could not start: ${err.message}`);
+}
+
 module.exports = worker;
