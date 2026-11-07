@@ -17,7 +17,18 @@ const addAccount = wrap(async (req, res) => {
   catch (err) { return res.status(400).json({ success: false, message: err.message }); }
   let info;
   try { info = await xService.verify(cookies); }
-  catch (err) { return res.status(400).json({ success: false, message: `X did not accept these cookies: ${err.message}` }); }
+  catch (err) {
+    // X changed its endpoints (cookies were NOT rejected): allow saving with the typed username;
+    // the first real post will prove the cookies.
+    const typed = String((req.body || {}).username || '').trim().replace(/^@/, '');
+    if (err.endpointGone && /^[A-Za-z0-9_]{1,15}$/.test(typed)) {
+      info = { username: typed, displayName: null, xUserId: null, ct0: cookies.ct0 || await xService.fetchCt0(cookies.authToken) };
+    } else if (err.endpointGone) {
+      return res.status(400).json({ success: false, message: 'X could not be checked right now. Type your X username (without @) in the username box and press "Verify & add" again - the account is saved and checked on its first post.' });
+    } else {
+      return res.status(400).json({ success: false, message: `X did not accept these cookies: ${err.message}` });
+    }
+  }
   const acc = await XAccount.upsert(req.user.id, { ...info, authToken: cookies.authToken, ct0: info.ct0 || cookies.ct0 });
   await Log.record(req.user.id, 'X Account Connected', { username: info.username });
   res.status(201).json({ success: true, data: acc });

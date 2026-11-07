@@ -103,7 +103,7 @@ function initX() {
     e.preventDefault();
     const btn = xel('xSaveBtn'); btn.disabled = true; btn.textContent = 'Verifying…'; xSay('');
     try {
-      const { data } = await apiFetch('/x/accounts', { method: 'POST', body: JSON.stringify({ authToken: xel('xAuth').value, ct0: xel('xCt0').value, cookies: xel('xRaw').value }) });
+      const { data } = await apiFetch('/x/accounts', { method: 'POST', body: JSON.stringify({ authToken: xel('xAuth').value, ct0: xel('xCt0').value, cookies: xel('xRaw').value, username: xel('xUser').value }) });
       xel('xForm').reset(); xel('xForm').style.display = 'none';
       xSay(`X account @${data.username} connected.`);
       loadX();

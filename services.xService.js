@@ -116,6 +116,38 @@ function xError(err) {
   return e;
 }
 
+// ---- x-client-transaction-id ---------------------------------------------------
+// X now rejects most internal API calls (404 "page does not exist") unless this header is
+// present. It is generated from x.com's home page by the "x-client-transaction-id" package.
+// If the package is missing or X changes again, calls go out without it (and fail clearly).
+let txPromise = null; let txAt = 0;
+function getTransactionGenerator() {
+  if (txPromise && Date.now() - txAt < 20 * 60 * 1000) return txPromise;
+  txAt = Date.now();
+  txPromise = (async () => {
+    let lib;
+    try { lib = require('x-client-transaction-id'); }
+    catch (_) { logger.warn('[x] package "x-client-transaction-id" is not installed - run npm install'); return null; }
+    const doc = lib.handleXMigration ? await lib.handleXMigration() : await lib.fetchXDocument();
+    if (typeof lib.ClientTransaction.create === 'function') return lib.ClientTransaction.create(doc);
+    const ct = new lib.ClientTransaction(doc);
+    if (typeof ct.initialize === 'function') await ct.initialize();
+    return ct;
+  })().catch((err) => { logger.warn(`[x] transaction-id setup failed: ${err.message}`); txPromise = null; return null; });
+  return txPromise;
+}
+
+async function txHeader(method, url) {
+  const ct = await getTransactionGenerator();
+  if (!ct) return {};
+  try {
+    return { 'x-client-transaction-id': await ct.generateTransactionId(String(method).toUpperCase(), new URL(url).pathname) };
+  } catch (err) {
+    logger.warn(`[x] transaction-id generation failed: ${err.message}`);
+    return {};
+  }
+}
+
 // ---- verify -------------------------------------------------------------------
 // X moves/removes internal endpoints now and then (a 404 "page does not exist" just means
 // THIS endpoint is gone), so several are tried in order. A 401/403 means bad cookies and stops.
@@ -133,12 +165,13 @@ async function verify({ authToken, ct0 }) {
   let lastErr = null;
   for (const url of VERIFY_ENDPOINTS) {
     try {
-      const { data } = await axios.get(url, { headers: headers(acc), timeout: 20000, params: { include_ext_sharing_audiospaces_listening_data_with_followers: true } });
+      const { data } = await axios.get(url, { headers: headers(acc, await txHeader('GET', url)), timeout: 20000, params: { include_ext_sharing_audiospaces_listening_data_with_followers: true } });
       const username = data && data.screen_name;
       if (!username) { lastErr = new Error('Could not read the account name from X.'); continue; }
       let displayName = null; let xUserId = null;
       try {
-        const r = await axios.get('https://api.x.com/1.1/account/verify_credentials.json', { headers: headers(acc), timeout: 20000 });
+        const vcUrl = 'https://api.x.com/1.1/account/verify_credentials.json';
+        const r = await axios.get(vcUrl, { headers: headers(acc, await txHeader('GET', vcUrl)), timeout: 20000 });
         displayName = r.data && r.data.name; xUserId = r.data && r.data.id_str;
       } catch (_) { /* optional */ }
       return { username, displayName, xUserId, ct0 };
@@ -149,7 +182,9 @@ async function verify({ authToken, ct0 }) {
       throw xError(err);
     }
   }
-  throw new Error(lastErr && lastErr.message ? `X did not answer on any known endpoint (${lastErr.message}). Please try again later.` : 'X did not answer. Please try again later.');
+  const e = new Error(`X did not answer on any known endpoint (${lastErr && lastErr.message ? lastErr.message : 'no reply'}).`);
+  e.endpointGone = true; // cookies were not rejected - X just changed its endpoints
+  throw e;
 }
 
 // ---- GraphQL queryId (changes when X ships a new web build) ---------------------
@@ -224,8 +259,9 @@ async function postTweetOnce(account, { text, url, imagePaths = [] }) {
       },
       features: FEATURES, queryId,
     };
-    const { data } = await axios.post(`https://x.com/i/api/graphql/${queryId}/CreateTweet`, body, {
-      headers: headers(acc, { 'content-type': 'application/json' }), timeout: 30000,
+    const ctUrl = `https://x.com/i/api/graphql/${queryId}/CreateTweet`;
+    const { data } = await axios.post(ctUrl, body, {
+      headers: headers(acc, { 'content-type': 'application/json', ...(await txHeader('POST', ctUrl)) }), timeout: 30000,
     });
     if (data && data.errors && data.errors.length) {
       const e = new Error(String(data.errors[0].message || 'X refused the post').slice(0, 300));
@@ -246,4 +282,4 @@ async function postTweetOnce(account, { text, url, imagePaths = [] }) {
   }
 }
 
-module.exports = { parseCookies, verify, postTweet, fitTweet, TWEET_LIMIT };
+module.exports = { parseCookies, verify, postTweet, fitTweet, fetchCt0, TWEET_LIMIT };
