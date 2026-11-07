@@ -178,4 +178,21 @@ async function writeArticle({ topic, language = 'auto', length = 'medium', image
   throw lastErr;
 }
 
-module.exports = { writeArticle, renderHtml, normalizeArticle, buildPrompt, parseJson, MAX_IMAGES };
+// Small Vertex text helper (used for social captions) - same auth/model as the article.
+async function generateJson(prompt, { maxOutputTokens = 2000, temperature = 0.8 } = {}) {
+  const token = await getAccessToken();
+  const resp = await retryOn429(
+    () => axios.post(
+      `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', maxOutputTokens, temperature } },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 90000 }
+    ),
+    { label: 'Vertex caption writing' }
+  );
+  const text = (resp.data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+  if (!text) throw new Error('Vertex did not return text');
+  return parseJson(text);
+}
+
+module.exports = { writeArticle, renderHtml, normalizeArticle, buildPrompt, parseJson, generateJson, MAX_IMAGES };
+

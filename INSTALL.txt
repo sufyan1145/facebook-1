@@ -1,0 +1,14 @@
+SOCIAL ACCOUNTS + X (cookies) + WEBSITE SHARING - install
+
+1. Is zip ki saari files apne project folder mein copy karein aur "Replace" kar dein
+   (nayi files seedhi add ho jayengi).
+2. Database migration chalayein:   node migrate-runner.js
+3. Web app aur worker (d2f-workers) dono restart/redeploy karein.
+
+Nayi files:     migrations.035_social_accounts_x.sql, models.XAccount.js, services.xService.js,
+                services.socialShareService.js, controllers.xController.js, routes.x.js
+Replace files:  server.js, jobs.worker-entry.js, jobs.websiteWorker.js, models.Website.js,
+                controllers.websiteController.js, controllers.adminController.js,
+                services.websiteArticleService.js, services.facebookService.js,
+                public.app.js, public.admin.js, public.pages.html, public.pages.js,
+                public.website.html, public.website.js

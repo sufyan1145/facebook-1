@@ -148,4 +148,20 @@ async function getPostImageUrl(facebookPostId, pageAccessToken) {
   return resp.data.full_picture || null;
 }
 
-module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage, getPostImageUrl };
+// Text post with an optional link preview (used when an article has no picture).
+async function postLinkToPage({ pageId, pageAccessToken, message, link }) {
+  try {
+    const params = { message, access_token: pageAccessToken };
+    if (link) params.link = link;
+    const resp = await axios.post(`${GRAPH_URL}/${pageId}/feed`, null, { params });
+    logger.info(`Posted link to page ${pageId}, fb post id: ${resp.data.id}`);
+    return resp.data.id;
+  } catch (err) {
+    const fbError = err.response?.data?.error;
+    logger.error(`[FB link post] FAILED for page ${pageId}: ${JSON.stringify(fbError || err.message)}`);
+    throw new Error(fbError?.message || err.message);
+  }
+}
+
+module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage, postLinkToPage, getPostImageUrl };
+

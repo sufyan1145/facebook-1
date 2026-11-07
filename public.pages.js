@@ -69,10 +69,55 @@ async function loadPages() {
   }
 }
 
+// ---- X (Twitter) accounts, connected with browser cookies ----
+const xel = (id) => document.getElementById(id);
+function xSay(text, bad) { const m = xel('xMsg'); m.textContent = text || ''; m.style.color = bad ? 'var(--signal-red)' : 'var(--signal-green)'; }
+
+async function loadX() {
+  try {
+    const { data } = await apiFetch('/x/accounts');
+    const el = xel('xList');
+    if (!data.length) { el.innerHTML = '<span class="empty">No X account connected yet.</span>'; return; }
+    el.innerHTML = data.map((a) => `<span class="account-chip">
+      <span class="dot ${a.status === 'active' ? 'ok' : ''}"></span>@${escapeHtml(a.username)}${a.status === 'expired' ? ' <span class="badge failed" title="' + escapeHtml(a.last_error || '') + '">Expired</span>' : ''}
+      <button class="btn xs" data-xcheck="${a.id}" title="Check the cookies still work">Check</button>
+      <button class="btn xs danger" data-xdel="${a.id}" title="Disconnect this X account">✕</button></span>`).join('');
+    el.querySelectorAll('[data-xcheck]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true; xSay('Checking…');
+      try { await apiFetch(`/x/accounts/${b.dataset.xcheck}/check`, { method: 'POST' }); xSay('Cookies are working.'); }
+      catch (err) { xSay(err.message, true); }
+      loadX();
+    }));
+    el.querySelectorAll('[data-xdel]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Disconnect this X account?')) return;
+      await apiFetch(`/x/accounts/${b.dataset.xdel}`, { method: 'DELETE' });
+      loadX();
+    }));
+  } catch (err) { xel('xList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`; }
+}
+
+function initX() {
+  xel('showXBtn').addEventListener('click', () => { xel('xForm').style.display = 'block'; xel('xCard').scrollIntoView({ behavior: 'smooth' }); });
+  xel('xCancelBtn').addEventListener('click', () => { xel('xForm').style.display = 'none'; xel('xForm').reset(); });
+  xel('xForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = xel('xSaveBtn'); btn.disabled = true; btn.textContent = 'Verifying…'; xSay('');
+    try {
+      const { data } = await apiFetch('/x/accounts', { method: 'POST', body: JSON.stringify({ authToken: xel('xAuth').value, ct0: xel('xCt0').value, cookies: xel('xRaw').value }) });
+      xel('xForm').reset(); xel('xForm').style.display = 'none';
+      xSay(`X account @${data.username} connected.`);
+      loadX();
+    } catch (err) { xSay(err.message, true); }
+    btn.disabled = false; btn.textContent = 'Verify & add';
+  });
+  loadX();
+}
+
 (async function init() {
   const user = await requireAuthOrRedirect();
   if (!user) return;
   renderNav('pages');
+  initX();
 
   document.getElementById('connectBtn').addEventListener('click', async () => {
     const res = await fetch('/api/auth/facebook/connect', { credentials: 'include' });

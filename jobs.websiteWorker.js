@@ -21,6 +21,7 @@ const { WebsiteAccount, WebsiteSchedule, WebsitePost } = require('./models.Websi
 const articleService = require('./services.websiteArticleService');
 const publishService = require('./services.websitePublishService');
 const vertexAiService = require('./services.vertexAiService');
+const socialShare = require('./services.socialShareService');
 
 const IMAGE_STYLE = 'Photorealistic, natural lighting, high quality editorial photo, 16:9 landscape, no text, no letters, no logos, no watermark.';
 
@@ -89,6 +90,21 @@ async function runWebsiteArticle(post) {
       title: article.title, url: result.url, excerpt: article.metaDescription, imageNote,
     });
     await Log.record(post.user_id, 'Website Article Published', { postId: post.id, title: article.title, url: result.url, platform: account.platform });
+
+    // Optional: share the live article on Facebook pages / X. Never fails the article.
+    if (post.publish_mode !== 'draft' && result.url && ((post.share_page_ids || []).length || (post.share_x_ids || []).length)) {
+      try {
+        const note = await socialShare.shareArticle({
+          userId: post.user_id, title: article.title, excerpt: article.metaDescription, topic: post.topic, language: post.language,
+          url: result.url, imagePath: tempFiles.find((f) => /\.jpg$/i.test(f)) || null,
+          pageIds: post.share_page_ids, xIds: post.share_x_ids,
+        });
+        if (note) { await WebsitePost.setShareNote(post.id, note); await Log.record(post.user_id, 'Website Article Shared', { postId: post.id, note }); }
+      } catch (err) {
+        logger.warn(`[website] post ${post.id}: social share failed: ${err.message}`);
+        await WebsitePost.setShareNote(post.id, `Share failed: ${String(err.message).slice(0, 200)}`);
+      }
+    }
     logger.info(`[website] post ${post.id}: ${post.publish_mode === 'draft' ? 'saved as draft' : 'published'} ${result.url}`);
   } catch (err) {
     logger.error(`[website] post ${post.id} failed: ${err.message}`);
@@ -163,6 +179,7 @@ async function fireSchedule(s) {
   const post = await WebsitePost.create(s.user_id, {
     accountId: s.account_id, scheduleId: s.id, topic: s.topic, language: s.language,
     articleLength: s.article_length, imageCount: s.image_count, publishMode: s.publish_mode,
+    sharePageIds: s.share_page_ids, shareXIds: s.share_x_ids,
   });
   await Log.record(s.user_id, 'Website Schedule Triggered', { scheduleId: s.id, postId: post.id, site: s.account_name });
   enqueueWebsitePost(post);

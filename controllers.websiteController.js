@@ -7,6 +7,8 @@ const { WebsiteAccount, WebsiteSchedule, WebsitePost } = require('./models.Websi
 const publishService = require('./services.websitePublishService');
 const { enqueueWebsitePost } = require('./jobs.websiteWorker');
 const articleService = require('./services.websiteArticleService');
+const Page = require('./models.Page');
+const XAccount = require('./models.XAccount');
 
 const LANGUAGES = ['auto', 'english', 'urdu', 'hindi', 'arabic', 'spanish', 'french', 'german', 'portuguese', 'turkish', 'indonesian', 'bengali', 'russian', 'italian', 'dutch', 'chinese', 'japanese', 'korean'];
 const LENGTHS = ['short', 'medium', 'long'];
@@ -49,6 +51,23 @@ function readScheduleSettings(b) {
   const specificDays = (Array.isArray(b.specificDays) ? b.specificDays : []).map(Number).filter((d) => d >= 0 && d <= 6);
   if (repeat === 'specific_days' && !specificDays.length) bad('Pick at least one day.');
   return { repeat, timezone, uploadTime, times, intervalHours, specificDays };
+}
+
+// Where to share the finished article. Only the user's own, still-connected targets are accepted.
+async function readShareSettings(userId, b) {
+  const ids = (v) => [...new Set((Array.isArray(v) ? v : []).map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x)))].slice(0, 20);
+  const sharePageIds = []; const shareXIds = [];
+  for (const id of ids(b.sharePageIds)) {
+    const p = await Page.findById(userId, id);
+    if (!p || !p.is_connected) bad('One of the selected Facebook pages is not connected.');
+    sharePageIds.push(id);
+  }
+  for (const id of ids(b.shareXIds)) {
+    const x = await XAccount.findById(userId, id);
+    if (!x) bad('One of the selected X accounts is not connected.');
+    shareXIds.push(id);
+  }
+  return { sharePageIds, shareXIds };
 }
 
 async function ownAccount(userId, accountId) {
@@ -157,7 +176,7 @@ const listSchedules = wrap(async (req, res) => {
 
 const createSchedule = wrap(async (req, res) => {
   const acc = await ownAccount(req.user.id, req.body.accountId);
-  const data = { accountId: acc.id, ...readArticleSettings(req.body), ...readScheduleSettings(req.body) };
+  const data = { accountId: acc.id, ...readArticleSettings(req.body), ...readScheduleSettings(req.body), ...(await readShareSettings(req.user.id, req.body)) };
   const s = await WebsiteSchedule.create(req.user.id, data);
   await Log.record(req.user.id, 'Website Schedule Created', { scheduleId: s.id });
   res.status(201).json({ success: true, data: s });
@@ -165,7 +184,7 @@ const createSchedule = wrap(async (req, res) => {
 
 const updateSchedule = wrap(async (req, res) => {
   const acc = await ownAccount(req.user.id, req.body.accountId);
-  const data = { accountId: acc.id, ...readArticleSettings(req.body), ...readScheduleSettings(req.body) };
+  const data = { accountId: acc.id, ...readArticleSettings(req.body), ...readScheduleSettings(req.body), ...(await readShareSettings(req.user.id, req.body)) };
   const s = await WebsiteSchedule.update(req.user.id, req.params.id, data);
   if (!s) return res.status(404).json({ success: false, message: 'Schedule not found' });
   res.json({ success: true, data: s });
@@ -186,7 +205,8 @@ const deleteSchedule = wrap(async (req, res) => {
 const writeNow = wrap(async (req, res) => {
   const acc = await ownAccount(req.user.id, req.body.accountId);
   const s = readArticleSettings(req.body);
-  const post = await WebsitePost.create(req.user.id, { accountId: acc.id, ...s });
+  const share = await readShareSettings(req.user.id, req.body);
+  const post = await WebsitePost.create(req.user.id, { accountId: acc.id, ...s, ...share });
   await Log.record(req.user.id, 'Website Article Started', { postId: post.id, site: acc.name });
   enqueueWebsitePost(post);
   res.status(202).json({ success: true, data: post });
@@ -200,6 +220,7 @@ const retryPost = wrap(async (req, res) => {
   const post = await WebsitePost.create(req.user.id, {
     accountId: acc.id, topic: old.topic, language: old.language, articleLength: old.article_length,
     imageCount: old.image_count, publishMode: old.publish_mode,
+    sharePageIds: old.share_page_ids, shareXIds: old.share_x_ids,
   });
   enqueueWebsitePost(post);
   res.status(202).json({ success: true, data: post });

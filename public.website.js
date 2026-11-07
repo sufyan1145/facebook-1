@@ -2,6 +2,8 @@
 let accounts = [];
 let schedules = [];
 let editingId = null;
+let fbPages = [];
+let xAccounts = [];
 let pollTimer = null;
 const days = new Set();
 
@@ -68,6 +70,26 @@ function initAccountForms() {
   if (q.toString()) history.replaceState(null, '', 'website.html');
 }
 
+// ---- share targets ------------------------------------------------------------
+async function loadShareTargets() {
+  try { fbPages = (await apiFetch('/pages')).data.filter((p) => p.is_connected); } catch (_) { fbPages = []; }
+  try { xAccounts = (await apiFetch('/x/accounts')).data; } catch (_) { xAccounts = []; }
+  const box = $('shareBox');
+  if (!fbPages.length && !xAccounts.length) { box.innerHTML = '<span class="empty">No social accounts connected yet.</span>'; return; }
+  box.innerHTML = fbPages.map((p) => `<label class="checkbox-row"><input type="checkbox" class="share-page" value="${p.id}" /> Facebook: ${escapeHtml(p.page_name)}</label>`).join('')
+    + xAccounts.map((x) => `<label class="checkbox-row"><input type="checkbox" class="share-x" value="${x.id}" ${x.status === 'expired' ? 'disabled' : ''} /> X: @${escapeHtml(x.username)}${x.status === 'expired' ? ' (cookies expired)' : ''}</label>`).join('');
+}
+function pickedShare() {
+  return {
+    sharePageIds: Array.from(document.querySelectorAll('.share-page:checked')).map((i) => i.value),
+    shareXIds: Array.from(document.querySelectorAll('.share-x:checked')).map((i) => i.value),
+  };
+}
+function setShare(s) {
+  document.querySelectorAll('.share-page').forEach((i) => { i.checked = !!s && (s.share_page_ids || []).includes(i.value); });
+  document.querySelectorAll('.share-x').forEach((i) => { i.checked = !!s && (s.share_x_ids || []).includes(i.value); });
+}
+
 // ---- form -------------------------------------------------------------------
 function addTimeRow(value = '') {
   const row = document.createElement('div');
@@ -101,6 +123,7 @@ function resetForm() {
   $('sTz').value = (currentUser && currentUser.timezone) || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Karachi';
   $('cancelEditBtn').style.display = 'none';
   $('fScheduleOn').disabled = false;
+  setShare(null);
   syncRepeatFields(); syncMode();
 }
 
@@ -117,6 +140,7 @@ function editSchedule(s) {
   });
   $('sTimesList').innerHTML = ''; (Array.isArray(s.times) && s.times.length ? s.times : ['']).forEach(addTimeRow);
   $('cancelEditBtn').style.display = '';
+  setShare(s);
   syncRepeatFields(); syncMode();
   $('articleForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -143,6 +167,7 @@ function initForm() {
     const payload = {
       accountId: $('fAccount').value, topic: $('fTopic').value, language: $('fLanguage').value,
       articleLength: $('fLength').value, imageCount: Number($('fImages').value), publishMode: $('fMode').value,
+      ...pickedShare(),
     };
     const isSchedule = $('fScheduleOn').checked;
     if (isSchedule) {
@@ -211,7 +236,8 @@ function renderPosts(posts) {
     const title = p.title || p.topic;
     const result = p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" class="btn xs">${p.status === 'draft' ? 'Open draft' : 'Open'}</a>`
       : p.status === 'failed' ? `<span title="${escapeHtml(p.error_message || '')}" style="font-size:12px; color:var(--signal-red);">${escapeHtml((p.error_message || 'Failed').slice(0, 80))}</span>` : '—';
-    const note = p.image_note ? `<div style="font-size:11px; color:var(--signal-amber);">${escapeHtml(p.image_note)}</div>` : '';
+    const note = (p.image_note ? `<div style="font-size:11px; color:var(--signal-amber);">${escapeHtml(p.image_note)}</div>` : '')
+      + (p.share_note ? `<div style="font-size:11px; color:${/failed/i.test(p.share_note) ? 'var(--signal-red)' : 'var(--text-faint)'};">${escapeHtml(p.share_note)}</div>` : '');
     return `<tr>
       <td style="max-width:260px;">${escapeHtml(title.length > 80 ? title.slice(0, 80) + '…' : title)}${note}</td>
       <td>${escapeHtml(p.account_name || '—')}</td>
@@ -244,6 +270,7 @@ async function loadPosts() {
 
 async function loadAll() {
   await loadAccounts();
+  await loadShareTargets();
   await Promise.all([loadSchedules(), loadPosts()]);
 }
 

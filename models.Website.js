@@ -61,7 +61,7 @@ const WebsiteAccount = {
 };
 
 const SCHEDULE_COLS = `account_id, topic, language, article_length, image_count, publish_mode,
-  upload_time, timezone, repeat_type, specific_days, interval_hours, times`;
+  upload_time, timezone, repeat_type, specific_days, interval_hours, times, share_page_ids, share_x_ids`;
 
 function scheduleParams(userId, d) {
   return [
@@ -69,13 +69,15 @@ function scheduleParams(userId, d) {
     d.imageCount, d.publishMode || 'publish', d.uploadTime, d.timezone, d.repeat,
     d.specificDays && d.specificDays.length ? d.specificDays : null, d.intervalHours || null,
     d.times && d.times.length ? JSON.stringify(d.times) : null,
+    d.sharePageIds && d.sharePageIds.length ? d.sharePageIds : null,
+    d.shareXIds && d.shareXIds.length ? d.shareXIds : null,
   ];
 }
 
 const WebsiteSchedule = {
   async create(userId, d) {
     const res = await query(
-      `INSERT INTO website_schedules (user_id, ${SCHEDULE_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      `INSERT INTO website_schedules (user_id, ${SCHEDULE_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::uuid[],$15::uuid[]) RETURNING *`,
       scheduleParams(userId, d)
     );
     return res.rows[0];
@@ -84,7 +86,7 @@ const WebsiteSchedule = {
   async update(userId, id, d) {
     const res = await query(
       `UPDATE website_schedules SET account_id=$3, topic=$4, language=$5, article_length=$6, image_count=$7, publish_mode=$8,
-         upload_time=$9, timezone=$10, repeat_type=$11, specific_days=$12, interval_hours=$13, times=$14,
+         upload_time=$9, timezone=$10, repeat_type=$11, specific_days=$12, interval_hours=$13, times=$14, share_page_ids=$15::uuid[], share_x_ids=$16::uuid[],
          last_run_slots='{}'::jsonb, last_run_at=NULL, updated_at=now()
        WHERE user_id=$1 AND id=$2 RETURNING *`,
       [userId, id, ...scheduleParams(userId, d).slice(1)]
@@ -140,9 +142,10 @@ const WebsiteSchedule = {
 const WebsitePost = {
   async create(userId, d) {
     const res = await query(
-      `INSERT INTO website_posts (user_id, account_id, schedule_id, topic, language, article_length, image_count, publish_mode)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [userId, d.accountId, d.scheduleId || null, d.topic, d.language || 'english', d.articleLength || 'medium', d.imageCount, d.publishMode || 'publish']
+      `INSERT INTO website_posts (user_id, account_id, schedule_id, topic, language, article_length, image_count, publish_mode, share_page_ids, share_x_ids)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::uuid[],$10::uuid[]) RETURNING *`,
+      [userId, d.accountId, d.scheduleId || null, d.topic, d.language || 'english', d.articleLength || 'medium', d.imageCount, d.publishMode || 'publish',
+        d.sharePageIds && d.sharePageIds.length ? d.sharePageIds : null, d.shareXIds && d.shareXIds.length ? d.shareXIds : null]
     );
     return res.rows[0];
   },
@@ -154,6 +157,10 @@ const WebsitePost = {
       [id, status, extra.title || null, extra.url || null, extra.excerpt || null, extra.imageNote || null, extra.error || null]
     );
     return res.rows[0];
+  },
+
+  async setShareNote(id, note) {
+    await query('UPDATE website_posts SET share_note=$2, updated_at=now() WHERE id=$1', [id, note]);
   },
 
   async listByUser(userId, limit = 50) {
