@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Website Automation — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Website Automation</h1></div>
+    <div class="content">
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="section-title">Your websites</div>
+        <div id="accountsList" class="accounts-list" style="margin-bottom:12px;"><span class="empty">Loading…</span></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn sm" id="showWpBtn" type="button">+ Add WordPress site</button>
+          <button class="btn sm" id="bloggerBtn" type="button">+ Connect Blogger</button>
+        </div>
+        <div id="accountMsg" style="font-size:12px; margin-top:8px;"></div>
+
+        <form id="wpForm" style="display:none; margin-top:14px; max-width:520px;">
+          <div class="field"><label for="wpName">Name (optional)</label><input id="wpName" placeholder="My blog" /></div>
+          <div class="field"><label for="wpUrl">Website address</label><input id="wpUrl" placeholder="https://example.com" required /></div>
+          <div class="field"><label for="wpUser">WordPress username</label><input id="wpUser" autocomplete="off" required /></div>
+          <div class="field"><label for="wpPass">Application Password</label><input id="wpPass" type="password" autocomplete="new-password" required />
+            <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">In WordPress: Users → Profile → <b>Application Passwords</b> → type a name → "Add New". Paste the password it shows (not your normal login password). Your normal password is never needed or stored.</div>
+          </div>
+          <div style="display:flex; gap:8px;"><button class="btn primary" type="submit" id="wpSaveBtn">Test &amp; add</button><button class="btn sm" type="button" id="wpCancelBtn">Cancel</button></div>
+        </form>
+      </div>
+
+      <div class="grid cols-2 schedule-layout" style="align-items:start;">
+        <div class="card">
+          <div class="section-title" id="formTitle">Write an article</div>
+          <form id="articleForm">
+            <div class="field"><label for="fAccount">Website</label><select id="fAccount" required></select></div>
+            <div class="field"><label for="fTopic">Topic / instructions</label>
+              <textarea id="fTopic" rows="3" required placeholder="e.g. Best budget smartphones in 2026 - or a niche like 'healthy desi recipes' (any language)"></textarea>
+              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">For a schedule, a niche works best - every run writes a different article and avoids titles it already published.</div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="fLanguage">Language</label>
+                <select id="fLanguage">
+                  <option value="auto">Same as the topic</option><option value="english">English</option><option value="urdu">Urdu</option><option value="hindi">Hindi</option>
+                  <option value="arabic">Arabic</option><option value="spanish">Spanish</option><option value="french">French</option><option value="german">German</option>
+                  <option value="portuguese">Portuguese</option><option value="turkish">Turkish</option><option value="indonesian">Indonesian</option><option value="bengali">Bengali</option>
+                  <option value="russian">Russian</option><option value="italian">Italian</option><option value="dutch">Dutch</option><option value="chinese">Chinese</option>
+                  <option value="japanese">Japanese</option><option value="korean">Korean</option>
+                </select></div>
+              <div class="field"><label for="fLength">Length</label>
+                <select id="fLength"><option value="short">Short (~700 words)</option><option value="medium" selected>Medium (~1250 words)</option><option value="long">Long (~2000 words)</option></select></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="fImages">Pictures (AI made)</label>
+                <select id="fImages"><option value="0">None</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></div>
+              <div class="field"><label for="fMode">After writing</label>
+                <select id="fMode"><option value="publish">Publish now</option><option value="draft">Save as draft</option></select></div>
+            </div>
+            <div style="font-size:12px; color:var(--text-faint); margin:-4px 0 12px;">Pictures are placed inside the article by the AI (Nano Banana). The first picture also becomes the featured image on WordPress. On Blogger the pictures are stored in your Google Drive (link-shared) because Blogger has no upload option.</div>
+
+            <div class="field"><label class="checkbox-row"><input type="checkbox" id="fScheduleOn" /> Repeat automatically (schedule)</label></div>
+            <div id="schedBox" style="display:none;">
+              <div class="field-row">
+                <div class="field"><label for="sTime">Time</label><input id="sTime" type="time" /></div>
+                <div class="field"><label for="sTz">Timezone</label>
+                  <select id="sTz"><option value="Asia/Karachi" selected>Pakistan (Asia/Karachi)</option><option value="UTC">UTC</option><option value="Asia/Dubai">UAE (Asia/Dubai)</option><option value="Asia/Kolkata">India (Asia/Kolkata)</option><option value="Asia/Dhaka">Bangladesh (Asia/Dhaka)</option><option value="Asia/Riyadh">Saudi Arabia (Asia/Riyadh)</option><option value="Europe/London">UK (Europe/London)</option><option value="America/New_York">US Eastern</option><option value="America/Chicago">US Central</option><option value="America/Denver">US Mountain</option><option value="America/Los_Angeles">US Pacific</option><option value="Australia/Sydney">Australia (Sydney)</option></select></div>
+              </div>
+              <div class="field"><label for="sRepeat">Repeat</label>
+                <select id="sRepeat"><option value="daily">Daily</option><option value="weekly">Weekly (Monday)</option><option value="monthly">Monthly (1st)</option><option value="specific_days">Specific days</option><option value="interval_hours">Every N hours</option><option value="multiple_times">Multiple times a day</option></select></div>
+              <div class="field" id="sIntervalField" style="display:none;"><label>Every how many hours?</label><input type="number" id="sInterval" min="1" max="168" placeholder="e.g. 12" /></div>
+              <div class="field" id="sTimesField" style="display:none;"><label>Times (daily)</label>
+                <div id="sTimesList" style="display:flex; flex-direction:column; gap:8px;"></div>
+                <button type="button" class="btn sm" id="sAddTime" style="margin-top:8px;">+ Add time</button></div>
+              <div class="field" id="sDaysField" style="display:none;"><label>Days</label>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;" id="sDays">
+                  <button type="button" class="btn sm sched-day-chip" data-day="1">Mon</button><button type="button" class="btn sm sched-day-chip" data-day="2">Tue</button><button type="button" class="btn sm sched-day-chip" data-day="3">Wed</button><button type="button" class="btn sm sched-day-chip" data-day="4">Thu</button><button type="button" class="btn sm sched-day-chip" data-day="5">Fri</button><button type="button" class="btn sm sched-day-chip" data-day="6">Sat</button><button type="button" class="btn sm sched-day-chip" data-day="0">Sun</button>
+                </div></div>
+            </div>
+
+            <div id="formError" class="error-text"></div>
+            <div style="display:flex; gap:8px; margin-top:12px;">
+              <button type="submit" class="btn primary" id="submitBtn">Write now</button>
+              <button type="button" class="btn sm" id="cancelEditBtn" style="display:none;">Cancel edit</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="flex-between mb-16">
+            <div class="section-title" style="margin-bottom:0;">Schedules</div>
+            <button type="button" class="btn sm" id="refreshSchedBtn">Refresh</button>
+          </div>
+          <div class="table-wrap" style="max-height:420px; overflow-y:auto;">
+            <table>
+              <thead><tr><th>Website</th><th>Topic</th><th>When</th><th>Active</th><th></th></tr></thead>
+              <tbody id="schedBody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:24px;">
+        <div class="flex-between mb-16">
+          <div class="section-title" style="margin-bottom:0;">Articles</div>
+          <button type="button" class="btn sm" id="refreshPostsBtn">Refresh</button>
+        </div>
+        <div class="table-wrap" style="max-height:480px; overflow-y:auto;">
+          <table>
+            <thead><tr><th>Title / topic</th><th>Website</th><th>Status</th><th>Result</th><th>When</th><th></th></tr></thead>
+            <tbody id="postsBody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="website.js"></script>
+</body>
+</html>

@@ -36,6 +36,7 @@ app.use('/api/auth', require('./routes.auth'));
 app.use('/api/auth/google', require('./routes.google'));
 app.use('/api/auth/facebook', require('./routes.facebook'));
 app.use('/api/auth/youtube', require('./routes.youtube'));
+app.use('/api/auth/blogger', require('./routes.website').bloggerRouter);
 app.use('/api/drive', require('./routes.drive'));
 app.use('/api/folder-mapping', require('./routes.folderMapping'));
 app.use('/api/pages', require('./routes.pages'));
@@ -54,6 +55,7 @@ app.use('/api/videoedit', require('./routes.videoEdit'));
 app.use('/api/chat', require('./routes.chat'));
 app.use('/api/text-image-posts', require('./routes.textImagePost'));
 app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
+app.use('/api/website', require('./routes.website'));
 // Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
 // need to fetch a video from here directly (see routes.mediaPublic.js).
 app.use('/media-temp', require('./routes.mediaPublic').router);
@@ -93,6 +95,8 @@ async function recoverStaleJobs() {
      WHERE status IN ('pending','generating','downloading') AND provider = 'vertex' RETURNING id`,
     [message]
   );
+  const websiteStale = await require('./models.Website').WebsitePost.failStale();
+  if (websiteStale) logger.info(`Recovered ${websiteStale} stale Website article(s) after restart.`);
   if (tiktokRes.rowCount || videoEditRes.rowCount || videoGenRes.rowCount) {
     logger.info(`Recovered ${tiktokRes.rowCount} stale TikTok job(s), ${videoEditRes.rowCount} stale Video Editor job(s), and ${videoGenRes.rowCount} stale Video Generator job(s) after restart.`);
   }
