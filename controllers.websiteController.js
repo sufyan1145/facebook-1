@@ -226,6 +226,21 @@ const retryPost = wrap(async (req, res) => {
   res.status(202).json({ success: true, data: post });
 });
 
+// Share an already published article (again) - gives instant feedback with the real error.
+const sharePost = wrap(async (req, res) => {
+  const post = await WebsitePost.findById(req.user.id, req.params.id);
+  if (!post) return res.status(404).json({ success: false, message: 'Not found' });
+  if (post.status !== 'published' || !post.url) bad('Only published articles can be shared.');
+  const share = await readShareSettings(req.user.id, req.body || {});
+  if (!share.sharePageIds.length && !share.shareXIds.length) bad('Tick at least one Facebook page or X account in the "Share" list first.');
+  const note = await require('./services.socialShareService').shareArticle({
+    userId: req.user.id, title: post.title || post.topic, excerpt: post.excerpt, topic: post.topic, language: post.language,
+    url: post.url, imagePath: null, pageIds: share.sharePageIds, xIds: share.shareXIds,
+  });
+  await WebsitePost.setShareNote(post.id, note || 'Nothing was shared.');
+  res.json({ success: true, data: { note } });
+});
+
 const listPosts = wrap(async (req, res) => {
   res.json({ success: true, data: await WebsitePost.listByUser(req.user.id, 60) });
 });
@@ -238,5 +253,5 @@ const deletePost = wrap(async (req, res) => {
 module.exports = {
   listAccounts, testWordPress, addWordPress, removeAccount, bloggerConnect, bloggerCallback,
   listSchedules, createSchedule, updateSchedule, toggleSchedule, deleteSchedule,
-  writeNow, retryPost, listPosts, deletePost,
+  writeNow, retryPost, sharePost, listPosts, deletePost,
 };

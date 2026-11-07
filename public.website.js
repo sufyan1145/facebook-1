@@ -245,11 +245,19 @@ function renderPosts(posts) {
       <td><span class="badge ${cls}">${STATUS_LABEL[p.status] || p.status}</span></td>
       <td>${result}</td>
       <td style="font-size:12px; color:var(--text-faint);">${timeAgo(p.created_at)}</td>
-      <td style="white-space:nowrap;">${p.status === 'failed' ? `<button class="btn xs" data-retry="${p.id}">Retry</button> ` : ''}<button class="btn xs danger" data-delpost="${p.id}">✕</button></td></tr>`;
+      <td style="white-space:nowrap;">${p.status === 'published' && p.url ? `<button class="btn xs" data-share="${p.id}" title="Share this article on the Facebook pages / X accounts ticked in the form">Share</button> ` : ''}${p.status === 'failed' ? `<button class="btn xs" data-retry="${p.id}">Retry</button> ` : ''}<button class="btn xs danger" data-delpost="${p.id}">✕</button></td></tr>`;
   }).join('');
   body.querySelectorAll('[data-retry]').forEach((b) => b.addEventListener('click', async () => {
     b.disabled = true;
     try { await apiFetch(`/website/posts/${b.dataset.retry}/retry`, { method: 'POST' }); } catch (err) { alert(err.message); }
+    loadPosts();
+  }));
+  body.querySelectorAll('[data-share]').forEach((b) => b.addEventListener('click', async () => {
+    const pick = pickedShare();
+    if (!pick.sharePageIds.length && !pick.shareXIds.length) { alert('Pehle form mein "Share the published article" list mein Facebook page / X account tick karein.'); return; }
+    b.disabled = true; b.textContent = 'Sharing…';
+    try { const { data } = await apiFetch(`/website/posts/${b.dataset.share}/share`, { method: 'POST', body: JSON.stringify(pick) }); alert(data.note || 'Done'); }
+    catch (err) { alert(err.message); }
     loadPosts();
   }));
   body.querySelectorAll('[data-delpost]').forEach((b) => b.addEventListener('click', async () => {

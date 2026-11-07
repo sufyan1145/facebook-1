@@ -45,7 +45,7 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
       if (imagePath) await facebookService.postPhotoToPage({ pageId: page.page_id, pageAccessToken: page.page_access_token, filePath: imagePath, message });
       else await facebookService.postLinkToPage({ pageId: page.page_id, pageAccessToken: page.page_access_token, message: captions.facebook, link: url });
       ok.push(`Facebook: ${page.page_name}`);
-    } catch (err) { bad.push(`Facebook (${err.message})`); }
+    } catch (err) { logger.warn(`[social-share] Facebook ${id} failed: ${err.message}`); bad.push(`Facebook (${err.message})`); }
   }
 
   for (const id of xs) {
@@ -56,7 +56,7 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
       name = `@${acc.username}`;
       await xService.postTweet(acc, { text: captions.x, url, imagePaths: imagePath ? [imagePath] : [] });
       ok.push(`X: ${name}`);
-    } catch (err) { bad.push(`X ${name} (${err.message})`); }
+    } catch (err) { logger.warn(`[social-share] X ${name} failed: ${err.message}`); bad.push(`X ${name} (${err.message})`); }
   }
 
   const parts = [];

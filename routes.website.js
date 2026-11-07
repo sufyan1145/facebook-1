@@ -18,6 +18,7 @@ router.delete('/schedules/:id', requireAuth, c.deleteSchedule);
 router.get('/posts', requireAuth, c.listPosts);
 router.post('/posts', requireAuth, c.writeNow);
 router.post('/posts/:id/retry', requireAuth, c.retryPost);
+router.post('/posts/:id/share', requireAuth, c.sharePost);
 router.delete('/posts/:id', requireAuth, c.deletePost);
 
 // Google redirects here after "Connect Blogger" (mounted at /api/auth/blogger).
