@@ -54,8 +54,23 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
       const acc = await XAccount.findById(userId, id);
       if (!acc) throw new Error('account removed');
       name = `@${acc.username}`;
-      await xService.postTweet(acc, { text: captions.x, url, imagePaths: imagePath ? [imagePath] : [] });
-      ok.push(`X: ${name}`);
+      const imgs = imagePath ? [imagePath] : [];
+      try {
+        await xService.postTweet(acc, { text: captions.x, url, imagePaths: imgs });
+        ok.push(`X: ${name}`);
+      } catch (err) {
+        // 226 = X's anti-automation filter, very often triggered by a link in a fresh tweet.
+        if (!(err.xCode === 226 || /automated|\(226\)/i.test(err.message))) throw err;
+        logger.warn(`[social-share] X ${name}: link tweet blocked (226), posting text first and the link as a reply`);
+        const first = await xService.postTweet(acc, { text: captions.x, imagePaths: imgs });
+        try {
+          await xService.postTweet(acc, { text: 'Read the full article:', url, replyTo: first.id });
+          ok.push(`X: ${name} (link in reply)`);
+        } catch (err2) {
+          ok.push(`X: ${name} (text only - X blocked the link: ${url})`);
+          logger.warn(`[social-share] X ${name}: link reply blocked too: ${err2.message}`);
+        }
+      }
     } catch (err) { logger.warn(`[social-share] X ${name} failed: ${err.message}`); bad.push(`X ${name} (${err.message})`); }
   }
 

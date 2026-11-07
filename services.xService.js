@@ -15,6 +15,18 @@ const fs = require('fs');
 const logger = require('./utils.logger');
 const XAccount = require('./models.XAccount');
 
+// Optional residential/mobile proxy (X blocks many datacenter IPs as "automated", error 226):
+//   X_PROXY_URL=http://user:pass@host:port
+function proxyConfig() {
+  if (!process.env.X_PROXY_URL) return {};
+  try {
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    return { httpsAgent: new HttpsProxyAgent(process.env.X_PROXY_URL), proxy: false };
+  } catch (err) { logger.warn(`[x] X_PROXY_URL ignored: ${err.message}`); return {}; }
+}
+const http = axios.create(proxyConfig());
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const WEB_BEARER = process.env.X_WEB_BEARER ||
   'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -78,7 +90,7 @@ function parseCookies({ authToken, ct0, cookies }) {
 // checks that the cookie and the x-csrf-token header carry the same value.
 async function fetchCt0(authToken) {
   try {
-    const r = await axios.get('https://x.com/', {
+    const r = await http.get('https://x.com/', {
       headers: { 'user-agent': UA, cookie: `auth_token=${authToken}` }, timeout: 20000, validateStatus: () => true,
     });
     const found = [].concat(r.headers['set-cookie'] || []).map((c) => String(c).match(/(?:^|\s)ct0=([^;]+)/)).find(Boolean);
@@ -98,6 +110,14 @@ function headers(acc, extra = {}) {
     'user-agent': UA,
     origin: 'https://x.com',
     referer: 'https://x.com/home',
+    accept: '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'sec-ch-ua': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="99"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
     ...extra,
   };
 }
@@ -111,6 +131,7 @@ function xError(err) {
       : status === 429 ? 'X rate limit reached. Try again later.'
       : String(apiMsg || err.message).slice(0, 300)
   );
+  e.xCode = d && d.errors && d.errors[0] ? d.errors[0].code : undefined;
   e.expired = status === 401 || (d && d.errors && d.errors.some((x) => x.code === 32 || x.code === 89 || x.code === 215));
   e.status = status;
   return e;
@@ -168,13 +189,13 @@ async function verify({ authToken, ct0 }) {
   let lastErr = null;
   for (const url of VERIFY_ENDPOINTS) {
     try {
-      const { data } = await axios.get(url, { headers: headers(acc, await txHeader('GET', url)), timeout: 20000, params: { include_ext_sharing_audiospaces_listening_data_with_followers: true } });
+      const { data } = await http.get(url, { headers: headers(acc, await txHeader('GET', url)), timeout: 20000, params: { include_ext_sharing_audiospaces_listening_data_with_followers: true } });
       const username = data && data.screen_name;
       if (!username) { lastErr = new Error('Could not read the account name from X.'); continue; }
       let displayName = null; let xUserId = null;
       try {
         const vcUrl = 'https://api.x.com/1.1/account/verify_credentials.json';
-        const r = await axios.get(vcUrl, { headers: headers(acc, await txHeader('GET', vcUrl)), timeout: 20000 });
+        const r = await http.get(vcUrl, { headers: headers(acc, await txHeader('GET', vcUrl)), timeout: 20000 });
         displayName = r.data && r.data.name; xUserId = r.data && r.data.id_str;
       } catch (_) { /* optional */ }
       return { username, displayName, xUserId, ct0 };
@@ -196,10 +217,10 @@ async function discoverQueryId(acc) {
   if (process.env.X_CREATETWEET_QUERY_ID) return process.env.X_CREATETWEET_QUERY_ID;
   if (cachedQueryId && Date.now() - cachedAt < 6 * 3600 * 1000) return cachedQueryId;
   try {
-    const home = await axios.get('https://x.com/', { headers: { 'user-agent': UA, cookie: `auth_token=${acc.auth_token}; ct0=${acc.ct0}` }, timeout: 20000 });
+    const home = await http.get('https://x.com/', { headers: { 'user-agent': UA, cookie: `auth_token=${acc.auth_token}; ct0=${acc.ct0}` }, timeout: 20000 });
     const scripts = [...String(home.data).matchAll(/https:\/\/abs\.twimg\.com\/responsive-web\/client-web[^"']*?\/main\.[a-z0-9]+\.js/g)].map((m) => m[0]);
     for (const url of scripts) {
-      const js = (await axios.get(url, { timeout: 30000 })).data;
+      const js = (await http.get(url, { timeout: 30000 })).data;
       const m = String(js).match(/queryId:"([A-Za-z0-9_-]+)",operationName:"CreateTweet"/);
       if (m) { cachedQueryId = m[1]; cachedAt = Date.now(); return cachedQueryId; }
     }
@@ -213,15 +234,26 @@ async function uploadImage(acc, filePath) {
   const mime = /\.png$/i.test(filePath) ? 'image/png' : 'image/jpeg';
   const base = 'https://upload.x.com/i/media/upload.json';
   const h = headers(acc);
-  const init = await axios.post(base, null, { headers: h, timeout: 30000,
+  const init = await http.post(base, null, { headers: h, timeout: 30000,
     params: { command: 'INIT', total_bytes: buf.length, media_type: mime, media_category: 'tweet_image' } });
   const mediaId = init.data.media_id_string;
   const form = new FormData();
   form.append('media', buf, { filename: 'blob', contentType: 'application/octet-stream' });
-  await axios.post(base, form, { headers: { ...h, ...form.getHeaders() }, timeout: 120000, maxBodyLength: Infinity,
+  await http.post(base, form, { headers: { ...h, ...form.getHeaders() }, timeout: 120000, maxBodyLength: Infinity,
     params: { command: 'APPEND', media_id: mediaId, segment_index: 0 } });
-  await axios.post(base, null, { headers: h, timeout: 30000, params: { command: 'FINALIZE', media_id: mediaId } });
+  await http.post(base, null, { headers: h, timeout: 30000, params: { command: 'FINALIZE', media_id: mediaId } });
   return mediaId;
+}
+
+// The tweet id sits under create_tweet.tweet_results.result.rest_id (sometimes one level deeper).
+function findRestId(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 6) return null;
+  if (node.rest_id && /^\d+$/.test(String(node.rest_id))) return String(node.rest_id);
+  for (const k of Object.keys(node)) {
+    const f = findRestId(node[k], depth + 1);
+    if (f) return f;
+  }
+  return null;
 }
 
 // Keep the tweet inside 280 chars: the link always counts 23, the text is trimmed.
@@ -237,7 +269,7 @@ async function postTweet(account, opts) {
   try {
     return await postTweetOnce(account, opts);
   } catch (err) {
-    if (err.status !== 403 || err.expired) throw err;
+    if (err.status !== 403 || err.expired || err.xCode === 226) throw err;
     // ct0 may simply be stale: get a new one, save it, try once more
     const fresh = await fetchCt0(account.auth_token);
     await XAccount.setCt0(account.id, fresh);
@@ -245,9 +277,10 @@ async function postTweet(account, opts) {
   }
 }
 
-async function postTweetOnce(account, { text, url, imagePaths = [] }) {
+async function postTweetOnce(account, { text, url, imagePaths = [], replyTo = null }) {
   const acc = { ...account };
   try {
+    await sleep(1500 + Math.floor(Math.random() * 3500)); // small human-like pause
     const mediaIds = [];
     for (const p of imagePaths.slice(0, 4)) {
       try { mediaIds.push(await uploadImage(acc, p)); }
@@ -259,21 +292,27 @@ async function postTweetOnce(account, { text, url, imagePaths = [] }) {
         tweet_text: fitTweet(text, url), dark_request: false,
         media: { media_entities: mediaIds.map((id) => ({ media_id: id, tagged_users: [] })), possibly_sensitive: false },
         semantic_annotation_ids: [],
+        ...(replyTo ? { reply: { in_reply_to_tweet_id: String(replyTo), exclude_reply_user_ids_in_text: false } } : {}),
       },
       features: FEATURES, queryId,
     };
     const ctUrl = `https://x.com/i/api/graphql/${queryId}/CreateTweet`;
-    const { data } = await axios.post(ctUrl, body, {
+    const { data } = await http.post(ctUrl, body, {
       headers: headers(acc, { 'content-type': 'application/json', ...(await txHeader('POST', ctUrl)) }), timeout: 30000,
     });
     if (data && data.errors && data.errors.length) {
       const e = new Error(String(data.errors[0].message || 'X refused the post').slice(0, 300));
+      e.xCode = data.errors[0].code;
       e.expired = data.errors.some((x) => x.code === 32 || x.code === 89);
       throw e;
     }
-    const r = data && data.data && data.data.create_tweet && data.data.create_tweet.tweet_results && data.data.create_tweet.tweet_results.result;
-    const id = r && (r.rest_id || (r.tweet && r.tweet.rest_id));
-    if (!id) throw new Error('X did not confirm the post.');
+    const created = data && data.data && data.data.create_tweet;
+    const id = findRestId(created);
+    if (!id) {
+      const raw = JSON.stringify(data).slice(0, 300);
+      logger.warn(`[x] CreateTweet gave no tweet id for @${account.username} (text ${body.variables.tweet_text.length} chars, ${mediaIds.length} image(s)): ${raw}`);
+      throw new Error(`X did not confirm the post (reply: ${raw})`);
+    }
     await XAccount.markUsed(account.id);
     logger.info(`[x] posted tweet ${id} as @${account.username}`);
     return { id, url: `https://x.com/${account.username}/status/${id}` };
