@@ -311,7 +311,9 @@ async function postTweetOnce(account, { text, url, imagePaths = [], replyTo = nu
     if (!id) {
       const raw = JSON.stringify(data).slice(0, 300);
       logger.warn(`[x] CreateTweet gave no tweet id for @${account.username} (text ${body.variables.tweet_text.length} chars, ${mediaIds.length} image(s)): ${raw}`);
-      throw new Error(`X did not confirm the post (reply: ${raw})`);
+      const e = new Error(`X accepted the request but did not create the post (reply: ${raw})`);
+      e.emptyResult = true; // silently dropped by X (spam / automation filter or a restricted account)
+      throw e;
     }
     await XAccount.markUsed(account.id);
     logger.info(`[x] posted tweet ${id} as @${account.username}`);
