@@ -70,6 +70,39 @@ function initAccountForms() {
   if (q.toString()) history.replaceState(null, '', 'website.html');
 }
 
+// ---- topic: own prompt or category ----------------------------------------------
+const CATEGORIES = {
+  'Stories': ['True stories', 'Motivational stories', 'History stories', 'Mystery and unsolved', 'Moral stories for kids', 'Success stories of famous people', 'Folk tales and legends'],
+  'Fitness and health': ['Gym workouts', 'Home workouts', 'Weight loss', 'Muscle building', 'Yoga and stretching', 'Running and walking', 'Healthy eating', 'Sleep and daily habits', 'Mental wellbeing'],
+  'Food and home': ['Desi recipes', 'Easy cooking tips', 'Baking and desserts', 'Home cleaning and tips', 'Gardening and plants', 'DIY and crafts', 'Interior and decor'],
+  'Family and relationships': ['Love and relationships', 'Parenting tips', 'Pets and animals', 'Weddings and events'],
+  'Money and work': ['Personal finance', 'Earn money online', 'Jobs and careers', 'Small business', 'Crypto guides', 'Investing basics', 'Freelancing'],
+  'Tech and online': ['Tech tips and how to', 'AI tools guides', 'Blogging and SEO', 'Social media growth', 'Mobile apps and games', 'Gadgets and reviews', 'Cyber safety'],
+  'Learning and facts': ['Study tips', 'Learn English', 'Science facts', 'Space and universe', 'Amazing facts', 'Nature and wildlife', 'Famous people and biographies', 'History and civilizations'],
+  'Lifestyle': ['Travel guides', 'Fashion and style', 'Beauty and skincare', 'Self improvement', 'Quotes and wisdom', 'Cars and bikes', 'Movies and books', 'Sports and cricket'],
+};
+const ALL_CATEGORIES = Object.values(CATEGORIES).flat();
+
+function fillCategories() {
+  $('fCategory').innerHTML = Object.entries(CATEGORIES).map(([group, items]) =>
+    `<optgroup label="${escapeHtml(group)}">${items.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</optgroup>`).join('');
+}
+function topicMode() { return (document.querySelector('input[name="topicMode"]:checked') || {}).value || 'custom'; }
+function syncTopicMode() {
+  const cat = topicMode() === 'category';
+  $('topicCustom').style.display = cat ? 'none' : '';
+  $('topicCategory').style.display = cat ? '' : 'none';
+}
+function setTopicMode(mode) {
+  const r = document.querySelector(`input[name="topicMode"][value="${mode}"]`); if (r) r.checked = true;
+  syncTopicMode();
+}
+function currentTopic() { return topicMode() === 'category' ? $('fCategory').value : $('fTopic').value; }
+function setTopic(topic) {
+  if (ALL_CATEGORIES.includes(topic)) { setTopicMode('category'); $('fCategory').value = topic; $('fTopic').value = ''; }
+  else { setTopicMode('custom'); $('fTopic').value = topic; }
+}
+
 // ---- share targets ------------------------------------------------------------
 async function loadShareTargets() {
   try { fbPages = (await apiFetch('/pages')).data.filter((p) => p.is_connected); } catch (_) { fbPages = []; }
@@ -118,6 +151,7 @@ function syncMode() {
 function resetForm() {
   editingId = null;
   $('articleForm').reset();
+  setTopicMode('custom');
   days.clear();
   document.querySelectorAll('.sched-day-chip.selected').forEach((c) => c.classList.remove('selected'));
   $('sTimesList').innerHTML = ''; addTimeRow();
@@ -130,7 +164,7 @@ function resetForm() {
 
 function editSchedule(s) {
   editingId = s.id;
-  $('fAccount').value = s.account_id; $('fTopic').value = s.topic; $('fLanguage').value = s.language;
+  $('fAccount').value = s.account_id; setTopic(s.topic); $('fLanguage').value = s.language;
   $('fLength').value = s.article_length; $('fImages').value = String(s.image_count); $('fMode').value = s.publish_mode;
   $('fScheduleOn').checked = true; $('fScheduleOn').disabled = true;
   $('sTime').value = (s.upload_time || '').slice(0, 5); $('sTz').value = s.timezone; $('sRepeat').value = s.repeat_type;
@@ -160,13 +194,15 @@ function initForm() {
     if (days.has(d)) { days.delete(d); chip.classList.remove('selected'); } else { days.add(d); chip.classList.add('selected'); }
   }));
   $('cancelEditBtn').addEventListener('click', resetForm);
+  fillCategories();
+  document.querySelectorAll('input[name="topicMode"]').forEach((r) => r.addEventListener('change', syncTopicMode));
 
   $('articleForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('formError').textContent = '';
     if (!$('fAccount').value) { $('formError').textContent = 'Connect a website first.'; return; }
     const payload = {
-      accountId: $('fAccount').value, topic: $('fTopic').value, language: $('fLanguage').value,
+      accountId: $('fAccount').value, topic: currentTopic(), language: $('fLanguage').value,
       articleLength: $('fLength').value, imageCount: Number($('fImages').value), publishMode: $('fMode').value,
       ...pickedShare(),
     };

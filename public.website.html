@@ -42,9 +42,19 @@
           <div class="section-title" id="formTitle">Write an article</div>
           <form id="articleForm">
             <div class="field"><label for="fAccount">Website</label><select id="fAccount" required></select></div>
-            <div class="field"><label for="fTopic">Topic / instructions</label>
-              <textarea id="fTopic" rows="3" required placeholder="e.g. Best budget smartphones in 2026 - or a niche like 'healthy desi recipes' (any language)"></textarea>
-              <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">For a schedule, a niche works best - every run writes a different article and avoids titles it already published.</div>
+            <div class="field"><label>Topic</label>
+              <div style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:4px;">
+                <label class="checkbox-row" style="cursor:pointer;"><input type="radio" name="topicMode" value="custom" checked style="width:auto; flex:none; padding:0; margin:0;" /> <span>Write my own topic / prompt</span></label>
+                <label class="checkbox-row" style="cursor:pointer;"><input type="radio" name="topicMode" value="category" style="width:auto; flex:none; padding:0; margin:0;" /> <span>Pick a category</span></label>
+              </div>
+              <div id="topicCustom">
+                <textarea id="fTopic" rows="3" placeholder="e.g. Best budget smartphones in 2026 - or a niche like 'healthy desi recipes' (any language)"></textarea>
+                <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">For a schedule, a niche works best - every run writes a different article and avoids titles it already published.</div>
+              </div>
+              <div id="topicCategory" style="display:none;">
+                <select id="fCategory"></select>
+                <div style="font-size:12px; color:var(--text-faint); margin-top:4px;">The AI invents a fresh article idea inside the chosen category on every run and never repeats a title it already published.</div>
+              </div>
             </div>
             <div class="field-row">
               <div class="field"><label for="fLanguage">Language</label>
