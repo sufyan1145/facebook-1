@@ -147,6 +147,8 @@ async function processVideoEditJob(job, { regenerateMetadata = false } = {}) {
         voiceName: spec.newsReaction.voiceName,
         narrationLanguage: spec.newsReaction.narrationLanguage || 'english',
         orientation: spec.newsReaction.orientation === 'landscape' ? 'landscape' : 'portrait',
+        hideOverlays: spec.newsReaction.hideOverlays === true,
+        overlayMode: ['blur', 'fill', 'box'].includes(spec.newsReaction.overlayMode) ? spec.newsReaction.overlayMode : 'blur',
       });
       tempFiles.push(finalPath);
       current = finalPath;

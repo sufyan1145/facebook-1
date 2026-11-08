@@ -505,6 +505,9 @@ function buildDubExtras() {
   updateAutoHighlightFieldsVisibility();
   document.getElementById('newsReactionEnabled').addEventListener('change', updateNewsReactionFieldsVisibility);
   updateNewsReactionFieldsVisibility();
+  const hideChk = document.getElementById('newsReactionHideOverlays');
+  const syncHide = () => { document.getElementById('newsReactionOverlayFields').style.display = hideChk.checked ? '' : 'none'; };
+  hideChk.addEventListener('change', syncHide); syncHide();
   document.getElementById('productExplainerEnabled').addEventListener('change', updateProductExplainerFieldsVisibility);
   updateProductExplainerFieldsVisibility();
   document.getElementById('bulkMode').addEventListener('change', updateBulkModeVisibility);
@@ -584,7 +587,7 @@ function buildDubExtras() {
       dubSfxZoom: dubEnabled && !!(document.getElementById('dubSfxZoom') || {}).checked,
       dubOriginalVolumeSpeak: dubEnabled ? (Number((document.getElementById('dubOriginalVolumeSpeak') || {}).value || 0) / 100) : 0,
       dubOriginalVolumeRest: dubEnabled ? (Number((document.getElementById('dubOriginalVolumeRest') || {}).value || 100) / 100) : 1,
-      newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value } : null,
+      newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value, hideOverlays: document.getElementById('newsReactionHideOverlays').checked, overlayMode: document.getElementById('newsReactionOverlayMode').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,
         narrationLanguage: document.getElementById('productExplainerLanguage').value,

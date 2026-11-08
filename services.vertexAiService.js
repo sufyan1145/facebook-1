@@ -904,6 +904,58 @@ The "lines" array must contain exactly ${lineCount} strings, in order.`;
 }
 
 /**
+ * Finds every region that shows text or a logo in up to ~8 frames/images at once
+ * (captions, subtitles, lower-thirds, news tickers, headlines, channel logos / bugs,
+ * watermarks, social handles, on-screen numbers/timestamps). Used by the News Reaction
+ * "hide text & logos" option (utils.overlayCleaner.js).
+ * Returns one array per image, each box normalized to 0..1: { x, y, w, h }.
+ */
+async function detectTextAndLogoBoxes(imagePaths) {
+  const parts = [{ text: `You are given ${imagePaths.length} video frame(s), numbered 0 to ${imagePaths.length - 1} in the order they appear below.
+For EACH frame find EVERY region that contains any of: readable text of any language (captions, subtitles, headlines, lower-thirds, news tickers/crawls, signs, numbers, timestamps, UI text), logos, channel bugs/watermarks, social media handles/icons, app or TV-station branding.
+Return STRICT JSON only (no markdown), exactly this shape:
+{ "frames": [ { "index": 0, "boxes": [ { "box_2d": [ymin, xmin, ymax, xmax] } ] } ] }
+box_2d values are integers 0-1000 (relative to the frame size) and must TIGHTLY cover the whole text line / logo. Include one entry per frame, with "boxes": [] when a frame has no text or logo at all. Do not invent regions.` }];
+  imagePaths.forEach((p, i) => {
+    const mime = /\.png$/i.test(p) ? 'image/png' : 'image/jpeg';
+    parts.push({ text: `Frame ${i}:` });
+    parts.push({ inline_data: { mime_type: mime, data: fs.readFileSync(p).toString('base64') } });
+  });
+  const token = await getAccessToken();
+  let resp;
+  try {
+    resp = await retryOn429(
+      () => axios.post(
+        `${baseUrl()}/${env.vertexAi.scriptModel}:generateContent`,
+        { contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0 } },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 120000 }
+      ),
+      { label: 'Vertex text/logo detection' }
+    );
+  } catch (err) {
+    const detail = err.response?.data;
+    logger.error(`[vertex] detectTextAndLogoBoxes FAILED: status=${err.response?.status} detail=${JSON.stringify(detail)}`);
+    throw new Error(detail?.error?.message || err.message);
+  }
+  const text = (resp.data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+  if (!text) throw new Error('Vertex returned no detection result');
+  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+  const out = imagePaths.map(() => []);
+  for (const f of parsed.frames || []) {
+    const idx = Number(f.index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= out.length) continue;
+    for (const b of f.boxes || []) {
+      const v = (b.box_2d || []).map(Number);
+      if (v.length !== 4 || v.some((n) => !Number.isFinite(n))) continue;
+      const [y1, x1, y2, x2] = v.map((n) => Math.min(1000, Math.max(0, n)) / 1000);
+      if (x2 - x1 < 0.005 || y2 - y1 < 0.005) continue;
+      out[idx].push({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+    }
+  }
+  return out;
+}
+
+/**
  * Groups narration lines (whether AI-written or the user's own custom
  * script) into small batches and asks for ONE YouTube search query per
  * batch describing the shared visual moment - e.g. several consecutive
@@ -962,6 +1014,7 @@ module.exports = {
   writeVisualPromptsForScript,
   generateProductExplainerScript,
   generateReactionNarrationLines,
+  detectTextAndLogoBoxes,
   generateVisualSearchQueries,
   generatePostContent,
   regenerateTitleAndHashtags,

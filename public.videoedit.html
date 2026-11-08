@@ -201,6 +201,21 @@
                 </select>
               </div>
             </div>
+            <div class="field">
+              <label class="checkbox-row" style="cursor:pointer;">
+                <input id="newsReactionHideOverlays" type="checkbox" checked style="width:auto; flex:none; padding:0; margin:0;" />
+                <span>Hide all text &amp; logos (captions, channel logos, watermarks, tickers, headlines)</span>
+              </label>
+              <div id="newsReactionOverlayFields" style="margin-top:6px;">
+                <label for="newsReactionOverlayMode">How to hide them</label>
+                <select id="newsReactionOverlayMode">
+                  <option value="blur">Blur (recommended - looks natural)</option>
+                  <option value="fill">Remove &amp; fill from surroundings</option>
+                  <option value="box">Solid black box</option>
+                </select>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">AI finds the text/logos in every image and clip and hides only those spots, only while they are on screen; AI-made images are also told to contain no text. It uses extra AI credits (about 2 checks per 14-second block) and can add some minutes. Very small or fast-moving text can occasionally be missed.</div>
+              </div>
+            </div>
             <div style="font-size:11px; color:var(--text-muted); margin:-6px 0 12px;">AI writes narration that walks through the whole video in a fixed rhythm: a ~10s narrated still image, then a ~4s burst of the original clip playing at its own volume, repeating until the video ends. Images try Gemini first, then fall back to a real frame pulled from the source video itself, then to a free image generator as a last resort. This replaces all other effects below (they're skipped when this is on) and can take several minutes depending on the video's length. Shortening reused footage to narrated bursts like this reduces automated content-match risk - it does not make reposting someone else's video legal on its own.</div>
           </div>
         </div>

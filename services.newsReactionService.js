@@ -34,6 +34,19 @@ const googleTtsService = require('./services.googleTtsService');
 const customTtsService = require('./services.customTtsService');
 const vertexAiService = require('./services.vertexAiService');
 const ffmpeg = require('./utils.ffmpeg');
+const overlayCleaner = require('./utils.overlayCleaner');
+
+const NO_TEXT_SUFFIX = ' IMPORTANT: the picture must contain absolutely no text, letters, numbers, captions, logos, watermarks or signs anywhere.';
+
+// Hides text/logos in a file in place. Never fails the job: on any error the original stays.
+async function hideOverlays(kind, filePath, mode) {
+  try {
+    if (kind === 'image') await overlayCleaner.cleanImage(filePath, { mode });
+    else await overlayCleaner.cleanVideoClip(filePath, { mode });
+  } catch (err) {
+    logger.warn(`[news-reaction] could not hide text/logos in a ${kind} (${err.message}) - keeping it as is`);
+  }
+}
 
 // The fixed rhythm the whole video follows, per the requested format.
 const IMAGE_SECONDS = 10;
@@ -101,7 +114,7 @@ async function generateBlockImage(prompt, destPath, { sourcePath, fallbackTimest
  *   orientation: 'portrait' (default, Reels/Shorts) | 'landscape' (YouTube long-form)
  * @returns {{ finalPath: string, blockCount: number }}
  */
-async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, description, voiceName, narrationLanguage, orientation = 'portrait' } = {}) {
+async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, description, voiceName, narrationLanguage, orientation = 'portrait', hideOverlays: hideText = false, overlayMode = 'blur' } = {}) {
   const { width, height } = ORIENTATIONS[orientation] || ORIENTATIONS.portrait;
   const totalDuration = await ffmpeg.getMediaDuration(sourcePath);
 
@@ -128,8 +141,9 @@ async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, descr
     const narrationDuration = await ffmpeg.getMediaDuration(narrationPath);
 
     const imagePath = path.join(tempDir, `${jobId}_reaction_image_${i}.png`);
-    await generateBlockImage(lines[i], imagePath, { sourcePath, fallbackTimestamp: pointInSource, width, height });
+    await generateBlockImage(hideText ? lines[i] + NO_TEXT_SUFFIX : lines[i], imagePath, { sourcePath, fallbackTimestamp: pointInSource, width, height });
     tempFiles.push(imagePath);
+    if (hideText) await hideOverlays('image', imagePath, overlayMode);
 
     const imageClipPath = path.join(tempDir, `${jobId}_reaction_visual_img_${i}.mp4`);
     const effect = KEN_BURNS_EFFECTS[i % KEN_BURNS_EFFECTS.length];
@@ -144,6 +158,7 @@ async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, descr
 
     const clipVisualPath = path.join(tempDir, `${jobId}_reaction_visual_clip_${i}.mp4`);
     await ffmpeg.trimSilentClip(sourcePath, pointInSource, clipDuration, clipVisualPath, width, height);
+    if (hideText) await hideOverlays('clip', clipVisualPath, overlayMode);
     tempFiles.push(clipVisualPath);
     clipPaths.push(clipVisualPath);
 
