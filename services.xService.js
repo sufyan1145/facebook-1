@@ -16,12 +16,14 @@ const logger = require('./utils.logger');
 const XAccount = require('./models.XAccount');
 
 // Optional residential/mobile proxy (X blocks many datacenter IPs as "automated", error 226):
-//   X_PROXY_URL=http://user:pass@host:port
+//   X_PROXY_URL=http://user:pass@host:port   (or socks5://user:pass@host:port)
 function proxyConfig() {
-  if (!process.env.X_PROXY_URL) return {};
+  const url = process.env.X_PROXY_URL;
+  if (!url) return {};
   try {
-    const { HttpsProxyAgent } = require('https-proxy-agent');
-    return { httpsAgent: new HttpsProxyAgent(process.env.X_PROXY_URL), proxy: false };
+    const Agent = /^socks/i.test(url) ? require('socks-proxy-agent').SocksProxyAgent : require('https-proxy-agent').HttpsProxyAgent;
+    logger.info(`[x] using proxy ${url.replace(/\/\/.*@/, '//***@')}`);
+    return { httpsAgent: new Agent(url), proxy: false };
   } catch (err) { logger.warn(`[x] X_PROXY_URL ignored: ${err.message}`); return {}; }
 }
 const http = axios.create(proxyConfig());
@@ -149,7 +151,12 @@ function getTransactionGenerator() {
   txPromise = (async () => {
     let lib;
     try { lib = require('x-client-transaction-id'); }
-    catch (_) { txStatus = 'package x-client-transaction-id is NOT installed (run npm install / rebuild)'; logger.warn(`[x] ${txStatus}`); return null; }
+    catch (err) {
+      txStatus = err && err.code === 'MODULE_NOT_FOUND'
+        ? 'package x-client-transaction-id is NOT installed (run npm install / rebuild)'
+        : `package cannot load on Node ${process.version}: ${String(err && err.message).slice(0, 140)} (needs Node 20.19+ / 22)`;
+      logger.warn(`[x] ${txStatus}`); return null;
+    }
     const doc = lib.handleXMigration ? await lib.handleXMigration() : await lib.fetchXDocument();
     let ct;
     if (typeof lib.ClientTransaction.create === 'function') ct = await lib.ClientTransaction.create(doc);
@@ -267,7 +274,15 @@ function fitTweet(text, url) {
 // ---- post -------------------------------------------------------------------------
 async function postTweet(account, opts) {
   try {
-    return await postTweetOnce(account, opts);
+    try {
+      return await postTweetOnce(account, opts);
+    } catch (err) {
+      // X sometimes answers "Internal server error" (HTTP 5xx / code 131) - one calm retry
+      if (!((err.status >= 500) || err.xCode === 131)) throw err;
+      logger.warn(`[x] X server error, retrying once: ${err.message}`);
+      await sleep(5000);
+      return await postTweetOnce(account, opts);
+    }
   } catch (err) {
     if (err.status !== 403 || err.expired || err.xCode === 226) throw err;
     // ct0 may simply be stale: get a new one, save it, try once more
@@ -292,6 +307,7 @@ async function postTweetOnce(account, { text, url, imagePaths = [], replyTo = nu
         tweet_text: fitTweet(text, url), dark_request: false,
         media: { media_entities: mediaIds.map((id) => ({ media_id: id, tagged_users: [] })), possibly_sensitive: false },
         semantic_annotation_ids: [],
+        ...(replyTo ? { disallowed_reply_options: null } : {}),
         ...(replyTo ? { reply: { in_reply_to_tweet_id: String(replyTo), exclude_reply_user_ids_in_text: false } } : {}),
       },
       features: FEATURES, queryId,
