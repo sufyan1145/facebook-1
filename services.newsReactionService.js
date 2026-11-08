@@ -53,6 +53,11 @@ const IMAGE_SECONDS = 10;
 const CLIP_SECONDS = 4;
 const BLOCK_SECONDS = IMAGE_SECONDS + CLIP_SECONDS;
 
+// Retention ("fast") pacing: shorter stills, clip bursts of varying length.
+const FAST_IMAGE_SECONDS = 6;
+const FAST_CLIP_PATTERN = [5, 4, 6, 4];
+const SAFE_IMAGE_PREFIX = 'Cinematic documentary-style still, non-graphic and suitable for all audiences, no violence, gore or injuries, no real identifiable people. Scene: ';
+
 const ORIENTATIONS = {
   portrait: { width: 1080, height: 1920 }, // Reels / Shorts / TikTok-style
   landscape: { width: 1920, height: 1080 }, // YouTube long-form
@@ -114,34 +119,78 @@ async function generateBlockImage(prompt, destPath, { sourcePath, fallbackTimest
  *   orientation: 'portrait' (default, Reels/Shorts) | 'landscape' (YouTube long-form)
  * @returns {{ finalPath: string, blockCount: number }}
  */
-async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, description, voiceName, narrationLanguage, orientation = 'portrait', hideOverlays: hideText = false, overlayMode = 'blur' } = {}) {
+async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, description, voiceName, narrationLanguage, orientation = 'portrait', hideOverlays: hideText = false, overlayMode = 'blur', pacing = 'classic' } = {}) {
   const { width, height } = ORIENTATIONS[orientation] || ORIENTATIONS.portrait;
   const totalDuration = await ffmpeg.getMediaDuration(sourcePath);
 
-  const numBlocks = Math.max(1, Math.round(totalDuration / BLOCK_SECONDS));
-  logger.info(`[news-reaction] job ${jobId}: source is ${totalDuration.toFixed(1)}s (${orientation}), planning ${numBlocks} blocks (${IMAGE_SECONDS}s image + ${CLIP_SECONDS}s clip each), requesting narration`);
+  // "fast" = retention mode: shorter image beats, clip bursts of varying length, an opening
+  // hook on the most intense moment, a soft whoosh on every image beat, safer image prompts.
+  const fast = pacing === 'fast';
+  const imageSeconds = fast ? FAST_IMAGE_SECONDS : IMAGE_SECONDS;
+  const clipPattern = fast ? FAST_CLIP_PATTERN : [CLIP_SECONDS];
+  const blockSeconds = imageSeconds + clipPattern.reduce((a, b) => a + b, 0) / clipPattern.length;
+  const numBlocks = Math.max(1, Math.round(totalDuration / blockSeconds));
+  const useHook = fast && totalDuration >= 60;
+  logger.info(`[news-reaction] job ${jobId}: source is ${totalDuration.toFixed(1)}s (${orientation}, ${fast ? 'fast/retention' : 'classic'} pacing), planning ${numBlocks} blocks${useHook ? ' + opening hook' : ''}, requesting narration`);
 
-  const { lines } = await vertexAiService.generateReactionNarrationLines(title, description, numBlocks, { narrationLanguage });
-  logger.info(`[news-reaction] job ${jobId}: got ${lines.length} narration lines`);
+  const { lines: allLines } = await vertexAiService.generateReactionNarrationLines(title, description, numBlocks + (useHook ? 1 : 0), { narrationLanguage, pacing, hook: useHook });
+  const hookLine = useHook ? allLines[0] : null;
+  const lines = useHook ? allLines.slice(1) : allLines;
+  logger.info(`[news-reaction] job ${jobId}: got ${allLines.length} narration lines`);
 
   const clipPaths = [];
   const audioPaths = [];
   const tempFiles = [];
+
+  let sfxPath = null;
+  if (fast) {
+    sfxPath = path.join(tempDir, `${jobId}_reaction_whoosh.mp3`);
+    await ffmpeg.generateWhooshSfx(sfxPath);
+    tempFiles.push(sfxPath);
+  }
+
+  // --- Opening hook: the loudest ~6s of the real footage with a one-line teaser over it ---
+  if (useHook) {
+    try {
+      const peakStart = await ffmpeg.findLoudestWindow(sourcePath, 7);
+      const hookNarration = path.join(tempDir, `${jobId}_reaction_hook_narration.mp3`);
+      await synthesizeNarration(hookLine, hookNarration, voiceName, narrationLanguage);
+      tempFiles.push(hookNarration);
+      const hookDuration = Math.min(10, await ffmpeg.getMediaDuration(hookNarration)); // video + audio must be equally long
+      const hookVisual = path.join(tempDir, `${jobId}_reaction_hook_visual.mp4`);
+      await ffmpeg.trimSilentClip(sourcePath, peakStart, hookDuration, hookVisual, width, height);
+      if (hideText) await hideOverlays('clip', hookVisual, overlayMode);
+      tempFiles.push(hookVisual);
+      const hookAudio = path.join(tempDir, `${jobId}_reaction_hook_audio.mp3`);
+      await ffmpeg.mixNarrationWithBackground(hookNarration, sourcePath, peakStart, hookDuration, hookAudio, 0.35);
+      tempFiles.push(hookAudio);
+      clipPaths.push(hookVisual);
+      audioPaths.push(hookAudio);
+      logger.info(`[news-reaction] job ${jobId}: hook built from ${peakStart.toFixed(0)}s of the source`);
+    } catch (err) {
+      logger.warn(`[news-reaction] job ${jobId}: hook skipped (${err.message})`);
+    }
+  }
 
   for (let i = 0; i < numBlocks; i++) {
     // Walk sequentially through the source video - one proportional point
     // per block - so both the image "deserving scene" fallback and the clip
     // burst progress through the whole story instead of repeating one spot.
     const pointInSource = (i / numBlocks) * totalDuration;
+    const clipSeconds = clipPattern[i % clipPattern.length];
 
-    // --- Image beat (~10s target; exact length follows this line's actual spoken duration) ---
+    // --- Image beat (exact length follows this line's actual spoken duration) ---
     const narrationPath = path.join(tempDir, `${jobId}_reaction_narration_${i}.mp3`);
     await synthesizeNarration(lines[i], narrationPath, voiceName, narrationLanguage);
     tempFiles.push(narrationPath);
     const narrationDuration = await ffmpeg.getMediaDuration(narrationPath);
 
+    let imagePrompt = fast ? `${SAFE_IMAGE_PREFIX}${lines[i]}` : lines[i];
+    if (hideText) imagePrompt += NO_TEXT_SUFFIX;
     const imagePath = path.join(tempDir, `${jobId}_reaction_image_${i}.png`);
-    await generateBlockImage(hideText ? lines[i] + NO_TEXT_SUFFIX : lines[i], imagePath, { sourcePath, fallbackTimestamp: pointInSource, width, height });
+    // Fast mode takes the fallback frame from AFTER the clip burst, so the still never repeats the clip's first frame.
+    const fallbackTimestamp = fast ? Math.min(Math.max(0, totalDuration - 0.5), pointInSource + clipSeconds + 1) : pointInSource;
+    await generateBlockImage(imagePrompt, imagePath, { sourcePath, fallbackTimestamp, width, height });
     tempFiles.push(imagePath);
     if (hideText) await hideOverlays('image', imagePath, overlayMode);
 
@@ -150,11 +199,19 @@ async function buildNewsReactionVideo(sourcePath, tempDir, jobId, { title, descr
     await ffmpeg.imageToKenBurnsClip(imagePath, narrationDuration, imageClipPath, width, height, effect);
     tempFiles.push(imageClipPath);
     clipPaths.push(imageClipPath);
-    audioPaths.push(narrationPath);
 
-    // --- Clip beat (~4s of the real original clip, its own normal-volume audio, no narration) ---
+    if (fast) {
+      const withSfx = path.join(tempDir, `${jobId}_reaction_narration_sfx_${i}.mp3`);
+      await ffmpeg.mixNarrationWithSfx(narrationPath, sfxPath, withSfx, 0.5);
+      tempFiles.push(withSfx);
+      audioPaths.push(withSfx);
+    } else {
+      audioPaths.push(narrationPath);
+    }
+
+    // --- Clip beat (a burst of the real original clip, its own normal-volume audio, no narration) ---
     const remaining = Math.max(0.5, totalDuration - pointInSource);
-    const clipDuration = Math.min(CLIP_SECONDS, remaining);
+    const clipDuration = Math.min(clipSeconds, remaining);
 
     const clipVisualPath = path.join(tempDir, `${jobId}_reaction_visual_clip_${i}.mp4`);
     await ffmpeg.trimSilentClip(sourcePath, pointInSource, clipDuration, clipVisualPath, width, height);

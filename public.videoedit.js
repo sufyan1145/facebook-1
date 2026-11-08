@@ -587,7 +587,7 @@ function buildDubExtras() {
       dubSfxZoom: dubEnabled && !!(document.getElementById('dubSfxZoom') || {}).checked,
       dubOriginalVolumeSpeak: dubEnabled ? (Number((document.getElementById('dubOriginalVolumeSpeak') || {}).value || 0) / 100) : 0,
       dubOriginalVolumeRest: dubEnabled ? (Number((document.getElementById('dubOriginalVolumeRest') || {}).value || 100) / 100) : 1,
-      newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value, hideOverlays: document.getElementById('newsReactionHideOverlays').checked, overlayMode: document.getElementById('newsReactionOverlayMode').value } : null,
+      newsReaction: newsReactionEnabled ? { enabled: true, narrationLanguage: document.getElementById('newsReactionLanguage').value, orientation: document.getElementById('newsReactionOrientation').value, pacing: document.getElementById('newsReactionFastPacing').checked ? 'fast' : 'classic', hideOverlays: document.getElementById('newsReactionHideOverlays').checked, overlayMode: document.getElementById('newsReactionOverlayMode').value } : null,
       productExplainer: productExplainerEnabled ? {
         enabled: true,
         narrationLanguage: document.getElementById('productExplainerLanguage').value,

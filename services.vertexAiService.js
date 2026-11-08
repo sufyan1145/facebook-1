@@ -864,7 +864,8 @@ The "lines" array must contain exactly ${lineCount} strings, in order.`;
  * used so the News Reaction video builder doesn't depend on the AI Studio
  * (Gemini API key) project having its own separate billing enabled.
  */
-async function generateReactionNarrationLines(sourceTitle, sourceDescription, lineCount, { narrationLanguage = 'english' } = {}) {
+async function generateReactionNarrationLines(sourceTitle, sourceDescription, lineCount, { narrationLanguage = 'english', pacing = 'classic', hook = false } = {}) {
+  const fast = pacing === 'fast';
   const prompt = `You are writing the narration script for a short "news reaction / explainer" video that reacts to and explains an existing news video, in the style of a commentary/analysis channel.
 
 SOURCE VIDEO TITLE: "${sourceTitle || ''}"
@@ -873,7 +874,9 @@ NARRATION LANGUAGE: ${narrationLanguage}
 
 Write exactly ${lineCount} narration lines, in order, that together form one continuous reaction moving through the story from start to finish (setup -> key moments -> reaction/context -> closing thought). Each line plays while the viewer sees a still image of that moment, so write it like a narrator/commentator talking OVER a still, reacting to and explaining what's happening - not describing an image.
 
-Each line should take roughly 8-10 seconds to speak aloud at a natural pace (about 20-28 words), in ${narrationLanguage}, 1-2 sentences, natural spoken style (not written/formal).
+${fast
+    ? `Each line should take roughly 5-7 seconds to speak aloud (about 12-18 words), in ${narrationLanguage}, ONE short punchy sentence (two very short ones at most), natural spoken style, varied sentence length. Keep the viewer curious: now and then ask a question, or tease what comes next (\"But here is the part nobody expected...\") - without clickbait lies. No filler, no greetings, no \"in this video\".${hook ? ' The FIRST line is the opening HOOK: at most 14 words, it states the most striking fact of the story or asks the most gripping question about it - no greeting, no intro, no \"welcome\". The remaining lines then tell the story from the beginning.' : ''}\nDo NOT invent facts, names, numbers, quotes or places that are not in the title/description; where details are unknown, speak in general terms about what the footage shows.`
+    : `Each line should take roughly 8-10 seconds to speak aloud at a natural pace (about 20-28 words), in ${narrationLanguage}, 1-2 sentences, natural spoken style (not written/formal).`}
 
 Respond with STRICT JSON only (no markdown fences, no commentary before or after), matching exactly this shape:
 { "lines": ["...", "...", "..."] }

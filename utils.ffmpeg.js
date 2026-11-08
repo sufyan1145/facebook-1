@@ -348,6 +348,36 @@ async function muteAndAddMusic(videoPath, musicPath, outputPath) {
   return outputPath;
 }
 
+// Finds the loudest `windowSeconds` stretch of a video's audio (a cheap "most intense
+// moment" guess: shouting, explosions, applause, breaking news stings). Used to pick the
+// opening hook of a News Reaction video. Skips the first/last ~5% (intros/outros).
+// Returns the start time in seconds; falls back to a point 20% into the video.
+async function findLoudestWindow(sourcePath, windowSeconds = 6) {
+  const total = await getMediaDuration(sourcePath);
+  const fallback = Math.max(0, Math.min(total - windowSeconds, total * 0.2));
+  try {
+    const { stdout } = await run([
+      '-v', 'error', '-i', sourcePath, '-vn',
+      '-af', 'aresample=8000,asetnsamples=n=8000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-',
+      '-f', 'null', '-',
+    ], 600000);
+    const levels = [...String(stdout).matchAll(/RMS_level=(-?[\d.]+|-inf)/g)].map((m) => (m[1] === '-inf' ? -90 : Number(m[1])));
+    if (levels.length < windowSeconds + 2) return fallback;
+    const lin = levels.map((db) => 10 ** (db / 20));
+    const from = Math.floor(levels.length * 0.05);
+    const to = Math.min(levels.length - windowSeconds, Math.floor(levels.length * 0.95) - windowSeconds);
+    let best = -1; let bestStart = fallback; let sum = lin.slice(from, from + windowSeconds).reduce((a, b) => a + b, 0);
+    for (let s = from; s <= to; s++) {
+      if (s > from) sum += lin[s + windowSeconds - 1] - lin[s - 1];
+      if (sum > best) { best = sum; bestStart = s; }
+    }
+    return Math.min(bestStart, Math.max(0, total - windowSeconds));
+  } catch (err) {
+    logger.warn(`[ffmpeg] loudest-window search failed (${err.message}), using a fixed point`);
+    return fallback;
+  }
+}
+
 // Generates a short synthetic "whoosh" transition sound (bandpassed noise
 // burst with a fade in/out envelope) - fully self-contained, no external
 // sound-effect files/library needed. Used at the start of each Product
@@ -529,4 +559,4 @@ async function burnCaptions(inputPath, assPath, outputPath) {
   return outputPath;
 }
 
-module.exports = { concatClips, mergeAudioVideo, muxNarrationOverVideo, polishRepostedVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
+module.exports = { findLoudestWindow, concatClips, mergeAudioVideo, muxNarrationOverVideo, polishRepostedVideo, pcmToMp3, imageToKenBurnsClip, normalizeClip, getMediaDuration, concatAudio, burnCaptions, extractFrame, extractSampledFrames, trimSilentClip, mixNarrationWithBackground, extractAudioSegment, extractAudio, transcodeAudio, generateSilentAudio, muteAndAddMusic, generateWhooshSfx, mixNarrationWithSfx };
