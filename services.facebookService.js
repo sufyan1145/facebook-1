@@ -177,7 +177,17 @@ async function commentOnVideo({ videoId, pageAccessToken, message }) {
       const fbError = err.response?.data?.error;
       const permission = fbError && [10, 200, 190, 368].includes(fbError.code);
       if (permission) {
-        throw new Error(`${fbError.message} - reconnect Facebook with the "pages_manage_engagement" permission (see FB_COMMENT_SCOPE)`);
+        // Ask Facebook which permissions this Page token really has, so the error says exactly what is missing.
+        let have = '';
+        try {
+          const dbg = await axios.get(`${GRAPH_URL}/debug_token`, { params: { input_token: pageAccessToken, access_token: `${env.facebook.appId}|${env.facebook.appSecret}` } });
+          const scopes = dbg.data?.data?.scopes || [];
+          const missing = ['pages_manage_engagement', 'pages_read_user_content'].filter((p) => !scopes.includes(p));
+          have = missing.length
+            ? ` | This Page token is MISSING: ${missing.join(', ')} - set FB_COMMENT_SCOPE=true, reconnect Facebook, then press "Sync Pages" so the Page tokens are refreshed`
+            : ' | The token has both permissions, so Facebook is refusing for another reason (is this Facebook user an Admin of the Page and a Developer/Tester of the app?)';
+        } catch (_) { /* diagnosis is best effort */ }
+        throw new Error(`${fbError.message}${have}`);
       }
       if (attempt >= waits.length) throw new Error(fbError?.message || err.message);
       logger.info(`[FB comment] video ${videoId} not ready yet (${fbError?.message || err.message}), retrying in ${waits[attempt] / 1000}s`);
