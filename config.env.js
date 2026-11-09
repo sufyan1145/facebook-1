@@ -74,7 +74,8 @@ module.exports = {
       'instagram_content_publish',
       // Link-in-first-comment on Facebook videos (comments as the Page). Opt-in: set FB_COMMENT_SCOPE=true
       // and reconnect Facebook. Left off by default so a login for an app that was not reviewed for it cannot break.
-      ...(process.env.FB_COMMENT_SCOPE === 'true' ? ['pages_manage_engagement'] : []),
+      // (pages_read_user_content is needed too: Facebook reads the new comment back right after creating it)
+      ...(process.env.FB_COMMENT_SCOPE === 'true' ? ['pages_manage_engagement', 'pages_read_user_content'] : []),
     ],
   },
 
