@@ -70,8 +70,9 @@ module.exports = {
       // own admins/testers (same review process pages_manage_posts already
       // went through). Until that's approved, Instagram posting will only
       // work when YOU connect your own account, not for other users.
-      'instagram_basic',
-      'instagram_content_publish',
+      // Now opt-in (FB_INSTAGRAM_SCOPE=true): when the Meta app has no Instagram use case these scopes are
+      // "Invalid Scopes" and Facebook BLOCKS the login dialog for the app's own developer account.
+      ...(process.env.FB_INSTAGRAM_SCOPE === 'true' ? ['instagram_basic', 'instagram_content_publish'] : []),
       // Link-in-first-comment on Facebook videos (comments as the Page). Opt-in: set FB_COMMENT_SCOPE=true
       // and reconnect Facebook. Left off by default so a login for an app that was not reviewed for it cannot break.
       // (pages_read_user_content is needed too: Facebook reads the new comment back right after creating it)
