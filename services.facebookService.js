@@ -163,5 +163,28 @@ async function postLinkToPage({ pageId, pageAccessToken, message, link }) {
   }
 }
 
-module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage, postLinkToPage, getPostImageUrl };
+// Comments on a video AS THE PAGE (e.g. a link in the first comment). Facebook's API can
+// create comments but has no way to pin one. A just-uploaded video may still be processing, so
+// "object not ready" style errors are retried a few times; permission errors are not.
+async function commentOnVideo({ videoId, pageAccessToken, message }) {
+  const waits = [20000, 40000, 60000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const resp = await axios.post(`${GRAPH_URL}/${videoId}/comments`, null, { params: { message, access_token: pageAccessToken } });
+      logger.info(`Commented on video ${videoId}, comment id: ${resp.data.id}`);
+      return resp.data.id;
+    } catch (err) {
+      const fbError = err.response?.data?.error;
+      const permission = fbError && [10, 200, 190, 368].includes(fbError.code);
+      if (permission) {
+        throw new Error(`${fbError.message} - reconnect Facebook with the "pages_manage_engagement" permission (see FB_COMMENT_SCOPE)`);
+      }
+      if (attempt >= waits.length) throw new Error(fbError?.message || err.message);
+      logger.info(`[FB comment] video ${videoId} not ready yet (${fbError?.message || err.message}), retrying in ${waits[attempt] / 1000}s`);
+      await new Promise((r) => setTimeout(r, waits[attempt]));
+    }
+  }
+}
+
+module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage, postLinkToPage, commentOnVideo, getPostImageUrl };
 

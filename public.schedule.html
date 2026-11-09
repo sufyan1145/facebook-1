@@ -53,6 +53,11 @@
               <div style="font-size:11px; color:var(--text-muted);">When on, the text in the video's file name (underscores turned into spaces, extension and the Video Editor's trailing code removed) is posted as the caption/description instead of the caption typed above. Hashtags from this schedule are still added. Videos from the Video Editor or TikTok Downloader that already have a regenerated title use that title.</div>
             </div>
             <div class="field">
+              <label for="commentText">Link / text for the first comment (optional)</label>
+              <textarea id="commentText" rows="2" placeholder="e.g. 👉 Full story: https://yoursite.com/article"></textarea>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Posted as the first comment on every video this schedule uploads (Facebook page video and/or YouTube, whichever the schedule posts to). <b>Pinning:</b> neither Facebook nor YouTube lets apps pin a comment, so the app posts it and you pin it with one tap - on YouTube in Studio, on Facebook from the post's comment menu. Needs extra permissions: reconnect YouTube, and for Facebook set <code>FB_COMMENT_SCOPE=true</code> then reconnect Facebook. Comments are not posted on videos that are not published immediately.</div>
+            </div>
+            <div class="field">
               <label class="checkbox-row" style="margin-bottom:4px;">
                 <input id="allowReupload" type="checkbox" /> Allow re-upload of the same videos
               </label>

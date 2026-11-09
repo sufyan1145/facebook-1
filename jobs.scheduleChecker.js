@@ -161,6 +161,7 @@ async function fireSchedule(schedule) {
         autoBackgroundMusic: schedule.auto_background_music,
         musicFolderId: schedule.music_folder_id,
         useFilenameAsCaption: !!schedule.use_filename_as_caption,
+        commentText: schedule.comment_text || null,
       },
       { delay }
     );

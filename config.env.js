@@ -42,6 +42,7 @@ module.exports = {
     ],
     youtubeScopes: [
       'https://www.googleapis.com/auth/youtube.upload',
+      'https://www.googleapis.com/auth/youtube.force-ssl', // needed to post the "link comment" on uploaded videos
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/userinfo.profile',
     ],
@@ -71,6 +72,9 @@ module.exports = {
       // work when YOU connect your own account, not for other users.
       'instagram_basic',
       'instagram_content_publish',
+      // Link-in-first-comment on Facebook videos (comments as the Page). Opt-in: set FB_COMMENT_SCOPE=true
+      // and reconnect Facebook. Left off by default so a login for an app that was not reviewed for it cannot break.
+      ...(process.env.FB_COMMENT_SCOPE === 'true' ? ['pages_manage_engagement'] : []),
     ],
   },
 

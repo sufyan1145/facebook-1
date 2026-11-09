@@ -21,7 +21,7 @@ const worker = new Worker(
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
       publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
-      autoBackgroundMusic, musicFolderId,
+      autoBackgroundMusic, musicFolderId, commentText,
     } = job.data;
 
     // If this exact file was downloaded via the TikTok Downloader, use its
@@ -113,6 +113,21 @@ const worker = new Worker(
         });
         await Log.record(userId, 'Video Uploaded', { file: file.name, page: pageName });
         await notifyUploadEvent(userId, { type: 'success', videoName: file.name, pageName });
+
+        // Optional link comment (best effort - never affects the upload; posted once, only right after the upload).
+        if (commentText) {
+          if (publishImmediately === false) {
+            await Log.record(userId, 'Link Comment Skipped', { file: file.name, platform: 'facebook', reason: 'video is not published yet' });
+          } else {
+            try {
+              const commentId = await facebookService.commentOnVideo({ videoId: fbVideoId, pageAccessToken: page.page_access_token, message: commentText });
+              await Log.record(userId, 'Link Comment Posted', { file: file.name, platform: 'facebook', commentId, note: 'pin it manually - Facebook has no pin API' });
+            } catch (cErr) {
+              await Log.record(userId, 'Link Comment Failed', { file: file.name, platform: 'facebook', error: cErr.message }, 'error');
+              logger.error(`Facebook link comment failed for ${file.name}: ${cErr.message}`);
+            }
+          }
+        }
       } else if (fbVideoId) {
         logger.info(`Skipping Facebook upload for ${file.name} - already uploaded in a previous attempt (${fbVideoId})`);
       }
@@ -133,6 +148,16 @@ const worker = new Worker(
           });
           await UploadHistory.markYoutubeUploaded(historyRow.id, youtubeVideoId);
           await Log.record(userId, 'YouTube Upload Completed', { file: file.name, youtubeVideoId });
+
+          if (commentText) {
+            try {
+              const commentId = await youtubeService.postVideoComment(userId, youtubeTokenId, youtubeVideoId, commentText);
+              await Log.record(userId, 'Link Comment Posted', { file: file.name, platform: 'youtube', commentId, note: 'pin it in YouTube Studio - the API cannot pin' });
+            } catch (cErr) {
+              await Log.record(userId, 'Link Comment Failed', { file: file.name, platform: 'youtube', error: cErr.message }, 'error');
+              logger.error(`YouTube link comment failed for ${file.name}: ${cErr.message}`);
+            }
+          }
 
           // Long videos only: AI thumbnail (Nano Banana 2). Best effort - a
           // failure here never affects the upload that already succeeded.
@@ -182,13 +207,5 @@ const worker = new Worker(
 
 worker.on('completed', (job) => logger.info(`Job ${job.id} completed`));
 worker.on('failed', (job, err) => logger.error(`Job ${job?.id} failed: ${err.message}`));
-
-// Website Automation: its schedule checker runs in this same worker process
-// (loaded here so jobs.worker-entry.js does not need to change).
-try {
-  require('./jobs.websiteWorker').startWebsiteScheduleChecker();
-} catch (err) {
-  logger.error(`Website schedule checker could not start: ${err.message}`);
-}
 
 module.exports = worker;

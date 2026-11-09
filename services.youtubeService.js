@@ -86,4 +86,26 @@ async function isLongVideo(filePath, videoType) {
   }
 }
 
-module.exports = { uploadVideo, uploadThumbnail, isLongVideo };
+// Posts a top-level comment on the channel's own video (e.g. a link). The YouTube API can
+// create comments but cannot pin them - pinning stays a one-tap action in YouTube Studio.
+// Needs the youtube.force-ssl scope: channels connected before that scope was added must be reconnected.
+async function postVideoComment(userId, youtubeTokenId, videoId, text) {
+  const auth = await getValidYoutubeClient(userId, youtubeTokenId);
+  const youtube = google.youtube({ version: 'v3', auth });
+  try {
+    const { data } = await youtube.commentThreads.insert({
+      part: ['snippet'],
+      requestBody: { snippet: { videoId, topLevelComment: { snippet: { textOriginal: text } } } },
+    });
+    logger.info(`[youtube] comment posted on video ${videoId} (comment ${data.id})`);
+    return data.id;
+  } catch (err) {
+    const reason = err.errors && err.errors[0] && err.errors[0].reason;
+    if (err.code === 403 || reason === 'insufficientPermissions' || /insufficient/i.test(err.message)) {
+      throw new Error('YouTube refused the comment (permission missing) - disconnect and connect this YouTube channel again so it can ask for the comment permission');
+    }
+    throw err;
+  }
+}
+
+module.exports = { uploadVideo, uploadThumbnail, isLongVideo, postVideoComment };
