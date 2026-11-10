@@ -97,6 +97,16 @@
           <div class="field"><label for="vText">Text to speak</label>
             <textarea id="vText" rows="12" dir="auto" placeholder="Paste or type your script here. Blank line = a longer pause. Up to 100 minutes of speech in one go."></textarea>
             <div id="vCounter" style="font-size:12px; color:var(--text-faint); margin-top:4px;"></div>
+            <div id="vScriptWarn" style="display:none; margin-top:8px; padding:10px 12px; border-radius:8px; border:1px solid var(--signal-amber); font-size:12px;">
+              <div id="vScriptMsg"></div>
+              <button type="button" class="btn sm" id="vConvert" style="margin-top:8px;">Convert to proper script</button>
+            </div>
+          </div>
+          <div id="styleField" style="display:none;">
+            <div class="field"><label for="vStyle">Emotion / style (Gemini voices)</label>
+              <select id="vStyle"></select></div>
+            <div class="field"><label for="vStyleCustom">Extra direction (optional)</label>
+              <input id="vStyleCustom" maxlength="300" placeholder="e.g. whisper at the start, then get louder, sound like a grandmother telling a story" /></div>
           </div>
           <div class="field"><label for="vRate">Speed: <span id="vRateLabel">1.0×</span></label>
             <input type="range" id="vRate" min="0.5" max="1.8" step="0.05" value="1" /></div>

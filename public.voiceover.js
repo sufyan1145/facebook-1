@@ -9,7 +9,7 @@ let previewAudio = null;
 const rec = { ref: null, con: null };   // { base64 }
 
 const $ = (id) => document.getElementById(id);
-const FAMILY_LABEL = { 'Chirp3-HD': 'Premium · Chirp 3 HD', 'Chirp-HD': 'Premium · Chirp HD', Studio: 'Studio', Neural2: 'Neural2', Polyglot: 'Polyglot', News: 'News', Casual: 'Casual', Wavenet: 'WaveNet', Standard: 'Standard', Other: 'Other' };
+const FAMILY_LABEL = { Gemini: 'Gemini · emotion & style', 'Chirp3-HD': 'Premium · Chirp 3 HD', 'Chirp-HD': 'Premium · Chirp HD', Studio: 'Studio', Neural2: 'Neural2', Polyglot: 'Polyglot', News: 'News', Casual: 'Casual', Wavenet: 'WaveNet', Standard: 'Standard', Other: 'Other' };
 let langNames = null;
 function langLabel(code) {
   try {
@@ -19,6 +19,49 @@ function langLabel(code) {
   } catch (_) { return code; }
 }
 function say(el, text, bad) { el.textContent = text || ''; el.style.color = bad ? 'var(--signal-red)' : 'var(--signal-green)'; }
+
+// ---- script check + emotion style (mirrors the server) ----------------------------------------
+const STYLE_OPTIONS = [['natural', 'Natural storyteller'], ['warm', 'Warm & emotional'], ['excited', 'Excited & energetic'], ['calm', 'Calm & soothing'], ['serious', 'Serious / news'], ['dramatic', 'Dramatic & gripping'], ['sad', 'Sad & heavy']];
+const NATIVE_SCRIPT = { ur: /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g, pa: /[\u0A00-\u0A7F]/g, hi: /[\u0900-\u097F]/g };
+const SCRIPT_LABEL = { ur: 'Urdu', pa: 'Gurmukhi', hi: 'Devanagari' };
+function currentLang() { return mode === 'tts' ? (selected ? selected[1] : '') : ((clones.find((x) => x.id === selectedClone) || {}).language_code || ''); }
+function scriptIssue() {
+  const lang = currentLang(); const base = lang.split('-')[0]; const t = $('vText').value;
+  const latin = (t.match(/[A-Za-z]/g) || []).length; const ar = (t.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g) || []).length;
+  const gu = (t.match(/[\u0A00-\u0A7F]/g) || []).length; const de = (t.match(/[\u0900-\u097F]/g) || []).length;
+  const total = latin + ar + gu + de;
+  if (!lang || total < 8) return null;
+  const re = NATIVE_SCRIPT[base];
+  if (!re) return ['en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'pl', 'tr', 'id', 'vi'].includes(base) && (ar + gu + de) / total >= 0.5
+    ? { msg: 'The text is in Urdu / Punjabi / Hindi letters, but the selected voice speaks another language. Pick a voice of the text\'s language in the Language list.', convert: false } : null;
+  const own = (t.match(re) || []).length;
+  if (own / total >= 0.5) return null;
+  if (latin / total >= 0.5) return { msg: `This text is in English letters (Roman). A voice reading Roman text sounds like an English speaker. Convert it to ${SCRIPT_LABEL[base]} script first.`, convert: true };
+  if (base === 'pa' && ar / total >= 0.5) return { msg: 'This Punjabi is in Shahmukhi (Urdu letters). Google Punjabi voices read Gurmukhi only. Convert it to Gurmukhi, or pick an Urdu voice.', convert: true };
+  return { msg: `This text is not in ${SCRIPT_LABEL[base]} script.`, convert: true };
+}
+function updateScriptWarn() {
+  const i = scriptIssue();
+  $('vScriptWarn').style.display = i ? 'block' : 'none';
+  if (i) { $('vScriptMsg').textContent = i.msg; $('vConvert').style.display = i.convert ? 'inline-block' : 'none'; }
+}
+function updateStyleUI() {
+  const on = mode === 'tts' && selected && selected[3] === 'Gemini';
+  $('styleField').style.display = on ? 'block' : 'none';
+}
+function styleBody() {
+  return mode === 'tts' && selected && selected[3] === 'Gemini' ? { style: $('vStyle').value, styleCustom: $('vStyleCustom').value } : {};
+}
+async function convertText() {
+  const lang = currentLang(); const btn = $('vConvert'); const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Converting…'; say($('vMsg'), '');
+  try {
+    const r = await apiFetch('/voiceover/convert-script', { method: 'POST', body: JSON.stringify({ text: $('vText').value, languageCode: lang }) });
+    $('vText').value = r.data.text; updateCounter();
+    say($('vMsg'), 'Converted. Read it once to check the spelling, then create the voice-over.');
+  } catch (err) { say($('vMsg'), err.message, true); }
+  btn.disabled = false; btn.textContent = old;
+}
 
 // ---- voices ---------------------------------------------------------------------
 function loadVoiceFilters() {
@@ -50,7 +93,7 @@ function renderVoices() {
   $('voiceCount').textContent = `${list.length} voice${list.length === 1 ? '' : 's'} shown`;
   $('voiceList').innerHTML = list.length ? list.map((v) => {
     const sel = selected && selected[0] === v[0] && selected[1] === v[1];
-    const nm = v[3] === 'Chirp3-HD' || v[3] === 'Chirp-HD' ? v[4] : `${v[3]} ${v[4]}`;
+    const nm = v[3] === 'Chirp3-HD' || v[3] === 'Chirp-HD' || v[3] === 'Gemini' ? v[4] : `${v[3]} ${v[4]}`;
     return `<div class="vo-voice${sel ? ' selected' : ''}" data-name="${escapeHtml(v[0])}">
       <span class="vo-g ${v[2] === 'M' ? 'm' : 'f'}" title="${v[2] === 'M' ? 'Male' : 'Female'}">${v[2] === 'M' ? '♂' : '♀'}</span>
       <span class="nm">${escapeHtml(nm)}<small>${v[2] === 'M' ? 'Male' : 'Female'} · ${escapeHtml(FAMILY_LABEL[v[3]] || v[3])}</small></span>
@@ -62,6 +105,13 @@ function renderVoices() {
     if (e.target.closest('[data-play]')) { playPreview({ voiceName: name, languageCode: v[1], sample: true }, e.target.closest('button')); return; }
     selected = v; renderVoices();
   }));
+  updateStyleUI(); updateScriptWarn();
+}
+
+// the voice that is picked automatically when a language is chosen (never keep a voice of another language)
+function defaultVoiceFor(lang) {
+  const all = voices.filter((v) => v[1] === lang);
+  return all.find((v) => v[3] === 'Gemini' && v[2] === 'M') || all.find((v) => v[3] === 'Chirp3-HD' && v[2] === 'M') || all[0] || null;
 }
 
 // ---- preview ---------------------------------------------------------------------
@@ -71,7 +121,7 @@ async function playPreview({ voiceName, languageCode, cloneId, sample }, btn) {
   try {
     const res = await fetch('/api/voiceover/preview', {
       method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voiceName, languageCode, cloneId, text: sample ? '' : $('vText').value, speakingRate: Number($('vRate').value), pitch: mode === 'tts' ? Number($('vPitch').value) : 0 }),
+      body: JSON.stringify({ voiceName, languageCode, cloneId, text: sample ? '' : $('vText').value, speakingRate: Number($('vRate').value), pitch: mode === 'tts' ? Number($('vPitch').value) : 0, ...styleBody() }),
     });
     if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || 'Preview failed'); }
     const url = URL.createObjectURL(await res.blob());
@@ -96,7 +146,7 @@ function updateCounter() {
 // ---- create job --------------------------------------------------------------------------
 async function createJob() {
   say($('vMsg'), '');
-  const body = { text: $('vText').value, title: $('vTitle').value, speakingRate: Number($('vRate').value), pitch: mode === 'tts' ? Number($('vPitch').value) : 0 };
+  const body = { text: $('vText').value, title: $('vTitle').value, speakingRate: Number($('vRate').value), pitch: mode === 'tts' ? Number($('vPitch').value) : 0, ...styleBody() };
   if (mode === 'tts') {
     if (!selected) return say($('vMsg'), 'Choose a voice from the list first.', true);
     body.voiceName = selected[0]; body.languageCode = selected[1];
@@ -246,6 +296,7 @@ function setMode(m) {
   $('clonePanel').style.display = m === 'clone' ? 'block' : 'none';
   $('pitchField').style.display = m === 'tts' ? 'block' : 'none';
   say($('vMsg'), '');
+  updateStyleUI(); updateScriptWarn();
 }
 
 (async function init() {
@@ -254,10 +305,13 @@ function setMode(m) {
   renderNav('voiceover');
   $('tabTts').addEventListener('click', () => setMode('tts'));
   $('tabClone').addEventListener('click', () => { setMode('clone'); });
-  ['vLang'].forEach((id) => $(id).addEventListener('change', () => { refreshFamilies(); renderVoices(); }));
+  ['vLang'].forEach((id) => $(id).addEventListener('change', () => { refreshFamilies(); selected = defaultVoiceFor($('vLang').value); renderVoices(); }));
   ['vGender', 'vFamily'].forEach((id) => $(id).addEventListener('change', renderVoices));
   $('vSearch').addEventListener('input', renderVoices);
   ['vText', 'vRate', 'vPitch'].forEach((id) => $(id).addEventListener('input', updateCounter));
+  $('vText').addEventListener('input', updateScriptWarn);
+  $('vConvert').addEventListener('click', convertText);
+  $('vStyle').innerHTML = STYLE_OPTIONS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
   $('vCreate').addEventListener('click', createJob);
   $('vRefresh').addEventListener('click', loadHistory);
   $('vPreview').addEventListener('click', (e) => {
@@ -274,7 +328,7 @@ function setMode(m) {
     voices = (await apiFetch('/voiceover/voices')).data;
     loadVoiceFilters(); refreshFamilies();
     // a good default: first Premium male voice of the language
-    selected = voices.find((v) => v[1] === $('vLang').value && v[3] === 'Chirp3-HD' && v[2] === 'M') || voices.find((v) => v[1] === $('vLang').value) || null;
+    selected = defaultVoiceFor($('vLang').value);
     renderVoices();
   } catch (err) { $('voiceTotals').textContent = `Could not load voices: ${err.message}`; $('voiceTotals').style.color = 'var(--signal-red)'; }
   try {

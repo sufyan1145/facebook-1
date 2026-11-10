@@ -9,7 +9,7 @@ class BadRequest extends Error {}
 const bad = (m) => { throw new BadRequest(m); };
 const wrap = (fn) => async (req, res, next) => {
   try { await fn(req, res); } catch (err) {
-    if (err instanceof BadRequest) return res.status(400).json({ success: false, message: err.message });
+    if (err instanceof BadRequest) return res.status(400).json({ success: false, message: err.message, code: err.scriptProblem || undefined });
     if (err.code === 'CLONE_NOT_ALLOWED') return res.status(403).json({ success: false, code: err.code, message: err.message });
     logger.error(`[voiceover] ${req.method} ${req.path}: ${err.message}`);
     next(err);
@@ -30,6 +30,12 @@ const voices = wrap(async (req, res) => {
   res.json({ success: true, data: all.map((v) => [v.name, v.languageCode, v.gender === 'male' ? 'M' : 'F', v.family, v.short]) });
 });
 
+// Roman Urdu / Shahmukhi text would be read like an English speaker: stop with a clear reason.
+function checkScript(languageCode, text) {
+  const p = txt.scriptProblem(languageCode, text);
+  if (p) { const e = new BadRequest(p.message); e.scriptProblem = p.code; throw e; }
+}
+
 const preview = wrap(async (req, res) => {
   const b = req.body || {};
   let voiceName = null; let cloneKey = null; let languageCode = String(b.languageCode || '');
@@ -42,8 +48,10 @@ const preview = wrap(async (req, res) => {
     const v = (await svc.listVoices()).find((x) => x.name === voiceName && x.languageCode === languageCode);
     if (!v) bad('Choose a voice first.');
   }
+  if (String(b.text || '').trim()) checkScript(languageCode, String(b.text).slice(0, 160));
+  const style = voiceName && txt.isGeminiVoice(voiceName) ? txt.normalizeStyle(b.style, b.styleCustom) : null;
   const mp3 = await svc.previewVoice({
-    voiceName, languageCode, cloneKey, text: b.text, rate: txt.clampRate(b.speakingRate), pitch: txt.clampPitch(b.pitch),
+    voiceName, languageCode, cloneKey, text: b.text, rate: txt.clampRate(b.speakingRate), pitch: txt.clampPitch(b.pitch), style,
   });
   res.set({ 'Content-Type': 'audio/mpeg', 'Cache-Control': 'private, max-age=600' }).send(mp3);
 });
@@ -60,7 +68,7 @@ const create = wrap(async (req, res) => {
   }
   if (await VoiceoverJob.hasActive(req.user.id)) bad('A voice-over is already being made. Wait for it to finish first.');
 
-  let languageCode; let voiceName = null; let cloneId = null; let cloneKey = null; let label; let mode = 'tts';
+  let languageCode; let voiceName = null; let cloneId = null; let cloneKey = null; let label; let mode = 'tts'; let style = null;
   if (b.cloneId) {
     mode = 'clone';
     const clone = await VoiceClone.findWithKey(req.user.id, String(b.cloneId));
@@ -72,14 +80,28 @@ const create = wrap(async (req, res) => {
     const v = (await svc.listVoices()).find((x) => x.name === voiceName && x.languageCode === languageCode);
     if (!v) bad('Choose a voice first.');
     label = `${v.short} (${v.gender}, ${v.family})`;
+    if (txt.isGeminiVoice(voiceName)) {
+      style = txt.normalizeStyle(b.style, b.styleCustom);
+      label += ` · ${txt.STYLES[style.key].label}`;
+    }
   }
+  checkScript(languageCode, text);
   const job = await VoiceoverJob.create(req.user.id, {
     mode, title: String(b.title || '').trim().slice(0, 120) || text.slice(0, 50), languageCode, voiceName, cloneId, voiceLabel: label,
     speakingRate: rate, pitchSemitones: pitch, charCount: text.length, estMinutes,
   });
   await Log.record(req.user.id, 'Voice Over Started', { jobId: job.id, chars: text.length, mode });
-  svc.enqueue(job, { text, cloneKey });
+  svc.enqueue(job, { text, cloneKey, style });
   res.status(202).json({ success: true, data: job });
+});
+
+const convertScript = wrap(async (req, res) => {
+  const b = req.body || {};
+  const text = txt.normalizeText(b.text);
+  if (text.length < 2) bad('Paste the text first.');
+  let out;
+  try { out = await svc.convertScript(text, String(b.languageCode || '')); } catch (err) { bad(err.message); }
+  res.json({ success: true, data: { text: out } });
 });
 
 const list = wrap(async (req, res) => {
@@ -150,4 +172,4 @@ const removeClone = wrap(async (req, res) => {
   res.json({ success: true });
 });
 
-module.exports = { voices, preview, create, list, remove, file, cloneLanguages, listClones, createClone, removeClone };
+module.exports = { voices, preview, convertScript, create, list, remove, file, cloneLanguages, listClones, createClone, removeClone };

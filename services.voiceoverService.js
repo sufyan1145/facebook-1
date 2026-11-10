@@ -29,6 +29,8 @@ const SAMPLE_RATE = 24000;
 const CONCURRENCY = 3;
 const OUT_DIR = () => path.join(env.upload.tempDir, 'voiceover');
 const FILE_TTL_DAYS = 7;
+// Gemini TTS model for the Cloud Text-to-Speech API (emotion / style via `prompt`).
+const GEMINI_TTS_MODEL = () => (process.env.VOICEOVER_GEMINI_MODEL || 'gemini-2.5-flash-tts').trim();
 
 // Cloning: languages + the EXACT consent sentence Google requires (custom ones are rejected).
 const CLONE_LANGUAGES = {
@@ -131,13 +133,16 @@ function parseWav(buf) {
   return null;
 }
 
-async function synthesize(text, { voiceName, languageCode, cloneKey, rate = 1 }) {
+async function synthesize(text, { voiceName, languageCode, cloneKey, rate = 1, style = null }) {
+  const gemini = !cloneKey && txt.isGeminiVoice(voiceName);
   const voice = cloneKey
     ? { language_code: languageCode, voice_clone: { voice_cloning_key: cloneKey } }
-    : { languageCode, name: voiceName };
+    : gemini ? { languageCode, name: voiceName, model_name: GEMINI_TTS_MODEL() } : { languageCode, name: voiceName };
   const url = `${cloneKey ? TTS_V1BETA1 : TTS_V1}/text:synthesize`;
-  const body = { input: { text }, voice, audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: SAMPLE_RATE, speakingRate: rate } };
-  if (rate === 1) delete body.audioConfig.speakingRate;
+  const input = gemini ? { text, prompt: txt.buildStylePrompt(languageCode, style) } : { text };
+  const body = { input, voice, audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: SAMPLE_RATE, speakingRate: rate } };
+  // Gemini voices have no speakingRate: the speed is applied once, when the MP3 is made (see audioFilter)
+  if (rate === 1 || gemini) delete body.audioConfig.speakingRate;
   try {
     const { data } = await withRetry(async () => axios.post(url, body, { headers: await headers(), timeout: 90000, maxBodyLength: Infinity }), 'synthesize');
     if (!data || !data.audioContent) throw new Error('Google returned no audio');
@@ -171,6 +176,7 @@ async function toPcm(wavBuf) {
 const SAMPLE_TEXT = {
   en: 'Hello! This is a short sample of how this voice sounds.',
   ur: 'ہیلو! یہ اس آواز کا ایک مختصر نمونہ ہے۔',
+  pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਇਹ ਇਸ ਆਵਾਜ਼ ਦਾ ਇੱਕ ਛੋਟਾ ਜਿਹਾ ਨਮੂਨਾ ਹੈ।',
   hi: 'नमस्ते! यह इस आवाज़ का एक छोटा सा नमूना है।',
   ar: 'مرحبًا! هذه عينة قصيرة من صوتي.',
   es: '¡Hola! Esta es una breve muestra de cómo suena esta voz.',
@@ -189,13 +195,13 @@ const SAMPLE_TEXT = {
   zh: '你好！这是这个声音的简短示例。',
 };
 const previewCache = new Map();
-async function previewVoice({ voiceName, languageCode, cloneKey, text, rate = 1, pitch = 0 }) {
+async function previewVoice({ voiceName, languageCode, cloneKey, text, rate = 1, pitch = 0, style = null }) {
   const base = String(languageCode || 'en').split('-')[0].toLowerCase();
   const sample = (String(text || '').trim().slice(0, 160)) || SAMPLE_TEXT[base] || SAMPLE_TEXT.en;
-  const key = crypto.createHash('sha1').update([voiceName, languageCode, cloneKey ? 'c' + cloneKey.slice(-12) : '', sample, rate, pitch].join('|')).digest('hex');
+  const key = crypto.createHash('sha1').update([voiceName, languageCode, cloneKey ? 'c' + cloneKey.slice(-12) : '', sample, rate, pitch, style ? `${style.key}:${style.custom}` : ''].join('|')).digest('hex');
   if (previewCache.has(key)) return previewCache.get(key);
-  const pcm = await toPcm(await synthesize(sample, { voiceName, languageCode, cloneKey, rate }));
-  const mp3 = await encodePcmToMp3Buffer(pcm, { pitch, bitrate: '64k' });
+  const pcm = await toPcm(await synthesize(sample, { voiceName, languageCode, cloneKey, rate, style }));
+  const mp3 = await encodePcmToMp3Buffer(pcm, { pitch, tempo: tempoFor(voiceName, cloneKey, rate), bitrate: '64k' });
   previewCache.set(key, mp3);
   if (previewCache.size > 150) previewCache.delete(previewCache.keys().next().value);
   return mp3;
@@ -208,21 +214,32 @@ function pitchFilter(semitones) {
   return `asetrate=${Math.round(SAMPLE_RATE * f)},aresample=${SAMPLE_RATE},atempo=${(1 / f).toFixed(5)}`;
 }
 
-async function encodePcmToMp3Buffer(pcm, { pitch = 0, bitrate = '64k' } = {}) {
+// Gemini voices cannot change speed themselves: speed up / slow down the finished audio (pitch is kept).
+const tempoFor = (voiceName, cloneKey, rate) => (!cloneKey && txt.isGeminiVoice(voiceName) && rate && rate !== 1 ? rate : 1);
+
+function audioFilter({ pitch = 0, tempo = 1 } = {}) {
+  const parts = [];
+  const pf = pitchFilter(pitch);
+  if (pf) parts.push(pf);
+  if (tempo && tempo !== 1) parts.push(`atempo=${Math.min(Math.max(tempo, 0.5), 2).toFixed(3)}`);
+  return parts.length ? parts.join(',') : null;
+}
+
+async function encodePcmToMp3Buffer(pcm, { pitch = 0, tempo = 1, bitrate = '64k' } = {}) {
   const dir = OUT_DIR(); fs.mkdirSync(dir, { recursive: true });
   const raw = path.join(dir, `pv_${crypto.randomBytes(6).toString('hex')}.raw`);
   const mp3 = `${raw}.mp3`;
   try {
     fs.writeFileSync(raw, pcm);
-    await encodeRaw(raw, mp3, { pitch, bitrate });
+    await encodeRaw(raw, mp3, { pitch, tempo, bitrate });
     return fs.readFileSync(mp3);
   } finally { [raw, mp3].forEach((f) => { try { fs.unlinkSync(f); } catch (_) { /* ignore */ } }); }
 }
 
-function encodeRaw(rawPath, outPath, { pitch = 0, bitrate = '96k' } = {}) {
+function encodeRaw(rawPath, outPath, { pitch = 0, tempo = 1, bitrate = '96k' } = {}) {
   const args = ['-y', '-loglevel', 'error', '-f', 's16le', '-ar', String(SAMPLE_RATE), '-ac', '1', '-i', rawPath];
-  const pf = pitchFilter(pitch);
-  if (pf) args.push('-af', pf);
+  const af = audioFilter({ pitch, tempo });
+  if (af) args.push('-af', af);
   args.push('-c:a', 'libmp3lame', '-b:a', bitrate, '-ar', String(SAMPLE_RATE), outPath);
   return execFileAsync('ffmpeg', args, { maxBuffer: 1 << 26 });
 }
@@ -231,7 +248,7 @@ function encodeRaw(rawPath, outPath, { pitch = 0, bitrate = '96k' } = {}) {
 /**
  * job: row from voiceover_jobs; opts: { text, cloneKey }  (text is NOT stored in the DB)
  */
-async function runVoiceoverJob(job, { text, cloneKey = null }) {
+async function runVoiceoverJob(job, { text, cloneKey = null, style = null }) {
   const dir = OUT_DIR(); fs.mkdirSync(dir, { recursive: true });
   const rawPath = path.join(dir, `${job.id}.raw`);
   const outPath = path.join(dir, `${job.id}.mp3`);
@@ -260,7 +277,7 @@ async function runVoiceoverJob(job, { text, cloneKey = null }) {
         // do not run far ahead of the writer (keeps memory small)
         while (!failure && i - nextToWrite > CONCURRENCY * 4) await sleep(50);
         try {
-          const wav = await synthesize(chunks[i].text, { voiceName: job.voice_name, languageCode: job.language_code, cloneKey, rate });
+          const wav = await synthesize(chunks[i].text, { voiceName: job.voice_name, languageCode: job.language_code, cloneKey, rate, style });
           results.set(i, await toPcm(wav));
           flush();
           done += 1;
@@ -275,9 +292,10 @@ async function runVoiceoverJob(job, { text, cloneKey = null }) {
     if (failure) throw failure;
     flush();
 
-    await encodeRaw(rawPath, outPath, { pitch: Number(job.pitch_semitones) || 0, bitrate: '96k' });
+    const tempo = tempoFor(job.voice_name, cloneKey, rate);
+    await encodeRaw(rawPath, outPath, { pitch: Number(job.pitch_semitones) || 0, tempo, bitrate: '96k' });
     const bytes = fs.statSync(outPath).size;
-    const seconds = fs.statSync(rawPath).size / 2 / SAMPLE_RATE;
+    const seconds = fs.statSync(rawPath).size / 2 / SAMPLE_RATE / tempo;
     await VoiceoverJob.complete(job.id, { filePath: outPath, seconds, bytes });
     logger.info(`[voiceover] job ${job.id} done: ${(seconds / 60).toFixed(1)} min, ${(bytes / 1048576).toFixed(1)} MB, ${chunks.length} parts`);
   } catch (err) {
@@ -305,6 +323,50 @@ async function drain() {
       await runVoiceoverJob(job, payload);
     }
   } finally { draining = false; }
+}
+
+// ---- Roman Urdu / Shahmukhi -> the script the voice needs (Gemini text model, same Vertex login) ----------
+const CONVERT_TARGET = {
+  ur: 'Urdu in proper Urdu script (Perso-Arabic, right-to-left), using the Urdu full stop "۔", comma "،" and question mark "؟"',
+  pa: 'Punjabi in Gurmukhi script (ਗੁਰਮੁਖੀ)',
+  hi: 'Hindi in Devanagari script (देवनागरी)',
+};
+const MAX_CONVERT_CHARS = 15000;
+function vertexTextUrl() {
+  const loc = (env.vertexAi.location || 'us-central1').trim().toLowerCase();
+  const host = loc === 'global' ? 'aiplatform.googleapis.com' : (loc === 'us' || loc === 'eu') ? `aiplatform.${loc}.rep.googleapis.com` : `${loc}-aiplatform.googleapis.com`;
+  return `https://${host}/v1/projects/${env.vertexAi.projectId}/locations/${loc}/publishers/google/models/${env.vertexAi.scriptModel}:generateContent`;
+}
+async function convertChunk(piece, target) {
+  const prompt = `Rewrite the text below in ${target}. This is TRANSCRIPTION of the same words into the right script, NOT translation: keep every word, the meaning and the order. `
+    + 'Spell words the way a native speaker writes them (correct standard spelling). Keep the line breaks. Write English words the way they are pronounced, in the same script. '
+    + 'Output ONLY the rewritten text, with no quotes, notes or explanations.\n\nTEXT:\n' + piece;
+  const { data } = await withRetry(async () => axios.post(vertexTextUrl(), {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+  }, { headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' }, timeout: 90000 }), 'convertScript');
+  const out = (((data.candidates || [])[0] || {}).content || {}).parts;
+  const t = (out || []).map((p) => p.text || '').join('').trim();
+  if (!t) throw new Error('The text could not be converted (empty answer). Try again.');
+  return t;
+}
+
+async function convertScript(text, languageCode) {
+  const base = String(languageCode || '').split('-')[0].toLowerCase();
+  const target = CONVERT_TARGET[base];
+  if (!target) throw new Error('Script conversion is available for Urdu, Punjabi and Hindi only.');
+  if (!env.vertexAi.credentialsBase64 || !env.vertexAi.projectId) throw new Error('Vertex AI is not configured on the server');
+  const clean = txt.normalizeText(text);
+  if (clean.length > MAX_CONVERT_CHARS) throw new Error(`Convert up to ${MAX_CONVERT_CHARS.toLocaleString('en-US')} characters at a time (this text has ${clean.length.toLocaleString('en-US')}). Convert it in parts.`);
+  const parts = txt.splitIntoChunks(clean, 2000);
+  const pieces = parts.map((c) => c.text);
+  const out = new Array(pieces.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(3, pieces.length) }, async () => {
+    while (next < pieces.length) { const i = next++; out[i] = await convertChunk(pieces[i], target); }
+  }));
+  // blank line only where the source had a paragraph break (the chunker marks those with the longer pause)
+  return out.map((t, i) => (i === out.length - 1 ? t : t + (parts[i].pauseAfter > 0.3 ? '\n\n' : ' '))).join('');
 }
 
 // ---- cloning ----------------------------------------------------------------------------
@@ -365,6 +427,6 @@ function cleanOldFiles() {
 }
 
 module.exports = {
-  listVoices, synthesize, previewVoice, runVoiceoverJob, enqueue, createCloneKey, cleanOldFiles,
+  listVoices, synthesize, previewVoice, convertScript, MAX_CONVERT_CHARS, runVoiceoverJob, enqueue, createCloneKey, cleanOldFiles,
   parseWav, pitchFilter, CLONE_LANGUAGES, OUT_DIR, FILE_TTL_DAYS, SAMPLE_RATE,
 };
