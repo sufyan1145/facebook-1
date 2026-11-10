@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Voice Over — Sufyan PostFire</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  .vo-tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .vo-tab { flex:1; text-align:center; padding:10px 12px; border-radius:10px; border:1px solid var(--border, #2a3340); background:transparent; color:inherit; cursor:pointer; font-weight:600; }
+  .vo-tab.active { background:var(--accent-soft, rgba(52,211,153,.14)); border-color:var(--accent, #34d399); color:var(--accent, #34d399); }
+  .vo-voices { max-height:300px; overflow-y:auto; border:1px solid var(--border, #2a3340); border-radius:10px; }
+  .vo-voice { display:flex; align-items:center; gap:10px; padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--border, #2a3340); }
+  .vo-voice:last-child { border-bottom:0; }
+  .vo-voice:hover { background:rgba(255,255,255,.04); }
+  .vo-voice.selected { background:var(--accent-soft, rgba(52,211,153,.14)); }
+  .vo-voice .nm { flex:1; min-width:0; }
+  .vo-voice .nm small { display:block; color:var(--text-faint); font-size:11px; }
+  .vo-g { width:22px; text-align:center; font-weight:700; }
+  .vo-g.m { color:#60a5fa; } .vo-g.f { color:#f472b6; }
+  .vo-prog { height:6px; border-radius:3px; background:rgba(255,255,255,.1); overflow:hidden; margin-top:6px; }
+  .vo-prog > div { height:100%; background:var(--accent, #34d399); transition:width .4s; }
+  .vo-script { font-size:12px; padding:10px; border:1px dashed var(--border, #2a3340); border-radius:8px; margin:6px 0 10px; line-height:1.6; }
+  .vo-rec { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px; }
+  .vo-rec audio { height:34px; max-width:100%; }
+  .vo-hist-audio { width:100%; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">SP</div><div class="brand-name">Sufyan PostFire</div></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="btn sm" id="signOutBtn" style="margin-top:auto;">Sign out</button>
+  </aside>
+  <div class="main">
+    <div class="topbar"><h1>Voice Over</h1></div>
+    <div class="content">
+
+      <div class="vo-tabs">
+        <button class="vo-tab active" id="tabTts" type="button">Text to Speech</button>
+        <button class="vo-tab" id="tabClone" type="button">Voice Cloner</button>
+      </div>
+
+      <div class="grid cols-2" style="align-items:start;">
+
+        <!-- LEFT: choose the voice -->
+        <div class="card">
+          <!-- Text to Speech panel -->
+          <div id="ttsPanel">
+            <div class="section-title">Choose a voice</div>
+            <div id="voiceTotals" style="font-size:12px; color:var(--text-faint); margin-bottom:10px;">Loading voices…</div>
+            <div class="field-row">
+              <div class="field"><label for="vLang">Language</label><select id="vLang"></select></div>
+              <div class="field"><label for="vGender">Gender</label>
+                <select id="vGender"><option value="">Male + Female</option><option value="M">Male</option><option value="F">Female</option></select></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="vFamily">Quality</label><select id="vFamily"><option value="">All types</option></select></div>
+              <div class="field"><label for="vSearch">Search</label><input id="vSearch" placeholder="e.g. Charon" /></div>
+            </div>
+            <div id="voiceCount" style="font-size:12px; color:var(--text-faint); margin:4px 0 6px;"></div>
+            <div class="vo-voices" id="voiceList"></div>
+          </div>
+
+          <!-- Voice Cloner panel -->
+          <div id="clonePanel" style="display:none;">
+            <div class="section-title">Your cloned voices</div>
+            <div id="cloneList" class="vo-voices" style="max-height:200px; margin-bottom:6px;"></div>
+            <div id="cloneEmpty" style="font-size:12px; color:var(--text-faint); margin-bottom:14px;">No cloned voice yet. Create one below.</div>
+
+            <div class="section-title" style="margin-top:14px;">Create a new cloned voice</div>
+            <div style="font-size:12px; color:var(--text-faint); margin-bottom:10px;">Uses Google's Instant Custom Voice. It needs Google's approval for your Cloud project, a ~10 second recording of the voice, and the owner reading a consent sentence. Only clone a voice you own or have clear permission to use. Google's cloning does not support Urdu; for Urdu text use the Text to Speech tab (Hindi cloning is the closest).</div>
+            <div class="field-row">
+              <div class="field"><label for="cName">Name</label><input id="cName" placeholder="e.g. My voice" maxlength="80" /></div>
+              <div class="field"><label for="cLang">Language of the voice</label><select id="cLang"></select></div>
+            </div>
+            <div class="field"><label>1. Reference voice (about 10 seconds, clear, natural speech, quiet room)</label>
+              <div class="vo-rec"><button type="button" class="btn sm" id="refRec">● Record</button><span>or</span><input type="file" id="refFile" accept="audio/*" /><span id="refTimer" style="font-size:12px;"></span></div>
+              <div class="vo-rec"><audio id="refAudio" controls style="display:none;"></audio></div>
+            </div>
+            <div class="field"><label>2. Consent: the voice owner reads this sentence exactly (record in the same place)</label>
+              <div class="vo-script" id="cScript" dir="auto"></div>
+              <div class="vo-rec"><button type="button" class="btn sm" id="conRec">● Record</button><span>or</span><input type="file" id="conFile" accept="audio/*" /><span id="conTimer" style="font-size:12px;"></span></div>
+              <div class="vo-rec"><audio id="conAudio" controls style="display:none;"></audio></div>
+            </div>
+            <div class="field"><label class="checkbox-row"><input type="checkbox" id="cOwner" /> This is my own voice, or I have the speaker's permission to clone it.</label></div>
+            <div id="cMsg" style="font-size:12px; margin-bottom:8px;"></div>
+            <button type="button" class="btn primary" id="cCreate">Create cloned voice</button>
+          </div>
+        </div>
+
+        <!-- RIGHT: text + settings -->
+        <div class="card">
+          <div class="section-title">Your text</div>
+          <div class="field"><label for="vTitle">Title (optional)</label><input id="vTitle" maxlength="120" placeholder="e.g. Episode 12 narration" /></div>
+          <div class="field"><label for="vText">Text to speak</label>
+            <textarea id="vText" rows="12" dir="auto" placeholder="Paste or type your script here. Blank line = a longer pause. Up to 100 minutes of speech in one go."></textarea>
+            <div id="vCounter" style="font-size:12px; color:var(--text-faint); margin-top:4px;"></div>
+          </div>
+          <div class="field"><label for="vRate">Speed: <span id="vRateLabel">1.0×</span></label>
+            <input type="range" id="vRate" min="0.5" max="1.8" step="0.05" value="1" /></div>
+          <div class="field" id="pitchField"><label for="vPitch">Voice character: <span id="vPitchLabel">Natural</span></label>
+            <input type="range" id="vPitch" min="-3" max="3" step="0.5" value="0" />
+            <div style="font-size:11px; color:var(--text-faint); display:flex; justify-content:space-between;"><span>Deeper</span><span>Brighter</span></div>
+            <div style="font-size:11px; color:var(--text-faint); margin-top:4px;">A small change only (up to 3 semitones), so a male voice always stays male and a female voice female.</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn sm" id="vPreview">▶ Preview with my text</button>
+            <button type="button" class="btn primary" id="vCreate">Create voice-over</button>
+          </div>
+          <div id="vMsg" class="error-text" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:24px;">
+        <div class="flex-between mb-16">
+          <div class="section-title" style="margin-bottom:0;">My voice-overs</div>
+          <button type="button" class="btn sm" id="vRefresh">Refresh</button>
+        </div>
+        <div id="vHistory"><span class="empty">Loading…</span></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+<script src="voiceover.js"></script>
+</body>
+</html>

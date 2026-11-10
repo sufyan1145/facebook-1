@@ -56,7 +56,7 @@ app.use('/api/chat', require('./routes.chat'));
 app.use('/api/text-image-posts', require('./routes.textImagePost'));
 app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
 app.use('/api/website', require('./routes.website'));
-app.use('/api/x', require('./routes.x'));
+app.use('/api/voiceover', require('./routes.voiceover'));
 // Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
 // need to fetch a video from here directly (see routes.mediaPublic.js).
 app.use('/media-temp', require('./routes.mediaPublic').router);
@@ -96,6 +96,8 @@ async function recoverStaleJobs() {
      WHERE status IN ('pending','generating','downloading') AND provider = 'vertex' RETURNING id`,
     [message]
   );
+  const voiceStale = await require('./models.Voiceover').VoiceoverJob.failStale();
+  if (voiceStale) logger.info(`Recovered ${voiceStale} stale Voice Over job(s) after restart.`);
   const websiteStale = await require('./models.Website').WebsitePost.failStale();
   if (websiteStale) logger.info(`Recovered ${websiteStale} stale Website article(s) after restart.`);
   if (tiktokRes.rowCount || videoEditRes.rowCount || videoGenRes.rowCount) {
