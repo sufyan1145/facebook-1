@@ -160,6 +160,7 @@ async function fireSchedule(schedule) {
     driveFileId,
     driveFileName,
     aiPrompt,
+    commentText: schedule.comment_text || null,
   });
 
   await Log.record(schedule.user_id, 'Text+Image Schedule Triggered', {

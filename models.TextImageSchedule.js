@@ -5,8 +5,8 @@ const TextImageSchedule = {
     const res = await query(
       `INSERT INTO text_image_schedules
         (user_id, page_id, message, image_source, folder_id, ai_prompt, topic, upload_time, timezone,
-         repeat_type, specific_days, interval_hours, times)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         repeat_type, specific_days, interval_hours, times, comment_text)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         userId, data.pageId, data.message || null, data.imageSource,
@@ -16,6 +16,7 @@ const TextImageSchedule = {
         data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
+        data.commentText && String(data.commentText).trim() ? String(data.commentText).trim().slice(0, 2000) : null,
       ]
     );
     return res.rows[0];
@@ -25,7 +26,7 @@ const TextImageSchedule = {
     const res = await query(
       `UPDATE text_image_schedules SET
          page_id = $3, message = $4, image_source = $5, folder_id = $6, ai_prompt = $7, topic = $8,
-         upload_time = $9, timezone = $10, repeat_type = $11, specific_days = $12, interval_hours = $13, times = $14,
+         upload_time = $9, timezone = $10, repeat_type = $11, specific_days = $12, interval_hours = $13, times = $14, comment_text = $15,
          last_run_slots = '{}'::jsonb, last_run_at = NULL,
          updated_at = now()
        WHERE user_id = $1 AND id = $2
@@ -38,6 +39,7 @@ const TextImageSchedule = {
         data.uploadTime, data.timezone, data.repeat,
         data.specificDays || null, data.intervalHours || null,
         data.times && data.times.length ? JSON.stringify(data.times) : null,
+        data.commentText && String(data.commentText).trim() ? String(data.commentText).trim().slice(0, 2000) : null,
       ]
     );
     return res.rows[0];

@@ -129,6 +129,11 @@
               </div>
             </div>
 
+            <div class="field">
+              <label for="schedCommentText">Link / text for the first comment (optional)</label>
+              <textarea id="schedCommentText" rows="2" placeholder="e.g. 👉 Full story: https://yoursite.com/article"></textarea>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Posted by the Page as the first comment on every post this schedule makes. Facebook does not let apps pin a comment, so pin it yourself from the comment menu. Needs <code>FB_COMMENT_SCOPE=true</code> on the server and Facebook reconnected, then "Sync Pages" (same as the video schedules).</div>
+            </div>
             <div id="schedErrorText" class="error-text"></div>
             <div style="display:flex; gap:8px; margin-top:12px;">
               <button type="submit" class="btn primary" id="schedSubmitBtn">Create Schedule</button>

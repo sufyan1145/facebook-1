@@ -17,7 +17,7 @@ const credits = require('./utils.credits');
 const worker = new Worker(
   'text-image-post',
   async (job) => {
-    const { userId, postId, pageId, pageDbId, imageSource, driveFileId, driveFileName, aiPrompt, previewId } = job.data;
+    const { userId, postId, pageId, pageDbId, imageSource, driveFileId, driveFileName, aiPrompt, previewId, commentText } = job.data;
     let { message } = job.data;
 
     await TextImagePost.markProcessing(postId);
@@ -67,6 +67,18 @@ const worker = new Worker(
 
       await TextImagePost.markSuccess(postId, fbPostId, message);
       await Log.record(userId, 'Text+Image Post Published', { postId, page: page.page_name, source: imageSource });
+
+      // Optional "link in the first comment". The photo is already published, so a failed comment
+      // is only logged - never thrown (a retry would post the same photo a second time).
+      if (commentText) {
+        try {
+          const commentId = await facebookService.commentOnVideo({ videoId: fbPostId, pageAccessToken: page.page_access_token, message: commentText });
+          await Log.record(userId, 'Link Comment Posted', { postId, platform: 'facebook', commentId, note: 'pin it manually - Facebook has no pin API' });
+        } catch (cErr) {
+          await Log.record(userId, 'Link Comment Failed', { postId, platform: 'facebook', error: cErr.message }, 'error');
+          logger.error(`Text+Image link comment failed for post ${postId}: ${cErr.message}`);
+        }
+      }
 
       return { fbPostId };
     } catch (err) {

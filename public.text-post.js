@@ -206,6 +206,7 @@ function enterScheduleEditMode(schedule) {
   document.getElementById('schedFolderId').value = schedule.folder_id || '';
   document.getElementById('schedMessage').value = schedule.message || '';
   document.getElementById('schedTopic').value = schedule.topic || '';
+  document.getElementById('schedCommentText').value = schedule.comment_text || '';
 
   document.getElementById('schedUploadTime').value = (schedule.upload_time || '').slice(0, 5);
   document.getElementById('schedTimezone').value = schedule.timezone;
@@ -302,6 +303,7 @@ function initScheduleForm() {
       imageSource,
       folderId: imageSource === 'drive' ? document.getElementById('schedFolderId').value : null,
       topic: imageSource === 'ai' ? document.getElementById('schedTopic').value : null,
+      commentText: document.getElementById('schedCommentText').value,
       uploadTime: document.getElementById('schedUploadTime').value,
       timezone: document.getElementById('schedTimezone').value,
       repeat: document.getElementById('schedRepeat').value,

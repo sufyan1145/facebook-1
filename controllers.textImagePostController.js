@@ -135,6 +135,7 @@ async function createPost(req, res, next) {
       driveFileName: req.body.driveFileName,
       aiPrompt: req.body.aiPrompt,
       previewId: req.body.previewId || null,
+      commentText: req.body.commentText && String(req.body.commentText).trim() ? String(req.body.commentText).trim().slice(0, 2000) : null,
     });
     await Log.record(req.user.id, 'Text+Image Post Queued', { postId: post.id, source: req.body.imageSource });
 
