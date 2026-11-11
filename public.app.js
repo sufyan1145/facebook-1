@@ -75,7 +75,7 @@ function renderNav(active) {
     { href: 'text-post.html', label: 'Text + Image Post', icon: '✎', key: 'text-post' },
     { href: 'website.html', label: 'Website Automation', icon: '◍', key: 'website' },
     { href: 'voiceover.html', label: 'Voice Over', icon: '♪', key: 'voiceover' },
-    { href: 'pages.html', label: 'Facebook Pages', icon: '▣', key: 'pages' },
+    { href: 'pages.html', label: 'Social Accounts', icon: '▣', key: 'pages' },
     { href: 'schedule.html', label: 'Schedules', icon: '◷', key: 'schedule' },
     { href: 'queue.html', label: 'Queue', icon: '≣', key: 'queue' },
     { href: 'history.html', label: 'Upload History', icon: '⬒', key: 'history' },

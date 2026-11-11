@@ -60,6 +60,7 @@ app.use('/api/text-image-posts', require('./routes.textImagePost'));
 app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
 app.use('/api/website', require('./routes.website'));
 app.use('/api/voiceover', require('./routes.voiceover'));
+app.use('/api/x', require('./routes.x'));
 // Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
 // need to fetch a video from here directly (see routes.mediaPublic.js).
 app.use('/media-temp', require('./routes.mediaPublic').router);
