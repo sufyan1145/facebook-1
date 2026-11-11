@@ -5,13 +5,14 @@
  * Images:
  *  - WordPress: uploaded to the site's own Media Library (and the first one is
  *    set as the featured image).
- *  - Blogger has no image-upload API, so pictures go to the user's Google Drive
- *    as "anyone with the link" files and are linked from the post. If that is
- *    not possible (Drive full / not connected) the article is still published,
- *    just without pictures, and the reason is returned.
+ *  - Blogger has no image-upload API, so pictures are saved on this server and
+ *    served at /web-images (WEBSITE_IMAGE_HOST=drive uses Google Drive instead).
+ *    If a picture cannot be saved the article is still published without it.
  */
 const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { google } = require('googleapis');
 const env = require('./config.env');
 const logger = require('./utils.logger');
@@ -168,6 +169,20 @@ async function driveHostedImage(userId, filePath, fileName) {
   return `https://lh3.googleusercontent.com/d/${created.data.id}`;
 }
 
+// Picture kept on THIS server and served at /web-images (no Google Drive, no storage quota).
+// Needs APP_URL to be the public https address of the app, and the images folder on a persistent disk.
+async function serverHostedImage(filePath, fileName) {
+  const dir = path.resolve(env.upload.websiteImagesDir);
+  fs.mkdirSync(dir, { recursive: true });
+  const safe = String(fileName || 'image.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const name = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}-${safe}`;
+  fs.copyFileSync(filePath, path.join(dir, name));
+  return `${String(env.appUrl).replace(/\/+$/, '')}/web-images/${name}`;
+}
+
+// WEBSITE_IMAGE_HOST=drive brings the old Google Drive behaviour back
+const useDrive = () => String(process.env.WEBSITE_IMAGE_HOST || '').toLowerCase() === 'drive';
+
 // ---- common entry points -----------------------------------------------------
 /**
  * images: [{ path, fileName, alt }] (index = position in the article)
@@ -184,7 +199,9 @@ async function uploadImages(account, images) {
         urls[i] = r.url;
         if (!featuredMediaId) featuredMediaId = r.id;
       } else {
-        urls[i] = await driveHostedImage(account.user_id, images[i].path, images[i].fileName);
+        urls[i] = useDrive()
+          ? await driveHostedImage(account.user_id, images[i].path, images[i].fileName)
+          : await serverHostedImage(images[i].path, images[i].fileName);
       }
     } catch (err) {
       problems.push(err.message);

@@ -28,6 +28,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser(env.cookieSecret));
 applySecurity(app);
 
+// Article pictures for Blogger posts (kept on this server instead of Google Drive)
+app.use('/web-images', express.static(path.resolve(env.upload.websiteImagesDir), { maxAge: '30d', index: false, fallthrough: false }));
+
 // Serve the vanilla JS frontend
 app.use(express.static(path.join(__dirname, 'public')));
 

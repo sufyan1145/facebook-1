@@ -96,6 +96,8 @@ module.exports = {
 
   upload: {
     tempDir: process.env.TEMP_UPLOAD_DIR || './uploads',
+    // article pictures for Blogger are kept here and served at /web-images (not in Google Drive)
+    websiteImagesDir: process.env.WEBSITE_IMAGES_DIR || `${process.env.TEMP_UPLOAD_DIR || './uploads'}/web-images`,
     scheduleCheckCron: process.env.SCHEDULE_CHECK_CRON || '* * * * *',
     maxRandomDelaySeconds: Number(process.env.MAX_RANDOM_DELAY_SECONDS) || 300,
     // How many minutes late a schedule can still be caught and fired (covers deploys,
