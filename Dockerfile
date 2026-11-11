@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:22-alpine
 
 # font-noto-arabic: DejaVu (below) has no Perso-Arabic glyphs at all, so Urdu-
 # script captions would render as blank boxes without this - needed for the
