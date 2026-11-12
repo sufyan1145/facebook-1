@@ -180,8 +180,8 @@ async function serverHostedImage(filePath, fileName) {
   return `${String(env.appUrl).replace(/\/+$/, '')}/web-images/${name}`;
 }
 
-// WEBSITE_IMAGE_HOST=drive brings the old Google Drive behaviour back
-const useDrive = () => String(process.env.WEBSITE_IMAGE_HOST || '').toLowerCase() === 'drive';
+// Google Drive is the default again. WEBSITE_IMAGE_HOST=server keeps the pictures on this server instead.
+const useDrive = () => String(process.env.WEBSITE_IMAGE_HOST || 'drive').toLowerCase() !== 'server';
 
 // ---- common entry points -----------------------------------------------------
 /**
