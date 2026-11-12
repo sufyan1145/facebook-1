@@ -17,19 +17,20 @@ Article summary: ${excerpt || ''}
 Niche/topic: ${topic}
 Language: ${language && language !== 'auto' ? language : 'the same language as the article title'}
 
-Return ONLY JSON: {"facebook": "...", "x": "..."}
+Return ONLY JSON: {"facebook": "...", "x": "...", "cta": "..."}
 - "facebook": 2-4 short sentences that make people want to read the article, a few fitting emojis, 2-4 hashtags at the end. Do NOT include any link.
-- "x": ONE punchy post, at most 200 characters including hashtags, 1-2 hashtags, no link, no quotes around it.`;
+- "x": ONE punchy post, at most 200 characters including hashtags, 1-2 hashtags, no link, no quotes around it.
+- "cta": a short call to action of 3-7 words with one emoji (like "Read the full story here 👇"), in the same language, no link.`;
   try {
     const j = await articleService.generateJson(prompt, { maxOutputTokens: 1200 });
-    return { facebook: String(j.facebook || '').trim() || title, x: String(j.x || '').trim() || title };
+    return { facebook: String(j.facebook || '').trim() || title, x: String(j.x || '').trim() || title, cta: String(j.cta || '').trim().slice(0, 80) || 'Read the full article 👇' };
   } catch (err) {
     logger.warn(`[social-share] caption AI failed, using the title: ${err.message}`);
-    return { facebook: title, x: title };
+    return { facebook: title, x: title, cta: 'Read the full article 👇' };
   }
 }
 
-async function shareArticle({ userId, title, excerpt, topic, language, url, imagePath, pageIds, xIds }) {
+async function shareArticle({ userId, title, excerpt, topic, language, url, imagePath, pageIds, xIds, fbLinkComment = false, xLinkReply = false }) {
   const fbIds = (pageIds || []).filter(Boolean);
   const xs = (xIds || []).filter(Boolean);
   if (!url || (!fbIds.length && !xs.length)) return null;
@@ -41,10 +42,26 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
     try {
       const page = await Page.findById(userId, id);
       if (!page || !page.is_connected) throw new Error('page not connected');
-      const message = `${captions.facebook}\n\n${url}`;
-      if (imagePath) await facebookService.postPhotoToPage({ pageId: page.page_id, pageAccessToken: page.page_access_token, filePath: imagePath, message });
-      else await facebookService.postLinkToPage({ pageId: page.page_id, pageAccessToken: page.page_access_token, message: captions.facebook, link: url });
-      ok.push(`Facebook: ${page.page_name}`);
+      const creds = { pageId: page.page_id, pageAccessToken: page.page_access_token };
+      let note = '';
+      if (fbLinkComment) {
+        // the post itself has NO link (reaches more people); the link goes in the first comment
+        const postId = imagePath
+          ? await facebookService.postPhotoToPage({ ...creds, filePath: imagePath, message: captions.facebook })
+          : await facebookService.postLinkToPage({ ...creds, message: captions.facebook });
+        try {
+          await facebookService.commentOnVideo({ videoId: postId, pageAccessToken: page.page_access_token, message: `${captions.cta}\n${url}` });
+          note = ' (link in comment)';
+        } catch (cErr) {
+          logger.warn(`[social-share] Facebook ${page.page_name}: link comment failed: ${cErr.message}`);
+          note = ` (posted, but the link comment failed: ${String(cErr.message).slice(0, 120)} - link: ${url})`;
+        }
+      } else {
+        const message = `${captions.facebook}\n\n${url}`;
+        if (imagePath) await facebookService.postPhotoToPage({ ...creds, filePath: imagePath, message });
+        else await facebookService.postLinkToPage({ ...creds, message: captions.facebook, link: url });
+      }
+      ok.push(`Facebook: ${page.page_name}${note}`);
     } catch (err) { logger.warn(`[social-share] Facebook ${id} failed: ${err.message}`); bad.push(`Facebook (${err.message})`); }
   }
 
@@ -55,20 +72,28 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
       if (!acc) throw new Error('account removed');
       name = `@${acc.username}`;
       const imgs = imagePath ? [imagePath] : [];
-      try {
-        await xService.postTweet(acc, { text: captions.x, url, imagePaths: imgs });
-        ok.push(`X: ${name}`);
-      } catch (err) {
-        // 226 = X's anti-automation filter, very often triggered by a link in a fresh tweet.
-        if (!(err.xCode === 226 || err.emptyResult || /automated|\(226\)/i.test(err.message))) throw err;
-        logger.warn(`[social-share] X ${name}: link tweet blocked/dropped by X, posting text first and the link as a reply`);
+      // xLinkReply: the tweet has no link (X shows such tweets to more people); the link is a reply to it.
+      const replyOnly = async (label) => {
         const first = await xService.postTweet(acc, { text: captions.x, imagePaths: imgs });
         try {
-          await xService.postTweet(acc, { text: 'Read the full article:', url, replyTo: first.id });
-          ok.push(`X: ${name} (link in reply)`);
+          await xService.postTweet(acc, { text: captions.cta, url, replyTo: first.id });
+          ok.push(`X: ${name} (${label})`);
         } catch (err2) {
           ok.push(`X: ${name} (text only - X blocked the link: ${url})`);
           logger.warn(`[social-share] X ${name}: link reply blocked too: ${err2.message}`);
+        }
+      };
+      if (xLinkReply) {
+        await replyOnly('link in reply');
+      } else {
+        try {
+          await xService.postTweet(acc, { text: captions.x, url, imagePaths: imgs });
+          ok.push(`X: ${name}`);
+        } catch (err) {
+          // 226 = X's anti-automation filter, very often triggered by a link in a fresh tweet.
+          if (!(err.xCode === 226 || err.emptyResult || /automated|\(226\)/i.test(err.message))) throw err;
+          logger.warn(`[social-share] X ${name}: link tweet blocked/dropped by X, posting text first and the link as a reply`);
+          await replyOnly('link in reply');
         }
       }
     } catch (err) { logger.warn(`[social-share] X ${name} failed: ${err.message}`); bad.push(`X ${name} (${err.message})`); }

@@ -98,6 +98,7 @@ async function runWebsiteArticle(post) {
           userId: post.user_id, title: article.title, excerpt: article.metaDescription, topic: post.topic, language: post.language,
           url: result.url, imagePath: tempFiles.find((f) => /\.jpg$/i.test(f)) || null,
           pageIds: post.share_page_ids, xIds: post.share_x_ids,
+          fbLinkComment: post.share_fb_link_comment, xLinkReply: post.share_x_link_reply,
         });
         if (note) { await WebsitePost.setShareNote(post.id, note); await Log.record(post.user_id, 'Website Article Shared', { postId: post.id, note }); }
       } catch (err) {
@@ -180,6 +181,7 @@ async function fireSchedule(s) {
     accountId: s.account_id, scheduleId: s.id, topic: s.topic, language: s.language,
     articleLength: s.article_length, imageCount: s.image_count, publishMode: s.publish_mode,
     sharePageIds: s.share_page_ids, shareXIds: s.share_x_ids,
+    fbLinkComment: s.share_fb_link_comment, xLinkReply: s.share_x_link_reply,
   });
   await Log.record(s.user_id, 'Website Schedule Triggered', { scheduleId: s.id, postId: post.id, site: s.account_name });
   enqueueWebsitePost(post);

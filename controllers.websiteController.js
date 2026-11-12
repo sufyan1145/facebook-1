@@ -67,7 +67,8 @@ async function readShareSettings(userId, b) {
     if (!x) bad('One of the selected X accounts is not connected.');
     shareXIds.push(id);
   }
-  return { sharePageIds, shareXIds };
+  const yes = (v) => v === true || v === 'true' || v === 1 || v === '1';
+  return { sharePageIds, shareXIds, fbLinkComment: yes(b.fbLinkComment), xLinkReply: yes(b.xLinkReply) };
 }
 
 async function ownAccount(userId, accountId) {
@@ -221,6 +222,7 @@ const retryPost = wrap(async (req, res) => {
     accountId: acc.id, topic: old.topic, language: old.language, articleLength: old.article_length,
     imageCount: old.image_count, publishMode: old.publish_mode,
     sharePageIds: old.share_page_ids, shareXIds: old.share_x_ids,
+    fbLinkComment: old.share_fb_link_comment, xLinkReply: old.share_x_link_reply,
   });
   enqueueWebsitePost(post);
   res.status(202).json({ success: true, data: post });
@@ -235,7 +237,7 @@ const sharePost = wrap(async (req, res) => {
   if (!share.sharePageIds.length && !share.shareXIds.length) bad('Tick at least one Facebook page or X account in the "Share" list first.');
   const note = await require('./services.socialShareService').shareArticle({
     userId: req.user.id, title: post.title || post.topic, excerpt: post.excerpt, topic: post.topic, language: post.language,
-    url: post.url, imagePath: null, pageIds: share.sharePageIds, xIds: share.shareXIds,
+    url: post.url, imagePath: null, pageIds: share.sharePageIds, xIds: share.shareXIds, fbLinkComment: share.fbLinkComment, xLinkReply: share.xLinkReply,
   });
   await WebsitePost.setShareNote(post.id, note || 'Nothing was shared.');
   res.json({ success: true, data: { note } });

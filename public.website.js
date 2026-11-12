@@ -117,11 +117,15 @@ function pickedShare() {
   return {
     sharePageIds: Array.from(document.querySelectorAll('.share-page:checked')).map((i) => i.value),
     shareXIds: Array.from(document.querySelectorAll('.share-x:checked')).map((i) => i.value),
+    fbLinkComment: $('fbLinkComment').checked,
+    xLinkReply: $('xLinkReply').checked,
   };
 }
 function setShare(s) {
   document.querySelectorAll('.share-page').forEach((i) => { i.checked = !!s && (s.share_page_ids || []).includes(i.value); });
   document.querySelectorAll('.share-x').forEach((i) => { i.checked = !!s && (s.share_x_ids || []).includes(i.value); });
+  $('fbLinkComment').checked = !!s && !!s.share_fb_link_comment;
+  $('xLinkReply').checked = !!s && !!s.share_x_link_reply;
 }
 
 // ---- form -------------------------------------------------------------------
