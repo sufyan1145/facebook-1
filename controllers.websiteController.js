@@ -9,6 +9,7 @@ const { enqueueWebsitePost } = require('./jobs.websiteWorker');
 const articleService = require('./services.websiteArticleService');
 const Page = require('./models.Page');
 const XAccount = require('./models.XAccount');
+const PinterestAccount = require('./models.PinterestAccount');
 
 const LANGUAGES = ['auto', 'english', 'urdu', 'hindi', 'arabic', 'spanish', 'french', 'german', 'portuguese', 'turkish', 'indonesian', 'bengali', 'russian', 'italian', 'dutch', 'chinese', 'japanese', 'korean'];
 const LENGTHS = ['short', 'medium', 'long'];
@@ -56,7 +57,7 @@ function readScheduleSettings(b) {
 // Where to share the finished article. Only the user's own, still-connected targets are accepted.
 async function readShareSettings(userId, b) {
   const ids = (v) => [...new Set((Array.isArray(v) ? v : []).map(String).filter((x) => /^[0-9a-f-]{36}$/i.test(x)))].slice(0, 20);
-  const sharePageIds = []; const shareXIds = [];
+  const sharePageIds = []; const shareXIds = []; const sharePinterestIds = [];
   for (const id of ids(b.sharePageIds)) {
     const p = await Page.findById(userId, id);
     if (!p || !p.is_connected) bad('One of the selected Facebook pages is not connected.');
@@ -67,8 +68,14 @@ async function readShareSettings(userId, b) {
     if (!x) bad('One of the selected X accounts is not connected.');
     shareXIds.push(id);
   }
+  for (const id of ids(b.sharePinterestIds)) {
+    const a = await PinterestAccount.findById(userId, id);
+    if (!a) bad('One of the selected Pinterest accounts is not connected.');
+    if (!a.board_id) bad(`Choose a board for Pinterest @${a.username} first (Social Accounts).`);
+    sharePinterestIds.push(id);
+  }
   const yes = (v) => v === true || v === 'true' || v === 1 || v === '1';
-  return { sharePageIds, shareXIds, fbLinkComment: yes(b.fbLinkComment), xLinkReply: yes(b.xLinkReply) };
+  return { sharePageIds, shareXIds, sharePinterestIds, fbLinkComment: yes(b.fbLinkComment), xLinkReply: yes(b.xLinkReply) };
 }
 
 async function ownAccount(userId, accountId) {
@@ -221,7 +228,7 @@ const retryPost = wrap(async (req, res) => {
   const post = await WebsitePost.create(req.user.id, {
     accountId: acc.id, topic: old.topic, language: old.language, articleLength: old.article_length,
     imageCount: old.image_count, publishMode: old.publish_mode,
-    sharePageIds: old.share_page_ids, shareXIds: old.share_x_ids,
+    sharePageIds: old.share_page_ids, shareXIds: old.share_x_ids, sharePinterestIds: old.share_pinterest_ids,
     fbLinkComment: old.share_fb_link_comment, xLinkReply: old.share_x_link_reply,
   });
   enqueueWebsitePost(post);
@@ -234,10 +241,10 @@ const sharePost = wrap(async (req, res) => {
   if (!post) return res.status(404).json({ success: false, message: 'Not found' });
   if (post.status !== 'published' || !post.url) bad('Only published articles can be shared.');
   const share = await readShareSettings(req.user.id, req.body || {});
-  if (!share.sharePageIds.length && !share.shareXIds.length) bad('Tick at least one Facebook page or X account in the "Share" list first.');
+  if (!share.sharePageIds.length && !share.shareXIds.length && !share.sharePinterestIds.length) bad('Tick at least one Facebook page, X or Pinterest account in the "Share" list first.');
   const note = await require('./services.socialShareService').shareArticle({
     userId: req.user.id, title: post.title || post.topic, excerpt: post.excerpt, topic: post.topic, language: post.language,
-    url: post.url, imagePath: null, pageIds: share.sharePageIds, xIds: share.shareXIds, fbLinkComment: share.fbLinkComment, xLinkReply: share.xLinkReply,
+    url: post.url, imagePath: null, pageIds: share.sharePageIds, xIds: share.shareXIds, pinterestIds: share.sharePinterestIds, fbLinkComment: share.fbLinkComment, xLinkReply: share.xLinkReply,
   });
   await WebsitePost.setShareNote(post.id, note || 'Nothing was shared.');
   res.json({ success: true, data: { note } });

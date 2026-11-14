@@ -106,6 +106,57 @@ async function loadX() {
   } catch (err) { xel('xList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`; }
 }
 
+// ---- Pinterest (official OAuth) ----
+function pinSay(text, bad) { const m = xel('pinMsg'); m.textContent = text || ''; m.style.color = bad ? 'var(--signal-red)' : 'var(--signal-green)'; }
+
+async function loadPinterest() {
+  try {
+    const { data } = await apiFetch('/pinterest/accounts');
+    const el = xel('pinList');
+    if (!data.length) { el.innerHTML = '<span class="empty">No Pinterest account connected yet.</span>'; return; }
+    el.innerHTML = data.map((a) => `<div class="account-chip" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+      <span class="dot ${a.status === 'active' ? 'ok' : ''}"></span>@${escapeHtml(a.username)}${a.status === 'expired' ? ' <span class="badge failed" title="' + escapeHtml(a.last_error || '') + '">Expired - add again</span>' : ''}
+      <span style="color:var(--text-faint); font-size:12px;">Board: <b>${a.board_name ? escapeHtml(a.board_name) : 'not chosen'}</b></span>
+      <button class="btn xs" data-pinboards="${a.id}">Choose board</button>
+      <select id="pinSel_${a.id}" style="display:none; max-width:240px;"></select>
+      <button class="btn xs danger" data-pindel="${a.id}" title="Disconnect this Pinterest account">✕</button></div>`).join('');
+    el.querySelectorAll('[data-pinboards]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true; pinSay('Loading boards…');
+      try {
+        const { data: boards } = await apiFetch(`/pinterest/accounts/${b.dataset.pinboards}/boards`);
+        if (!boards.length) { pinSay('This Pinterest account has no boards yet. Create a board on pinterest.com first.', true); b.disabled = false; return; }
+        const sel = xel(`pinSel_${b.dataset.pinboards}`);
+        sel.innerHTML = '<option value="">Select a board…</option>' + boards.map((x) => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`).join('');
+        sel.style.display = 'inline-block'; pinSay('');
+        sel.addEventListener('change', async () => {
+          if (!sel.value) return;
+          try {
+            await apiFetch(`/pinterest/accounts/${b.dataset.pinboards}/board`, { method: 'POST', body: JSON.stringify({ boardId: sel.value, boardName: sel.options[sel.selectedIndex].text }) });
+            pinSay('Board saved.'); loadPinterest();
+          } catch (err) { pinSay(err.message, true); }
+        });
+      } catch (err) { pinSay(err.message, true); }
+      b.disabled = false;
+    }));
+    el.querySelectorAll('[data-pindel]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Disconnect this Pinterest account?')) return;
+      await apiFetch(`/pinterest/accounts/${b.dataset.pindel}`, { method: 'DELETE' });
+      loadPinterest();
+    }));
+  } catch (err) { xel('pinList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`; }
+}
+
+function initPinterest() {
+  xel('addPinBtn').addEventListener('click', async () => {
+    try { const { data } = await apiFetch('/pinterest/connect'); window.location.href = data.url; }
+    catch (err) { xel('pinCard').scrollIntoView({ behavior: 'smooth' }); pinSay(err.message, true); }
+  });
+  const q = new URLSearchParams(window.location.search);
+  if (q.get('pinterest_connected')) pinSay('Pinterest connected. Now choose a board.');
+  if (q.get('pinterest_error')) pinSay(`Pinterest: ${q.get('pinterest_error')}`, true);
+  loadPinterest();
+}
+
 function initX() {
   xel('showXBtn').addEventListener('click', () => { xel('xForm').style.display = 'block'; xel('xCard').scrollIntoView({ behavior: 'smooth' }); });
   xel('xCancelBtn').addEventListener('click', () => { xel('xForm').style.display = 'none'; xel('xForm').reset(); });
@@ -128,6 +179,7 @@ function initX() {
   if (!user) return;
   renderNav('pages');
   initX();
+  initPinterest();
 
   document.getElementById('connectBtn').addEventListener('click', async () => {
     const res = await fetch('/api/auth/facebook/connect', { credentials: 'include' });

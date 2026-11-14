@@ -4,6 +4,7 @@ let schedules = [];
 let editingId = null;
 let fbPages = [];
 let xAccounts = [];
+let pinAccounts = [];
 let pollTimer = null;
 const days = new Set();
 
@@ -107,16 +108,19 @@ function setTopic(topic) {
 async function loadShareTargets() {
   try { fbPages = (await apiFetch('/pages')).data.filter((p) => p.is_connected); } catch (_) { fbPages = []; }
   try { xAccounts = (await apiFetch('/x/accounts')).data; } catch (_) { xAccounts = []; }
+  try { pinAccounts = (await apiFetch('/pinterest/accounts')).data; } catch (_) { pinAccounts = []; }
   const box = $('shareBox');
-  if (!fbPages.length && !xAccounts.length) { box.innerHTML = '<span class="empty">No social accounts connected yet.</span>'; return; }
+  if (!fbPages.length && !xAccounts.length && !pinAccounts.length) { box.innerHTML = '<span class="empty">No social accounts connected yet.</span>'; return; }
   const CB = 'style="width:auto; flex:none; padding:0; margin:0;"';
   box.innerHTML = fbPages.map((p) => `<label class="checkbox-row" style="cursor:pointer;"><input type="checkbox" class="share-page" value="${p.id}" ${CB} /> <span>Facebook: ${escapeHtml(p.page_name || p.page_id)}</span></label>`).join('')
-    + xAccounts.map((x) => `<label class="checkbox-row" style="cursor:pointer;"><input type="checkbox" class="share-x" value="${x.id}" ${x.status === 'expired' ? 'disabled' : ''} ${CB} /> <span>X: @${escapeHtml(x.username)}${x.status === 'expired' ? ' (cookies expired)' : ''}</span></label>`).join('');
+    + xAccounts.map((x) => `<label class="checkbox-row" style="cursor:pointer;"><input type="checkbox" class="share-x" value="${x.id}" ${x.status === 'expired' ? 'disabled' : ''} ${CB} /> <span>X: @${escapeHtml(x.username)}${x.status === 'expired' ? ' (cookies expired)' : ''}</span></label>`).join('')
+    + pinAccounts.map((a) => `<label class="checkbox-row" style="cursor:pointer;"><input type="checkbox" class="share-pin" value="${a.id}" ${a.status === 'expired' || !a.board_id ? 'disabled' : ''} ${CB} /> <span>Pinterest: @${escapeHtml(a.username)}${a.board_name ? ' &rarr; ' + escapeHtml(a.board_name) : ''}${!a.board_id ? ' (choose a board in Social Accounts)' : ''}${a.status === 'expired' ? ' (login expired)' : ''}</span></label>`).join('');
 }
 function pickedShare() {
   return {
     sharePageIds: Array.from(document.querySelectorAll('.share-page:checked')).map((i) => i.value),
     shareXIds: Array.from(document.querySelectorAll('.share-x:checked')).map((i) => i.value),
+    sharePinterestIds: Array.from(document.querySelectorAll('.share-pin:checked')).map((i) => i.value),
     fbLinkComment: $('fbLinkComment').checked,
     xLinkReply: $('xLinkReply').checked,
   };
@@ -124,6 +128,7 @@ function pickedShare() {
 function setShare(s) {
   document.querySelectorAll('.share-page').forEach((i) => { i.checked = !!s && (s.share_page_ids || []).includes(i.value); });
   document.querySelectorAll('.share-x').forEach((i) => { i.checked = !!s && (s.share_x_ids || []).includes(i.value); });
+  document.querySelectorAll('.share-pin').forEach((i) => { i.checked = !!s && (s.share_pinterest_ids || []).includes(i.value); });
   $('fbLinkComment').checked = !!s && !!s.share_fb_link_comment;
   $('xLinkReply').checked = !!s && !!s.share_x_link_reply;
 }
@@ -294,7 +299,7 @@ function renderPosts(posts) {
   }));
   body.querySelectorAll('[data-share]').forEach((b) => b.addEventListener('click', async () => {
     const pick = pickedShare();
-    if (!pick.sharePageIds.length && !pick.shareXIds.length) { alert('Pehle form mein "Share the published article" list mein Facebook page / X account tick karein.'); return; }
+    if (!pick.sharePageIds.length && !pick.shareXIds.length && !pick.sharePinterestIds.length) { alert('Pehle form mein "Share the published article" list mein Facebook page / X / Pinterest account tick karein.'); return; }
     b.disabled = true; b.textContent = 'Sharing…';
     try { const { data } = await apiFetch(`/website/posts/${b.dataset.share}/share`, { method: 'POST', body: JSON.stringify(pick) }); alert(data.note || 'Done'); }
     catch (err) { alert(err.message); }

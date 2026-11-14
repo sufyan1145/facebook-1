@@ -20,6 +20,7 @@
         <button class="btn sm" id="connectBtn">+ Add Facebook account</button>
         <button class="btn sm" id="syncBtn">Sync Pages</button>
         <button class="btn sm" id="showXBtn">+ Add X account</button>
+        <button class="btn sm" id="addPinBtn">+ Add Pinterest</button>
       </div>
     </div>
     <div class="content">
@@ -40,6 +41,15 @@
           </div>
           <div style="display:flex; gap:8px;"><button class="btn primary" type="submit" id="xSaveBtn">Verify &amp; add</button><button class="btn sm" type="button" id="xCancelBtn">Cancel</button></div>
         </form>
+      </div>
+      <div class="card" id="pinCard" style="margin-bottom:16px;">
+        <div class="section-title">Pinterest accounts</div>
+        <div id="pinList" class="accounts-list" style="margin-bottom:10px;"><span class="empty">Loading…</span></div>
+        <div id="pinMsg" style="font-size:12px; margin-bottom:8px;"></div>
+        <div style="font-size:12px; color:var(--text-faint);">
+          Official Pinterest login (no cookies). After "+ Add Pinterest", choose the <b>board</b> the Pins go to. Website Automation can then turn every new article into a 2:3 Pin with an SEO title, description and the article link.
+          While the Pinterest app has only "Trial" access, the Pins are visible only to you; they become public after Pinterest approves "Standard" access.
+        </div>
       </div>
       <div class="section-title" style="margin:4px 0 8px;">Facebook</div>
       <div class="card" id="accountsCard" style="margin-bottom:16px;">

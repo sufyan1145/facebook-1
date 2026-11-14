@@ -29,6 +29,13 @@ app.use(cookieParser(env.cookieSecret));
 applySecurity(app);
 
 // Article pictures for Blogger posts (kept on this server instead of Google Drive)
+// helmet() (above) sends Cross-Origin-Resource-Policy: same-origin, which makes browsers refuse to show
+// these pictures on the blog itself (blogspot.com / the WordPress site). They must be loadable from anywhere.
+app.use('/web-images', (req, res, next) => {
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.set('Access-Control-Allow-Origin', '*');
+  next();
+});
 app.use('/web-images', express.static(path.resolve(env.upload.websiteImagesDir), { maxAge: '30d', index: false, fallthrough: false }));
 
 // Serve the vanilla JS frontend
@@ -61,6 +68,7 @@ app.use('/api/text-image-schedules', require('./routes.textImageSchedule'));
 app.use('/api/website', require('./routes.website'));
 app.use('/api/voiceover', require('./routes.voiceover'));
 app.use('/api/x', require('./routes.x'));
+app.use('/api/pinterest', require('./routes.pinterest'));
 // Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
 // need to fetch a video from here directly (see routes.mediaPublic.js).
 app.use('/media-temp', require('./routes.mediaPublic').router);
