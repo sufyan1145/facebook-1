@@ -99,18 +99,27 @@ async function api(acc, method, url, data, params, sandbox = false) {
 }
 
 // Sandbox has its own boards: find one with the same name (or create it).
+const sandboxBoards = new Map(); // account id -> sandbox board id
 async function sandboxBoardId(acc) {
-  const name = acc.board_name || 'PostFire';
+  if (sandboxBoards.has(acc.id)) return sandboxBoards.get(acc.id);
+  // A sandbox board can't reuse the name of a real board, so it gets its own name.
+  const name = `${String(acc.board_name || 'PostFire').slice(0, 40)} Sandbox`;
   let items = []; let bookmark;
   for (let i = 0; i < 6; i++) { // sandbox may return empty pages that still carry a bookmark
     const r = await api(acc, 'get', '/boards', undefined, { page_size: 250, ...(bookmark ? { bookmark } : {}) }, true);
     items = items.concat(r.items || []); bookmark = r.bookmark;
     if (!bookmark) break;
   }
-  const hit = items.find((b) => b.name === name) || items[0];
-  if (hit) return hit.id;
-  const c = await api(acc, 'post', '/boards', { name, privacy: 'PUBLIC' }, undefined, true);
-  return c.id;
+  let hit = items.find((b) => b.name === name) || items.find((b) => /sandbox/i.test(b.name || ''));
+  if (!hit) {
+    try { hit = await api(acc, 'post', '/boards', { name, privacy: 'PUBLIC' }, undefined, true); }
+    catch (err) {
+      if (err.status !== 400) throw err;
+      hit = await api(acc, 'post', '/boards', { name: `${name} ${crypto.randomBytes(2).toString('hex')}`, privacy: 'PUBLIC' }, undefined, true);
+    }
+  }
+  sandboxBoards.set(acc.id, hit.id);
+  return hit.id;
 }
 
 const userAccount = (tokenOnly) => api({ id: null, access_token: tokenOnly, expires_at: new Date(Date.now() + 3600e3) }, 'get', '/user_account');
