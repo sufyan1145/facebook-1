@@ -12,7 +12,10 @@ const env = require('./config.env');
 const PinterestAccount = require('./models.PinterestAccount');
 const logger = require('./utils.logger');
 
-const API = 'https://api.pinterest.com/v5';
+const API_PROD = 'https://api.pinterest.com/v5';
+const API_SANDBOX = 'https://api-sandbox.pinterest.com/v5';
+// Trial apps may only write to the sandbox. PINTEREST_SANDBOX=true forces it; otherwise we switch automatically when Pinterest says so.
+let sandboxMode = String(process.env.PINTEREST_SANDBOX || '').toLowerCase() === 'true';
 const SCOPES = ['boards:read', 'boards:write', 'pins:read', 'pins:write', 'user_accounts:read'];
 
 const appId = () => (process.env.PINTEREST_APP_ID || '').trim();
@@ -48,7 +51,7 @@ function authUrl(userId) {
 
 async function tokenCall(form) {
   try {
-    const { data } = await axios.post(`${API}/oauth/token`, new URLSearchParams(form).toString(), {
+    const { data } = await axios.post(`${API_PROD}/oauth/token`, new URLSearchParams(form).toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${Buffer.from(`${appId()}:${appSecret()}`).toString('base64')}` },
       timeout: 30000,
     });
@@ -77,16 +80,26 @@ async function accessTokenFor(acc) {
   }
 }
 
-async function api(acc, method, url, data, params) {
+async function api(acc, method, url, data, params, sandbox = false) {
   const token = await accessTokenFor(acc);
   try {
-    const r = await axios({ method, url: `${API}${url}`, data, params, headers: { Authorization: `Bearer ${token}` }, timeout: 60000, maxBodyLength: Infinity });
+    const r = await axios({ method, url: `${sandbox ? API_SANDBOX : API_PROD}${url}`, data, params, headers: { Authorization: `Bearer ${token}` }, timeout: 60000, maxBodyLength: Infinity });
     return r.data;
   } catch (err) {
     const e = pinterestError(err);
     if (e.status === 401) await PinterestAccount.markExpired(acc.id, e.message);
     throw e;
   }
+}
+
+// Sandbox has its own boards: find one with the same name (or create it).
+async function sandboxBoardId(acc) {
+  const r = await api(acc, 'get', '/boards', undefined, { page_size: 100 }, true);
+  const name = acc.board_name || 'PostFire';
+  const hit = (r.items || []).find((b) => b.name === name) || (r.items || [])[0];
+  if (hit) return hit.id;
+  const c = await api(acc, 'post', '/boards', { name, privacy: 'PUBLIC' }, undefined, true);
+  return c.id;
 }
 
 const userAccount = (tokenOnly) => api({ id: null, access_token: tokenOnly, expires_at: new Date(Date.now() + 3600e3) }, 'get', '/user_account');
@@ -143,9 +156,18 @@ async function createPin(acc, { imagePath, title, description, altText, link, ov
       alt_text: String(altText || title || '').slice(0, 500),
       media_source: { source_type: 'image_base64', content_type: 'image/jpeg', data: fs.readFileSync(out).toString('base64') },
     };
-    const r = await api(acc, 'post', '/pins', body);
+    let r; let sandbox = sandboxMode;
+    try {
+      if (sandbox) body.board_id = await sandboxBoardId(acc);
+      r = await api(acc, 'post', '/pins', body, undefined, sandbox);
+    } catch (err) {
+      if (sandbox || !/sandbox|trial/i.test(err.message)) throw err;
+      sandbox = true; sandboxMode = true;
+      body.board_id = await sandboxBoardId(acc);
+      r = await api(acc, 'post', '/pins', body, undefined, true);
+    }
     await PinterestAccount.markUsed(acc.id);
-    return { id: r.id, url: `https://www.pinterest.com/pin/${r.id}/` };
+    return { id: r.id, sandbox, url: sandbox ? `Pinterest sandbox pin ${r.id}` : `https://www.pinterest.com/pin/${r.id}/` };
   } finally { try { fs.unlinkSync(out); } catch (_) { /* ignore */ } }
 }
 

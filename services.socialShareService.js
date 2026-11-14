@@ -117,7 +117,7 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
       const pin = await pinterestService.createPin(acc, {
         imagePath, title: captions.pinTitle, description: captions.pinDescription, altText: captions.pinTitle, link: url, overlayTitle: captions.pinOverlay,
       });
-      ok.push(`Pinterest: ${name}`);
+      ok.push(`Pinterest: ${name}${pin.sandbox ? ' (sandbox test pin - not public)' : ''}`);
       logger.info(`[social-share] Pinterest ${name}: pin ${pin.id}`);
     } catch (err) { logger.warn(`[social-share] Pinterest ${name} failed: ${err.message}`); bad.push(`Pinterest ${name} (${err.message})`); }
   }
