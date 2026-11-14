@@ -81,22 +81,33 @@ async function accessTokenFor(acc) {
 }
 
 async function api(acc, method, url, data, params, sandbox = false) {
-  const token = await accessTokenFor(acc);
+  // The sandbox only accepts a sandbox token (Pinterest developer portal -> Manage -> Configure -> Generate access token -> Sandbox).
+  let token;
+  if (sandbox) {
+    token = (process.env.PINTEREST_SANDBOX_TOKEN || '').trim().replace(/^Bearer\s+/i, '').replace(/^['"]|['"]$/g, '');
+    if (!token) throw new Error('Trial access can only create Pins in the Pinterest sandbox, which needs its own token: in the Pinterest developer portal open your app -> Configure -> Generate access token -> choose Sandbox, then put it in the server setting PINTEREST_SANDBOX_TOKEN (valid 30 days).');
+  } else token = await accessTokenFor(acc);
   try {
     const r = await axios({ method, url: `${sandbox ? API_SANDBOX : API_PROD}${url}`, data, params, headers: { Authorization: `Bearer ${token}` }, timeout: 60000, maxBodyLength: Infinity });
     return r.data;
   } catch (err) {
     const e = pinterestError(err);
-    if (e.status === 401) await PinterestAccount.markExpired(acc.id, e.message);
+    e.message = `${e.message} [${sandbox ? 'sandbox' : 'production'} ${String(method).toUpperCase()} ${url}${e.status ? ' HTTP ' + e.status : ''}]`;
+    if (e.status === 401 && !sandbox) await PinterestAccount.markExpired(acc.id, e.message);
     throw e;
   }
 }
 
 // Sandbox has its own boards: find one with the same name (or create it).
 async function sandboxBoardId(acc) {
-  const r = await api(acc, 'get', '/boards', undefined, { page_size: 100 }, true);
   const name = acc.board_name || 'PostFire';
-  const hit = (r.items || []).find((b) => b.name === name) || (r.items || [])[0];
+  let items = []; let bookmark;
+  for (let i = 0; i < 6; i++) { // sandbox may return empty pages that still carry a bookmark
+    const r = await api(acc, 'get', '/boards', undefined, { page_size: 250, ...(bookmark ? { bookmark } : {}) }, true);
+    items = items.concat(r.items || []); bookmark = r.bookmark;
+    if (!bookmark) break;
+  }
+  const hit = items.find((b) => b.name === name) || items[0];
   if (hit) return hit.id;
   const c = await api(acc, 'post', '/boards', { name, privacy: 'PUBLIC' }, undefined, true);
   return c.id;
