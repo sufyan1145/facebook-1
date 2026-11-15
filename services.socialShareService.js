@@ -28,7 +28,7 @@ Return ONLY JSON: {"facebook": "...", "x": "...", "cta": "...", "pin_title": "..
 - "pin_title": a Pinterest SEO title with the main keyword near the start, at most 95 characters, no hashtags, no link.
 - "pin_description": 2-3 sentences with natural search keywords people type on Pinterest, at most 450 characters, then 3-5 hashtags, no link.
 - "pin_overlay": a 4-9 word headline to print on the Pin picture, same language as the title.
-- "threads": a conversational Threads post, 2-3 short sentences, at most 300 characters, a hook at the start, at most 1 hashtag, no link.`;
+- "threads": a Threads post written like a real person talking to a friend, NOT like an ad. Rules: the first line is a short hook (a surprising fact, a relatable problem or a bold opinion) that makes people stop scrolling; then 1-2 short sentences with ONE concrete detail from the article (a number, a tip or a result); end with ONE easy question that people can answer in a few words (to start replies). At most 280 characters in total, plain text, casual everyday wording (for English use natural US phrasing), at most 1 emoji, at most 1 hashtag, no link, no "click", "link", "download", "sign up", "free money", "win", "earn" or other sales words, no promises of income, no all-caps, no clickbait lies - only what the article really says.`;
   try {
     const j = await articleService.generateJson(prompt, { maxOutputTokens: 1800 });
     return { facebook: String(j.facebook || '').trim() || title, x: String(j.x || '').trim() || title, cta: String(j.cta || '').trim().slice(0, 80) || 'Read the full article 👇',
