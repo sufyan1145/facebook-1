@@ -10,6 +10,8 @@ const Page = require('./models.Page');
 const XAccount = require('./models.XAccount');
 const PinterestAccount = require('./models.PinterestAccount');
 const pinterestService = require('./services.pinterestService');
+const ThreadsAccount = require('./models.ThreadsAccount');
+const threadsService = require('./services.threadsService');
 const logger = require('./utils.logger');
 
 async function writeCaptions({ title, excerpt, topic, language }) {
@@ -19,28 +21,30 @@ Article summary: ${excerpt || ''}
 Niche/topic: ${topic}
 Language: ${language && language !== 'auto' ? language : 'the same language as the article title'}
 
-Return ONLY JSON: {"facebook": "...", "x": "...", "cta": "...", "pin_title": "...", "pin_description": "...", "pin_overlay": "..."}
+Return ONLY JSON: {"facebook": "...", "x": "...", "cta": "...", "pin_title": "...", "pin_description": "...", "pin_overlay": "...", "threads": "..."}
 - "facebook": 2-4 short sentences that make people want to read the article, a few fitting emojis, 2-4 hashtags at the end. Do NOT include any link.
 - "x": ONE punchy post, at most 200 characters including hashtags, 1-2 hashtags, no link, no quotes around it.
 - "cta": a short call to action of 3-7 words with one emoji (like "Read the full story here 👇"), in the same language, no link.
 - "pin_title": a Pinterest SEO title with the main keyword near the start, at most 95 characters, no hashtags, no link.
 - "pin_description": 2-3 sentences with natural search keywords people type on Pinterest, at most 450 characters, then 3-5 hashtags, no link.
-- "pin_overlay": a 4-9 word headline to print on the Pin picture, same language as the title.`;
+- "pin_overlay": a 4-9 word headline to print on the Pin picture, same language as the title.
+- "threads": a conversational Threads post, 2-3 short sentences, at most 300 characters, a hook at the start, at most 1 hashtag, no link.`;
   try {
     const j = await articleService.generateJson(prompt, { maxOutputTokens: 1800 });
     return { facebook: String(j.facebook || '').trim() || title, x: String(j.x || '').trim() || title, cta: String(j.cta || '').trim().slice(0, 80) || 'Read the full article 👇',
-      pinTitle: String(j.pin_title || '').trim().slice(0, 100) || title, pinDescription: String(j.pin_description || '').trim() || String(excerpt || title), pinOverlay: String(j.pin_overlay || '').trim() || title };
+      pinTitle: String(j.pin_title || '').trim().slice(0, 100) || title, pinDescription: String(j.pin_description || '').trim() || String(excerpt || title), pinOverlay: String(j.pin_overlay || '').trim() || title, threads: String(j.threads || '').trim() || String(j.facebook || title).trim() };
   } catch (err) {
     logger.warn(`[social-share] caption AI failed, using the title: ${err.message}`);
-    return { facebook: title, x: title, cta: 'Read the full article 👇', pinTitle: title, pinDescription: String(excerpt || title), pinOverlay: title };
+    return { facebook: title, x: title, cta: 'Read the full article 👇', pinTitle: title, pinDescription: String(excerpt || title), pinOverlay: title, threads: title };
   }
 }
 
-async function shareArticle({ userId, title, excerpt, topic, language, url, imagePath, pageIds, xIds, pinterestIds, fbLinkComment = false, xLinkReply = false }) {
+async function shareArticle({ userId, title, excerpt, topic, language, url, imagePath, pageIds, xIds, pinterestIds, threadsIds, threadsLinkReply = false, fbLinkComment = false, xLinkReply = false }) {
   const fbIds = (pageIds || []).filter(Boolean);
   const xs = (xIds || []).filter(Boolean);
   const pins = (pinterestIds || []).filter(Boolean);
-  if (!url || (!fbIds.length && !xs.length && !pins.length)) return null;
+  const ths = (threadsIds || []).filter(Boolean);
+  if (!url || (!fbIds.length && !xs.length && !pins.length && !ths.length)) return null;
 
   const captions = await writeCaptions({ title, excerpt, topic, language });
   const ok = []; const bad = [];
@@ -120,6 +124,19 @@ async function shareArticle({ userId, title, excerpt, topic, language, url, imag
       ok.push(`Pinterest: ${name}${pin.sandbox ? ' (sandbox test pin - not public)' : ''}`);
       logger.info(`[social-share] Pinterest ${name}: pin ${pin.id}`);
     } catch (err) { logger.warn(`[social-share] Pinterest ${name} failed: ${err.message}`); bad.push(`Pinterest ${name} (${err.message})`); }
+  }
+
+  // Threads: caption + picture; the link goes in the post or (option) in a reply to it.
+  for (const id of ths) {
+    let name = 'Threads';
+    try {
+      const acc = await ThreadsAccount.findById(userId, id);
+      if (!acc) throw new Error('account not connected');
+      name = `@${acc.username}`;
+      const r = await threadsService.postArticle(acc, { text: captions.threads, cta: captions.cta, url, imagePath, linkInReply: !!threadsLinkReply });
+      ok.push(`Threads: ${name}${r.note || ''}`);
+      logger.info(`[social-share] Threads ${name}: post ${r.id}`);
+    } catch (err) { logger.warn(`[social-share] Threads ${name} failed: ${err.message}`); bad.push(`Threads ${name} (${err.message})`); }
   }
 
   const parts = [];

@@ -69,6 +69,7 @@ app.use('/api/website', require('./routes.website'));
 app.use('/api/voiceover', require('./routes.voiceover'));
 app.use('/api/x', require('./routes.x'));
 app.use('/api/pinterest', require('./routes.pinterest'));
+app.use('/api/threads', require('./routes.threads'));
 // Deliberately NOT under /api and NOT auth-gated - Instagram's own servers
 // need to fetch a video from here directly (see routes.mediaPublic.js).
 app.use('/media-temp', require('./routes.mediaPublic').router);

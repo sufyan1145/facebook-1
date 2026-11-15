@@ -157,6 +157,36 @@ function initPinterest() {
   loadPinterest();
 }
 
+// ---- Threads (official OAuth) ----
+function thSay(text, bad) { const m = xel('thMsg'); m.textContent = text || ''; m.style.color = bad ? 'var(--signal-red)' : 'var(--signal-green)'; }
+
+async function loadThreads() {
+  try {
+    const { data } = await apiFetch('/threads/accounts');
+    const el = xel('thList');
+    if (!data.length) { el.innerHTML = '<span class="empty">No Threads account connected yet.</span>'; return; }
+    el.innerHTML = data.map((a) => `<div class="account-chip" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+      <span class="dot ${a.status === 'active' ? 'ok' : ''}"></span>@${escapeHtml(a.username)}${a.status === 'expired' ? ' <span class="badge failed" title="' + escapeHtml(a.last_error || '') + '">Expired - add again</span>' : ''}
+      <button class="btn xs danger" data-thdel="${a.id}" title="Disconnect this Threads account">✕</button></div>`).join('');
+    el.querySelectorAll('[data-thdel]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Disconnect this Threads account?')) return;
+      await apiFetch(`/threads/accounts/${b.dataset.thdel}`, { method: 'DELETE' });
+      loadThreads();
+    }));
+  } catch (err) { xel('thList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`; }
+}
+
+function initThreads() {
+  xel('addThreadsBtn').addEventListener('click', async () => {
+    try { const { data } = await apiFetch('/threads/connect'); window.location.href = data.url; }
+    catch (err) { xel('thCard').scrollIntoView({ behavior: 'smooth' }); thSay(err.message, true); }
+  });
+  const q = new URLSearchParams(window.location.search);
+  if (q.get('threads_connected')) thSay('Threads connected.');
+  if (q.get('threads_error')) thSay(`Threads: ${q.get('threads_error')}`, true);
+  loadThreads();
+}
+
 function initX() {
   xel('showXBtn').addEventListener('click', () => { xel('xForm').style.display = 'block'; xel('xCard').scrollIntoView({ behavior: 'smooth' }); });
   xel('xCancelBtn').addEventListener('click', () => { xel('xForm').style.display = 'none'; xel('xForm').reset(); });
@@ -180,6 +210,7 @@ function initX() {
   renderNav('pages');
   initX();
   initPinterest();
+  initThreads();
 
   document.getElementById('connectBtn').addEventListener('click', async () => {
     const res = await fetch('/api/auth/facebook/connect', { credentials: 'include' });
