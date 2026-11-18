@@ -16,6 +16,7 @@ const Page = {
            is_connected = TRUE,
            instagram_business_account_id = EXCLUDED.instagram_business_account_id,
            instagram_username = EXCLUDED.instagram_username,
+           token_added = FALSE,
            updated_at = now()
          RETURNING *`,
         [userId, facebookTokenId, p.id, p.name, p.followers || 0, encrypt(p.access_token), p.instagram_business_account_id || null, p.instagram_username || null]
@@ -23,6 +24,22 @@ const Page = {
       results.push(res.rows[0]);
     }
     return results;
+  },
+
+  // A Page added by its own access token (no Facebook login). If the same page is already known through a Facebook
+  // account, only the token/details are refreshed - the account link is left alone.
+  async upsertByToken(userId, p) {
+    const res = await query(
+      `INSERT INTO pages (user_id, facebook_token_id, page_id, page_name, followers, page_access_token, is_connected, instagram_business_account_id, instagram_username, token_added)
+       VALUES ($1,NULL,$2,$3,$4,$5,TRUE,$6,$7,TRUE)
+       ON CONFLICT (user_id, page_id) DO UPDATE SET
+         page_name = EXCLUDED.page_name, followers = EXCLUDED.followers, page_access_token = EXCLUDED.page_access_token,
+         is_connected = TRUE, instagram_business_account_id = EXCLUDED.instagram_business_account_id,
+         instagram_username = EXCLUDED.instagram_username, token_added = TRUE, updated_at = now()
+       RETURNING id, page_id, page_name`,
+      [userId, p.id, p.name, p.followers || 0, encrypt(p.access_token), p.instagram_business_account_id || null, p.instagram_username || null]
+    );
+    return res.rows[0];
   },
 
   // Includes which Facebook account each page belongs to, so the UI can group/label them

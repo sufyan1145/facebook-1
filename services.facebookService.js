@@ -26,6 +26,28 @@ async function getUserPages(userId, facebookTokenId) {
   }));
 }
 
+// Verify a pasted Page access token: with a Page token, /me is the Page itself.
+async function getPageByToken(pageToken) {
+  try {
+    const resp = await axios.get(`${GRAPH_URL}/me`, {
+      params: { access_token: pageToken, fields: 'id,name,followers_count,instagram_business_account{id,username}' },
+      timeout: 25000,
+    });
+    const p = resp.data || {};
+    return {
+      id: String(p.id), name: p.name, access_token: pageToken, followers: p.followers_count || 0,
+      instagram_business_account_id: p.instagram_business_account ? p.instagram_business_account.id : null,
+      instagram_username: p.instagram_business_account ? p.instagram_business_account.username : null,
+    };
+  } catch (err) {
+    const e = err.response && err.response.data && err.response.data.error;
+    const msg = e ? String(e.message || '') : err.message;
+    if (/nonexisting field|does not exist|unsupported get request/i.test(msg) && !(e && e.code === 190)) throw new Error('This looks like a user token, not a Page token. Use the access_token of the Page (from me/accounts).');
+    if (e && e.code === 190) throw new Error('Token is invalid or expired.');
+    throw new Error(msg || 'Facebook did not accept this token.');
+  }
+}
+
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
 
 // Phase 1: start a chunked upload session directly on the page's videos edge
@@ -196,5 +218,5 @@ async function commentOnVideo({ videoId, pageAccessToken, message }) {
   }
 }
 
-module.exports = { getUserPages, uploadVideoToPage, postPhotoToPage, postLinkToPage, commentOnVideo, getPostImageUrl };
+module.exports = { getUserPages, getPageByToken, uploadVideoToPage, postPhotoToPage, postLinkToPage, commentOnVideo, getPostImageUrl };
 

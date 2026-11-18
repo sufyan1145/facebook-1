@@ -19,6 +19,7 @@
       <div class="status-pills">
         <button class="btn sm" id="connectBtn">+ Add Facebook account</button>
         <button class="btn sm" id="syncBtn">Sync Pages</button>
+        <button class="btn sm" id="addTokBtn" style="display:none">+ Add Pages by token</button>
         <button class="btn sm" id="showXBtn">+ Add X account</button>
         <button class="btn sm" id="addPinBtn">+ Add Pinterest</button>
         <button class="btn sm" id="addThreadsBtn">+ Add Threads</button>
@@ -60,6 +61,19 @@
           Official Threads login (no cookies). Website Automation can post every new article on Threads with an AI caption and the first picture; the article link goes in the post or, if you choose, in a reply to it.
           The login stays valid for 60 days and is renewed automatically while the app is used.
         </div>
+      </div>
+      <div class="card" id="tokCard" style="display:none; margin-bottom:16px;">
+        <div class="section-title">Add Pages by Page token</div>
+        <div style="font-size:12px; color:var(--text-faint); margin-bottom:8px;">
+          Connect Pages without a Facebook login: paste the Page access tokens. Easiest: in Graph API Explorer run <b>me/accounts</b> (permissions pages_show_list, pages_manage_posts, pages_read_engagement, pages_manage_engagement), then paste the whole JSON answer here.
+          You can also paste one line per page: <span class="mono">PAGE_ID|PAGE_TOKEN</span> (or just the token). Up to 1000 pages at once. Only add Pages you manage. Use a long-lived token, then it does not expire.
+        </div>
+        <textarea id="tokText" rows="6" style="width:100%; font-family:monospace; font-size:12px;" placeholder='{"data":[{"id":"123","name":"My Page","access_token":"EAAB..."}]}   or   123456789|EAAB...'></textarea>
+        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+          <button class="btn primary" id="tokGoBtn">Verify &amp; add</button><button class="btn sm" id="tokCancelBtn">Close</button>
+          <span id="tokMsg" style="font-size:12px;"></span>
+        </div>
+        <div id="tokFails" style="font-size:12px; color:var(--signal-red); margin-top:6px; white-space:pre-wrap;"></div>
       </div>
       <div class="section-title" style="margin:4px 0 8px;">Facebook</div>
       <div class="card" id="accountsCard" style="margin-bottom:16px;">

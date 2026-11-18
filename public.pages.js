@@ -42,7 +42,7 @@ function renderPages(pages) {
     .map(
       (p) => `<tr>
         <td>${escapeHtml(p.page_name)}${p.instagram_username ? ` <span class="pill ok" title="Linked Instagram account">IG @${escapeHtml(p.instagram_username)}</span>` : ''}</td>
-        <td>${escapeHtml(p.fb_user_name || '—')}</td>
+        <td>${escapeHtml(p.fb_user_name || (p.token_added ? 'Page token' : '—'))}</td>
         <td class="mono" style="font-size:12px; color:var(--text-muted);">${escapeHtml(p.page_id)}</td>
         <td>${p.followers?.toLocaleString?.() ?? p.followers}</td>
         <td><span class="badge ${p.is_connected ? 'success' : 'failed'}">${p.is_connected ? 'Connected' : 'Disconnected'}</span></td>
@@ -187,6 +187,56 @@ function initThreads() {
   loadThreads();
 }
 
+// ---- Add Pages by Page token (paid plans) ----
+function parseTokenInput(text) {
+  const t = String(text || '').trim();
+  const items = [];
+  if (!t) return items;
+  let json = null;
+  try { json = JSON.parse(t); } catch (_) { /* not JSON: line format */ }
+  if (json) {
+    const arr = Array.isArray(json) ? json : (Array.isArray(json.data) ? json.data : [json]);
+    arr.forEach((p) => { const tok = p && (p.access_token || p.token); if (tok) items.push({ id: p.id ? String(p.id) : '', token: String(tok).trim() }); });
+  } else {
+    t.split(/\r?\n/).forEach((line) => {
+      const parts = line.trim().split(/[|,;\s]+/).filter(Boolean);
+      if (parts.length === 1) items.push({ id: '', token: parts[0] });
+      else if (parts.length >= 2) items.push({ id: /^\d+$/.test(parts[0]) ? parts[0] : '', token: /^\d+$/.test(parts[0]) ? parts[1] : parts[0] });
+    });
+  }
+  const seen = new Set();
+  return items.filter((i) => (seen.has(i.token) ? false : (seen.add(i.token), true)));
+}
+
+function initPageTokens(user) {
+  if (!user || !(user.isAdmin || user.planType === 'paid')) return;
+  const btn = xel('addTokBtn'); const card = xel('tokCard');
+  btn.style.display = '';
+  btn.addEventListener('click', () => { card.style.display = 'block'; card.scrollIntoView({ behavior: 'smooth' }); });
+  xel('tokCancelBtn').addEventListener('click', () => { card.style.display = 'none'; });
+  xel('tokGoBtn').addEventListener('click', async () => {
+    const items = parseTokenInput(xel('tokText').value);
+    const msg = xel('tokMsg'); const fails = xel('tokFails');
+    fails.textContent = '';
+    if (!items.length) { msg.style.color = 'var(--signal-red)'; msg.textContent = 'Nothing to add - paste the JSON or PAGE_ID|TOKEN lines.'; return; }
+    if (items.length > 1000) { msg.style.color = 'var(--signal-red)'; msg.textContent = 'Max 1000 pages at once.'; return; }
+    const go = xel('tokGoBtn'); go.disabled = true;
+    let added = 0; const bad = [];
+    for (let i = 0; i < items.length; i += 25) {
+      msg.style.color = 'var(--text-muted)'; msg.textContent = `Verifying ${Math.min(i + 25, items.length)} / ${items.length}…`;
+      try {
+        const { data } = await apiFetch('/pages/add-by-token', { method: 'POST', body: JSON.stringify({ items: items.slice(i, i + 25) }) });
+        data.forEach((r, k) => { if (r.ok) added += 1; else bad.push(`${r.id || ('token #' + (i + k + 1))}: ${r.error}`); });
+      } catch (err) { items.slice(i, i + 25).forEach((_, k) => bad.push(`token #${i + k + 1}: ${err.message}`)); }
+    }
+    go.disabled = false;
+    msg.style.color = added ? 'var(--signal-green)' : 'var(--signal-red)';
+    msg.textContent = `${added} page(s) added${bad.length ? `, ${bad.length} failed` : ''}.`;
+    if (bad.length) fails.textContent = bad.slice(0, 40).join('\n') + (bad.length > 40 ? `\n… and ${bad.length - 40} more` : '');
+    if (added) { xel('tokText').value = ''; loadPages(); }
+  });
+}
+
 function initX() {
   xel('showXBtn').addEventListener('click', () => { xel('xForm').style.display = 'block'; xel('xCard').scrollIntoView({ behavior: 'smooth' }); });
   xel('xCancelBtn').addEventListener('click', () => { xel('xForm').style.display = 'none'; xel('xForm').reset(); });
@@ -211,6 +261,7 @@ function initX() {
   initX();
   initPinterest();
   initThreads();
+  initPageTokens(user);
 
   document.getElementById('connectBtn').addEventListener('click', async () => {
     const res = await fetch('/api/auth/facebook/connect', { credentials: 'include' });
