@@ -1,8 +1,17 @@
 const Schedule = require('./models.Schedule');
 const Log = require('./models.Log');
+const InstagramAccount = require('./models.InstagramAccount');
+
+// An Instagram account id from the form must belong to this user.
+async function checkInstagram(req) {
+  if (!req.body || !req.body.instagramAccountId) { if (req.body) req.body.instagramAccountId = null; return; }
+  const acc = await InstagramAccount.findById(req.user.id, req.body.instagramAccountId);
+  if (!acc) { const e = new Error('The selected Instagram account is not connected.'); e.status = 400; throw e; }
+}
 
 async function createSchedule(req, res, next) {
   try {
+    await checkInstagram(req);
     const schedule = await Schedule.create(req.user.id, req.body);
     await Log.record(req.user.id, 'Schedule Created', { scheduleId: schedule.id });
     res.status(201).json({ success: true, data: schedule });
@@ -13,6 +22,7 @@ async function createSchedule(req, res, next) {
 
 async function updateSchedule(req, res, next) {
   try {
+    await checkInstagram(req);
     const schedule = await Schedule.update(req.user.id, req.params.id, req.body);
     if (!schedule) return res.status(404).json({ success: false, message: 'Schedule not found' });
     await Log.record(req.user.id, 'Schedule Updated', { scheduleId: schedule.id });

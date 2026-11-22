@@ -157,6 +157,36 @@ function initPinterest() {
   loadPinterest();
 }
 
+// ---- Instagram (official Instagram Login) ----
+function igSay(text, bad) { const m = xel('igMsg'); m.textContent = text || ''; m.style.color = bad ? 'var(--signal-red)' : 'var(--signal-green)'; }
+
+async function loadInstagram() {
+  try {
+    const { data } = await apiFetch('/instagram/accounts');
+    const el = xel('igList');
+    if (!data.length) { el.innerHTML = '<span class="empty">No Instagram account connected yet.</span>'; return; }
+    el.innerHTML = data.map((a) => `<div class="account-chip" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+      <span class="dot ${a.status === 'active' ? 'ok' : ''}"></span>@${escapeHtml(a.username)}${a.account_type ? ` <span class="pill">${escapeHtml(a.account_type)}</span>` : ''}${a.status === 'expired' ? ' <span class="badge failed" title="' + escapeHtml(a.last_error || '') + '">Expired - add again</span>' : ''}
+      <button class="btn xs danger" data-igdel="${a.id}" title="Disconnect this Instagram account">✕</button></div>`).join('');
+    el.querySelectorAll('[data-igdel]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Disconnect this Instagram account? Schedules using it will stop posting to Instagram.')) return;
+      await apiFetch(`/instagram/accounts/${b.dataset.igdel}`, { method: 'DELETE' });
+      loadInstagram();
+    }));
+  } catch (err) { xel('igList').innerHTML = `<span class="empty">${escapeHtml(err.message)}</span>`; }
+}
+
+function initInstagram() {
+  xel('addIgBtn').addEventListener('click', async () => {
+    try { const { data } = await apiFetch('/instagram/connect'); window.location.href = data.url; }
+    catch (err) { xel('igCard').scrollIntoView({ behavior: 'smooth' }); igSay(err.message, true); }
+  });
+  const q = new URLSearchParams(window.location.search);
+  if (q.get('instagram_connected')) igSay('Instagram connected.');
+  if (q.get('instagram_error')) igSay(`Instagram: ${q.get('instagram_error')}`, true);
+  loadInstagram();
+}
+
 // ---- Threads (official OAuth) ----
 function thSay(text, bad) { const m = xel('thMsg'); m.textContent = text || ''; m.style.color = bad ? 'var(--signal-red)' : 'var(--signal-green)'; }
 
@@ -261,6 +291,7 @@ function initX() {
   initX();
   initPinterest();
   initThreads();
+  initInstagram();
   initPageTokens(user);
 
   document.getElementById('connectBtn').addEventListener('click', async () => {

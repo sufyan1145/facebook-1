@@ -12,6 +12,9 @@ const QueueJob = require('./models.QueueJob');
 const { notifyUploadEvent } = require('./services.notificationService');
 const Page = require('./models.Page');
 const TikTokJob = require('./models.TikTokJob');
+const InstagramAccount = require('./models.InstagramAccount');
+const instagramLogin = require('./services.instagramLoginService');
+const { hostVideo } = require('./services.mediaHostService');
 const ffmpeg = require('./utils.ffmpeg');
 const path = require('path');
 
@@ -21,7 +24,7 @@ const worker = new Worker(
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
       publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
-      autoBackgroundMusic, musicFolderId, commentText,
+      autoBackgroundMusic, musicFolderId, commentText, instagramAccountId,
     } = job.data;
 
     // If this exact file was downloaded via the TikTok Downloader, use its
@@ -180,6 +183,29 @@ const worker = new Worker(
         }
       } else if (youtubeTokenId) {
         logger.info(`Skipping YouTube upload for ${file.name} - already uploaded in a previous attempt (${historyRow.youtube_video_id})`);
+      }
+
+      // Instagram Reel (account connected with Instagram login). Best effort when another destination already
+      // succeeded; if it is the only destination, a failure fails the job so it is retried and shown as failed.
+      if (instagramAccountId && !historyRow.instagram_media_id) {
+        let hosted = null;
+        try {
+          const igAcc = await InstagramAccount.findById(userId, instagramAccountId);
+          if (!igAcc) throw new Error('Instagram account not found or disconnected');
+          hosted = await hostVideo(tempPath);
+          const igCaption = [caption, hashtags].filter((x) => x && String(x).trim()).join('\n\n');
+          const igMediaId = await instagramLogin.publishReel(igAcc, { videoUrl: hosted.url, caption: igCaption });
+          await UploadHistory.markInstagramUploaded(historyRow.id, igMediaId);
+          await Log.record(userId, 'Instagram Reel Posted', { file: file.name, account: igAcc.username, mediaId: igMediaId });
+        } catch (igErr) {
+          await Log.record(userId, 'Instagram Upload Failed', { file: file.name, error: igErr.message }, 'error');
+          logger.error(`Instagram upload failed for schedule ${scheduleId}: ${igErr.message}`);
+          if (!fbVideoId && !historyRow.youtube_video_id && !youtubeTokenId) throw igErr;
+        } finally {
+          if (hosted) hosted.cleanup();
+        }
+      } else if (instagramAccountId) {
+        logger.info(`Skipping Instagram upload for ${file.name} - already posted in a previous attempt`);
       }
 
       if (historyRow) await UploadHistory.markSuccess(historyRow.id, fbVideoId);

@@ -138,6 +138,7 @@ function enterScheduleEditMode(schedule) {
   document.getElementById('publishImmediately').checked = schedule.publish_immediately !== false;
 
   document.getElementById('youtubeTokenId').value = schedule.youtube_token_id || '';
+  document.getElementById('instagramAccountId').value = schedule.instagram_account_id || '';
   document.getElementById('youtubeVideoType').value = schedule.youtube_video_type || 'auto';
 
   document.getElementById('scheduleForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -161,6 +162,14 @@ async function loadOptions() {
       youtubeAccounts.map((a) => `<option value="${a.id}">${escapeHtml(a.channel_title || a.google_user_email || a.google_user_id)}</option>`).join('');
   } catch {
     /* leave empty */
+  }
+  try {
+    const { data: igAccounts } = await apiFetch('/instagram/accounts');
+    document.getElementById('instagramAccountId').innerHTML =
+      '<option value="">Don\'t post to a connected Instagram account</option>' +
+      igAccounts.map((a) => `<option value="${a.id}" ${a.status === 'expired' ? 'disabled' : ''}>@${escapeHtml(a.username)}${a.status === 'expired' ? ' (login expired)' : ''}</option>`).join('');
+  } catch {
+    /* no Instagram accounts */
   }
 }
 
@@ -255,6 +264,7 @@ async function loadOptions() {
       privacy: document.getElementById('privacy').value,
       publishImmediately: document.getElementById('publishImmediately').checked,
       youtubeTokenId: document.getElementById('youtubeTokenId').value || null,
+      instagramAccountId: document.getElementById('instagramAccountId').value || null,
       youtubeVideoType: document.getElementById('youtubeVideoType').value,
       commentText: document.getElementById('commentText').value,
       allowReupload: document.getElementById('allowReupload').checked,
