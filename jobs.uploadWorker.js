@@ -15,6 +15,7 @@ const TikTokJob = require('./models.TikTokJob');
 const InstagramAccount = require('./models.InstagramAccount');
 const instagramLogin = require('./services.instagramLoginService');
 const { hostVideo } = require('./services.mediaHostService');
+const instagramService = require('./services.instagramService');
 const ffmpeg = require('./utils.ffmpeg');
 const path = require('path');
 
@@ -24,7 +25,7 @@ const worker = new Worker(
     const {
       userId, scheduleId, pageDbId, folderGoogleId, file, caption: scheduleCaption, hashtags: scheduleHashtags, privacy,
       publishImmediately, pageName, postToFacebook, youtubeTokenId, youtubeVideoType,
-      autoBackgroundMusic, musicFolderId, commentText, instagramAccountId,
+      autoBackgroundMusic, musicFolderId, commentText, instagramAccountId, postToInstagram,
     } = job.data;
 
     // If this exact file was downloaded via the TikTok Downloader, use its
@@ -183,6 +184,31 @@ const worker = new Worker(
         }
       } else if (youtubeTokenId) {
         logger.info(`Skipping YouTube upload for ${file.name} - already uploaded in a previous attempt (${historyRow.youtube_video_id})`);
+      }
+
+      // "Also post to Instagram": the Instagram account linked to the selected Facebook Page (uses the Page token).
+      let igViaPageDone = !!historyRow.instagram_media_id;
+      if (postToInstagram && pageDbId && !igViaPageDone) {
+        let hosted = null;
+        try {
+          const igPage = await Page.findById(userId, pageDbId);
+          if (!igPage) throw new Error('Facebook page not found or disconnected');
+          if (!igPage.instagram_business_account_id) throw new Error(`The page "${igPage.page_name}" has no linked Instagram Business/Creator account (press "Sync Pages" in Social Accounts after linking it)`);
+          hosted = await hostVideo(tempPath);
+          const igCaption = [caption, hashtags].filter((x) => x && String(x).trim()).join('\n\n');
+          const igMediaId = await instagramService.uploadVideoToInstagram({
+            instagramUserId: igPage.instagram_business_account_id, pageAccessToken: igPage.page_access_token, videoUrl: hosted.url, caption: igCaption,
+          });
+          await UploadHistory.markInstagramUploaded(historyRow.id, igMediaId);
+          igViaPageDone = true;
+          await Log.record(userId, 'Instagram Reel Posted', { file: file.name, account: igPage.instagram_username || igPage.instagram_business_account_id, mediaId: igMediaId });
+        } catch (igErr) {
+          await Log.record(userId, 'Instagram Upload Failed', { file: file.name, error: igErr.message }, 'error');
+          logger.error(`Instagram (page-linked) upload failed for schedule ${scheduleId}: ${igErr.message}`);
+          if (!fbVideoId && !historyRow.youtube_video_id && !youtubeTokenId && !instagramAccountId) throw igErr;
+        } finally {
+          if (hosted) hosted.cleanup();
+        }
       }
 
       // Instagram Reel (account connected with Instagram login). Best effort when another destination already
